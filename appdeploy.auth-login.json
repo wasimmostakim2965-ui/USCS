@@ -1,0 +1,15 @@
+{
+  "methods": ["google", "apple", "x"],
+  "headline": "Continue to Sovereign",
+  "subtitle": "Secure sign-in for your Sovereign workspace",
+  "icon": "shield",
+  "style": {
+    "mode": "dark",
+    "accentColor": "#d7b46a",
+    "backgroundColor": "#0a0c10",
+    "panelColor": "#11151b",
+    "textColor": "#f4f1e8",
+    "fontFamily": "Inter, system-ui, sans-serif",
+    "borderRadius": 16
+  }
+}
