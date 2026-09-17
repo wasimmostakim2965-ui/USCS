@@ -8,10 +8,10 @@ type Page = 'home' | 'dashboard';
 type Audience = 'business' | 'personal';
 
 const products = [
-  { icon: Send, title: 'Receive payments', text: 'Get paid from clients, customers and platforms with one simple global account.' },
-  { icon: Globe2, title: 'Send money worldwide', text: 'Move funds to partners, teams and suppliers with clear rates and full visibility.' },
-  { icon: Wallet, title: 'Hold and manage funds', text: 'See your balances, currencies and cashflow in one calm, connected workspace.' },
-  { icon: CreditCard, title: 'Spend with confidence', text: 'Create controlled cards and spending workflows for the people who move your business forward.' },
+  { icon: Send, title: 'Receive payments', text: 'Get paid by clients, customers and platforms with one global account built for momentum.', tag: 'GET PAID' },
+  { icon: Users, title: 'Pay teams and suppliers', text: 'Send payments to the people you work with—quickly, clearly and with the right controls.', tag: 'SEND PAYMENTS' },
+  { icon: Wallet, title: 'Manage cashflow', text: 'See balances, currencies and activity together, so every decision starts with context.', tag: 'STAY IN CONTROL' },
+  { icon: CreditCard, title: 'Spend with confidence', text: 'Give your team the freedom to move and the guardrails your business needs to grow.', tag: 'SPEND SMARTER' },
 ];
 
 const audiences = {
@@ -56,7 +56,7 @@ function App() {
 
       <section className="logo-strip"><span>ONE ACCOUNT FOR YOUR GLOBAL FINANCES</span><div><b>GET PAID</b><b>SEND PAYMENTS</b><b>MANAGE CASHFLOW</b><b>SPEND WITH CONTROL</b><b>GROW GLOBALLY</b></div></section>
 
-      <section id="products" className="section product-section"><div className="section-head"><div><div className="eyebrow">A PLATFORM THAT DOES MORE</div><h2>Everything you need to <em>move forward.</em></h2></div><p>From the first payment to the next market, Sovereign gives you the tools and context to make every financial movement feel simple.</p></div><div className="product-grid">{products.map(({ icon: Icon, title, text }) => <article className="product-tile" key={title}><div className="tile-icon"><Icon /></div><h3>{title}</h3><p>{text}</p><a href="#why">Learn more <ArrowRight size={14} /></a></article>)}</div></section>
+      <section id="products" className="section product-section"><div className="section-head"><div><div className="eyebrow">ONE PLATFORM. EVERY BUSINESS MOVE.</div><h2>Powerful tools to help you <em>go further.</em></h2></div><p>Everything you need to get paid, move money, manage your operation and build what comes next—all in one beautifully simple account.</p></div><div className="product-grid">{products.map(({ icon: Icon, title, text, tag }, index) => <article className="product-tile" key={title}><div className="tile-top"><span>0{index + 1}</span><div className="tile-icon"><Icon /></div></div><small>{tag}</small><h3>{title}</h3><p>{text}</p><a href="#why">Explore {title.toLowerCase()} <ArrowRight size={14} /></a></article>)}</div><div className="suite-note"><span><ShieldCheck size={18} /> Built with security and visibility at the core</span><a href="#why">Why businesses choose Sovereign <ArrowRight size={14} /></a></div></section>
 
       <section id="audiences" className="audience-section"><div className="audience-copy"><div className="eyebrow">BUILT AROUND YOUR AMBITION</div><h2>One platform.<br /><em>More possibilities.</em></h2><p>Whether you are building a global company or building a life across borders, your money should work with you—not slow you down.</p><button className="text" onClick={() => setPage('dashboard')}>See your workspace <ArrowRight size={15} /></button></div><div className="audience-grid"><article><span className="audience-number">01</span><Users /><h3>For growing teams</h3><p>Pay people, manage spend and keep financial operations visible as your business scales.</p><a href="#products">Explore business <ArrowRight size={14} /></a></article><article><span className="audience-number">02</span><Sparkles /><h3>For independent minds</h3><p>Get paid, organize your money and take your next opportunity with you.</p><a href="#products">Explore personal <ArrowRight size={14} /></a></article></div></section>
 
