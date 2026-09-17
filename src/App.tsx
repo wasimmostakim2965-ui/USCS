@@ -15,7 +15,7 @@ const products = [
 ];
 
 const audiences = {
-  business: { eyebrow: 'FOR BUSINESSES THAT THINK GLOBAL', title: 'Move money across borders. Grow without friction.', text: 'Sovereign brings payments, balances and controls together so your business can operate confidently wherever opportunity takes you.', button: 'Open a business account' },
+  business: { eyebrow: 'FOR BUSINESSES THAT THINK GLOBAL', title: 'Move money across borders. Grow without friction.', text: 'Sovereign brings payments, balances and controls together so your business can operate confidently wherever opportunity takes you.', button: 'Create your account' },
   personal: { eyebrow: 'FOR PEOPLE WITH BIGGER PLANS', title: 'Your money, ready for wherever life takes you.', text: 'Receive, send and manage money with a clearer view of every movement—from your first payment to your next big step.', button: 'Create your account' },
 };
 
@@ -54,7 +54,7 @@ function App() {
         </div>
       </section>
 
-      <section className="logo-strip"><span>ONE ACCOUNT FOR THE WAY YOU MOVE</span><div><b>RECEIVE</b><b>SEND</b><b>MANAGE</b><b>SPEND</b><b>GROW</b></div></section>
+      <section className="logo-strip"><span>ONE ACCOUNT FOR YOUR GLOBAL FINANCES</span><div><b>GET PAID</b><b>SEND PAYMENTS</b><b>MANAGE CASHFLOW</b><b>SPEND WITH CONTROL</b><b>GROW GLOBALLY</b></div></section>
 
       <section id="products" className="section product-section"><div className="section-head"><div><div className="eyebrow">A PLATFORM THAT DOES MORE</div><h2>Everything you need to <em>move forward.</em></h2></div><p>From the first payment to the next market, Sovereign gives you the tools and context to make every financial movement feel simple.</p></div><div className="product-grid">{products.map(({ icon: Icon, title, text }) => <article className="product-tile" key={title}><div className="tile-icon"><Icon /></div><h3>{title}</h3><p>{text}</p><a href="#why">Learn more <ArrowRight size={14} /></a></article>)}</div></section>
 
