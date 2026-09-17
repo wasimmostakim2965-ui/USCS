@@ -1,12 +1,8 @@
-# Sovereign Vault
+# Sovereign — Vercel-ready source
 
-This repository contains the extracted **Sovereign Vault** source snapshot and a Vercel-ready Vite + React + TypeScript project scaffold.
+This repository contains the complete React/Vite frontend source for the Sovereign private financial infrastructure website and interactive workspace UI.
 
-## Important source note
-
-The uploaded ZIP contained only three files: a metadata README and placeholder `src/App.tsx` / `src/index.css` files. It did **not** contain the original AppDeploy application screens, components, data layer, or business logic. The current UI therefore transparently identifies the snapshot and its limitation rather than pretending to reproduce the missing application.
-
-## Local development
+## Run locally
 
 ```bash
 npm install
@@ -20,15 +16,6 @@ npm run build
 npm run preview
 ```
 
-The build output is `dist/`. `vercel.json` configures Vercel to use the Vite framework, `npm run build`, and the `dist` output directory, with SPA fallback routing.
+The project is a standard Vite + React application and can be deployed to Vercel directly. Vercel documents Vite/React as a zero-configuration deployment path: https://vercel.com/templates/template/vite-react
 
-## Deployment
-
-Import this GitHub repository into Vercel and keep the detected defaults:
-
-- Framework preset: **Vite**
-- Build command: `npm run build`
-- Output directory: `dist`
-- Install command: `npm install`
-
-Once the complete AppDeploy export is available, replace the fallback `src/App.tsx` and `src/index.css` with the real source and retain the project configuration unless the export supplies its own build setup.
+Financial values in this build are intentionally zero/synthetic. No real payment processing or financial custody is implemented in this frontend export.
