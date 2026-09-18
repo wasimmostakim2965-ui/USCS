@@ -53,8 +53,8 @@ function App() {
       <section className="hero-new">
         <div className="hero-new-copy">
           <div className="eyebrow">FOR PEOPLE AND BUSINESSES THAT THINK GLOBAL</div>
-          <h1>Move money across borders. <em>Grow without friction.</em></h1>
-          <p>Paywai brings payments, balances and controls together so you can operate confidently wherever opportunity takes you.</p>
+          <h1>Move money. <em>Grow without limits.</em></h1>
+          <p>Payments, balances and financial controls — all in one place.</p>
           <div className="hero-actions"><button className="primary large" onClick={() => { setAuthMode('signup'); setPage('auth'); }}>Create your account <ArrowRight size={17} /></button></div>
           <div className="hero-proof"><span><Check size={14} /> Clear, upfront controls</span><span><Check size={14} /> Built for global movement</span></div>
         </div>
@@ -80,39 +80,17 @@ function AdminGate() {
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData.session?.user;
       if (!active) return;
-      if (!user) {
-        setStatus('signed-out');
-        return;
-      }
-      const { data, error } = await supabase
-        .from('admin_users')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      if (!user) { setStatus('signed-out'); return; }
+      const { data, error } = await supabase.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle();
       if (!active) return;
       setStatus(!error && Boolean(data?.user_id) ? 'allowed' : 'forbidden');
     })().catch(() => { if (active) setStatus('forbidden'); });
     return () => { active = false; };
   }, []);
 
-  if (status === 'checking') {
-    return <div className="demo-loading">Checking admin access…</div>;
-  }
-  if (status === 'signed-out') {
-    return <Auth initialMode="signin" onBack={() => { window.location.href = '/'; }} onSuccess={() => window.location.reload()} />;
-  }
-  if (status === 'forbidden') {
-    return (
-      <div className="public-forbidden">
-        <div>
-          <strong>403</strong>
-          <h1>Admin access required</h1>
-          <p>This account is signed in but is not registered as an administrator.</p>
-          <button className="primary" onClick={() => { window.location.href = '/'; }}>Back to Paywai</button>
-        </div>
-      </div>
-    );
-  }
+  if (status === 'checking') return <div className="demo-loading">Checking admin access…</div>;
+  if (status === 'signed-out') return <Auth initialMode="signin" onBack={() => { window.location.href = '/'; }} onSuccess={() => window.location.reload()} />;
+  if (status === 'forbidden') return <div className="public-forbidden"><div><strong>403</strong><h1>Admin access required</h1><p>This account is signed in but is not registered as an administrator.</p><button className="primary" onClick={() => { window.location.href = '/'; }}>Back to Paywai</button></div></div>;
   return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
 }
 
