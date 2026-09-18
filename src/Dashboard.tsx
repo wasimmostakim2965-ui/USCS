@@ -32,12 +32,12 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-\nconst DASHBOARD_B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const DASHBOARD_B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const makeDashboardSecret = () => { const bytes = crypto.getRandomValues(new Uint8Array(20)); let out='',buf=0,bits=0; for (const b of bytes) { buf=(buf<<8)|b; bits+=8; while(bits>=5){bits-=5;out+=DASHBOARD_B32[(buf>>bits)&31]} } if(bits) out+=DASHBOARD_B32[(buf<<(5-bits))&31]; return out; };
 const decodeDashboardBase32 = (value:string) => { const clean=value.replace(/=+$/,'').toUpperCase(); let buf=0,bits=0; const out:number[]=[]; for(const c of clean){const n=DASHBOARD_B32.indexOf(c);if(n<0)throw new Error('Invalid authenticator secret');buf=(buf<<5)|n;bits+=5;if(bits>=8){bits-=8;out.push((buf>>bits)&255)}} return new Uint8Array(out); };
 const dashboardHotp = async (secret:string,counter:number) => { const key=await crypto.subtle.importKey('raw',decodeDashboardBase32(secret),{name:'HMAC',hash:'SHA-1'},false,['sign']); const data=new ArrayBuffer(8),view=new DataView(data);view.setUint32(0,Math.floor(counter/0x100000000));view.setUint32(4,counter>>>0);const d=new Uint8Array(await crypto.subtle.sign('HMAC',key,data));const o=d[d.length-1]&15;const n=((d[o]&127)<<24)|((d[o+1]&255)<<16)|((d[o+2]&255)<<8)|(d[o+3]&255);return String(n%1000000).padStart(6,'0'); };
-const verifyDashboardTotp = async (secret:string,code:string) => { if(!/^\\d{6}$/.test(code)) return false; const counter=Math.floor(Date.now()/30000); for(const delta of [-1,0,1]) if(await dashboardHotp(secret,counter+delta)===code)return true; return false; };
-\nconst TABS = [
+const verifyDashboardTotp = async (secret:string,code:string) => { if(!/^\d{6}$/.test(code)) return false; const counter=Math.floor(Date.now()/30000); for(const delta of [-1,0,1]) if(await dashboardHotp(secret,counter+delta)===code)return true; return false; };
+const TABS = [
   'Overview',
   'Money',
   'Payments',
