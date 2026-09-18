@@ -175,54 +175,9 @@ function SecretAdminGate() {
       </div>
     );
   }
-  return <AdminGate />;
-}
-
-
-function AdminGate() {
-  const [status, setStatus] = useState<'checking' | 'signed-out' | 'forbidden' | 'allowed'>('checking');
-
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData.session?.user;
-      if (!active) return;
-      if (!user) {
-        setStatus('signed-out');
-        return;
-      }
-      const { data, error } = await supabase
-        .from('admin_users')
-        .select('user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
-      if (!active) return;
-      setStatus(!error && Boolean(data?.user_id) ? 'allowed' : 'forbidden');
-    })().catch(() => { if (active) setStatus('forbidden'); });
-    return () => { active = false; };
-  }, []);
-
-  if (status === 'checking') {
-    return <div className="demo-loading">Checking admin access…</div>;
-  }
-  if (status === 'signed-out') {
-    return <Auth initialMode="signin" onBack={() => { window.location.href = '/'; }} onSuccess={() => window.location.reload()} />;
-  }
-  if (status === 'forbidden') {
-    return (
-      <div className="public-forbidden">
-        <div>
-          <strong>403</strong>
-          <h1>Admin access required</h1>
-          <p>This account is signed in but is not registered as an administrator.</p>
-          <button className="primary" onClick={() => { window.location.href = '/'; }}>Back to Paywai</button>
-        </div>
-      </div>
-    );
-  }
   return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
 }
+
 
 function PlatformPage({ onBack, onStart }: { onBack: () => void; onStart: () => void }) {
   return <div className="platform-page"><header className="flow-top"><button className="logo" onClick={onBack}><span>P</span>PAYWAI</button><button className="back-link" onClick={onBack}><ArrowLeft size={14} /> Back to website</button></header><main><section className="platform-hero"><div className="eyebrow">THE PAYWAI PLATFORM</div><h1>One clear view of <em>every move.</em></h1><p>Payments, cashflow and control—designed together for the way modern businesses and people operate globally.</p><button className="primary large" onClick={onStart}>Create your account <ArrowRight size={16} /></button></section><section className="platform-flow"><div className="flow-intro"><div className="eyebrow">HOW IT WORKS</div><h2>From first payment<br /><em>to next opportunity.</em></h2></div><div className="platform-steps"><article><b>01</b><Globe2 /><h3>Connect globally</h3><p>Bring your trusted payment rails and financial context into one account.</p></article><article><b>02</b><ShieldCheck /><h3>Stay in control</h3><p>Set permissions, review important actions and keep your operation clear.</p></article><article><b>03</b><BarChart3 /><h3>Move forward</h3><p>Understand performance and make the next decision with confidence.</p></article></div></section><section className="platform-banner"><div><div className="eyebrow">BUILT FOR WHAT'S NEXT</div><h2>Financial infrastructure<br /><em>without the friction.</em></h2></div><button className="primary" onClick={onStart}>Get started <ArrowRight size={15} /></button></section></main></div>;
