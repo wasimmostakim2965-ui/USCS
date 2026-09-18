@@ -16,7 +16,7 @@ const steps = [
 type TestView = 'dashboard' | 'admin' | 'registration';
 const VISIBILITY_KEY = 'paywai_test_inf_visibility';
 
-export function AdminPanel({ onHome }: { onHome: () => void }) {
+export function AdminPanel({ onHome, previewOnly = false }: { onHome?: () => void; previewOnly?: boolean }) {
   const [testOpen, setTestOpen] = useState(false);
   const [section, setSection] = useState<'overview' | 'settings'>('overview');
   const [view, setView] = useState<TestView>('dashboard');
@@ -41,7 +41,7 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <button className="demo-brand" onClick={onHome}><span>P</span> PAYWAI</button>
+        <button className="demo-brand" onClick={goHome}><span>P</span> PAYWAI</button>
         <div className="admin-account"><b>ADMIN</b><small>Control center</small></div>
         {['Overview','Users','Transactions','Compliance'].map(item => (
           <button key={item} className={section === 'overview' && item === 'Overview' ? 'active' : ''} onClick={() => { setSection('overview'); setTestOpen(false); }}>{item}</button>
@@ -66,7 +66,7 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
           <span className="admin-badge">DEMO · SYNTHETIC DATA</span>
         </header>
 
-        {!testOpen && section === 'settings' ? (
+        {previewOnly ? (\n          <div className="admin-content"><div className="demo-eyebrow">TEST ADMIN · LIVE UI</div><h1>Control <em>center.</em></h1><p className="demo-lead">This preview uses the same Admin Panel component and styling. Controls are disabled from the investor preview.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>ADMIN WORKSPACE</small><strong>OVERVIEW</strong><p>Users, transactions, compliance and TEST INF are managed from this control center.</p></section><section className="admin-card"><small>SECURITY</small><strong>PROTECTED CONTROLS</strong><div className="admin-list"><span>Authentication <b>Enabled</b></span><span>Production data <b>Protected</b></span><span>Investor demo <b>Isolated</b></span></div></section></div></div>\n        ) : section === 'settings' ? (
           <AdminSettings visibility={visibility} setPublic={setPublic} />
         ) : !testOpen ? (
           <div className="admin-content">
@@ -143,21 +143,9 @@ function TestInfWorkspace({ visibility, view, onView }: { visibility: 'public' |
 }
 
 function TestAdmin() {
-  return <section className="test-admin-preview">
-    <div className="preview-admin-sidebar"><b>PAYWAI</b><small>ADMIN CONSOLE</small><span className="selected">Overview</span><span>Users</span><span>Transactions</span><span>Compliance</span><span>Settings</span><span className="selected">TEST INF</span><span className="indent">Test Dashboard</span><span className="indent">Test Admin</span><span className="indent">Test Registration</span></div>
-    <div className="preview-admin-body"><div className="demo-eyebrow">TEST ADMIN</div><h2>Control center</h2><p>Investor preview of the Paywai administration experience. No production controls are executed from this screen.</p><div className="preview-stat-grid"><div><small>USERS</small><strong>TEST · 1,248</strong></div><div><small>TRANSACTIONS</small><strong>TEST · 8,420</strong></div><div><small>COMPLIANCE</small><strong>TEST · READY</strong></div></div><div className="preview-table"><b>Recent activity</b><span>TEST · Account created · Just now</span><span>TEST · Verification reviewed · Today</span><span>TEST · Payment processed · Today</span></div></div>
+  return <section className="live-preview-card">
+    <div className="live-preview-banner"><strong>LIVE ADMIN PREVIEW</strong><span>Same Admin Panel component · investor-safe preview</span></div>
+    <AdminPanel previewOnly />
   </section>;
 }
 
-function TestRegistration() {
-  return <section className="live-preview-card">
-    <div className="live-preview-banner"><strong>LIVE REGISTRATION PREVIEW</strong><span>Same Auth component · DEMO MODE · no database writes</span></div>
-    <Auth demoMode onBack={() => undefined} onSuccess={() => undefined} initialMode="signup" />
-  </section>;
-}
-function TestDashboard() {
-  return <section className="live-preview-card">
-    <div className="live-preview-banner"><strong>LIVE DASHBOARD PREVIEW</strong><span>Same Dashboard component · DEMO MODE · synthetic data only</span></div>
-    <Dashboard demoMode onBack={() => undefined} />
-  </section>;
-}
