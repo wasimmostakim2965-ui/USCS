@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './demo.css';
+import Auth from './Auth';
+import Dashboard from './Dashboard';
 
 const steps = [
   ['01','Account','Email, password and account access'],
@@ -148,33 +150,14 @@ function TestAdmin() {
 }
 
 function TestRegistration() {
-  const [step, setStep] = useState(0);
-  const current = steps[step];
-  return <section className="embedded-registration">
-    <div className="test-kicker">TEST REGISTRATION · {current[0]} / 07</div>
-    <h2>{current[1]}</h2><p className="demo-lead">Complete investor preview of the real onboarding journey. Every field is synthetic and starts with TEST.</p>
-    <div className="test-progress"><i style={{ width: ((step + 1) / 7) * 100 + '%' }} /></div>
-    <div className="test-panel">
-      <p>{current[2]}</p>
-      {step === 0 && <><TestField label="Email address" /><TestField label="Password" /><TestField label="Confirm password" /></>}
-      {step === 1 && <><TestField label="Verification code" /><div className="test-note">TEST · Verification code accepted automatically.</div></>}
-      {step === 2 && <><TestField label="Full legal name" /><TestField label="Mobile number" /></>}
-      {step === 3 && <><TestField label="Legal full name" /><div className="test-two"><TestField label="Date of birth" /><TestField label="Nationality" /></div><div className="test-two"><TestField label="Document type" /><TestField label="Document country" /></div><TestField label="Document number" /><TestField label="Occupation" /></>}
-      {step === 4 && <><TestField label="Street address" /><div className="test-two"><TestField label="City" /><TestField label="State or region" /></div><div className="test-two"><TestField label="Postal code" /><TestField label="Tax residence" /></div></>}
-      {step === 5 && <><div className="test-security"><b>Authenticator app</b><span>TEST · QR setup and six-digit verification preview.</span></div><TestField label="Authenticator code" /><div className="test-note">TEST · Security setup is simulated. No secret is generated or stored.</div></>}
-      {step === 6 && <div className="complete-box"><strong>TEST · Account created</strong><p>The investor preview reached the same completion state as onboarding. Nothing was saved.</p></div>}
-      <div className="test-actions">{step > 0 && <button className="test-secondary" onClick={() => setStep(step - 1)}>Back</button>}<button className="test-primary" onClick={() => step === 6 ? setStep(0) : setStep(step + 1)}>{step === 6 ? 'Run again' : 'Continue'} {step < 6 && '→'}</button></div>
-    </div>
+  return <section className="live-preview-card">
+    <div className="live-preview-banner"><strong>LIVE REGISTRATION PREVIEW</strong><span>Same Auth component · DEMO MODE · no database writes</span></div>
+    <Auth demoMode onBack={() => undefined} onSuccess={() => undefined} initialMode="signup" />
   </section>;
 }
-
-function TestField({ label }: { label: string }) { return <label className="test-field">{label}<input value="TEST" readOnly /></label>; }
-
 function TestDashboard() {
-  const tabs = ['Overview','Money','Payments','Cards','Recipients','Activity','Compliance','Settings'];
-  const [tab, setTab] = useState('Overview');
-  return <section className="embedded-dashboard">
-    <aside><b>PAYWAI</b><small>TEST USER · PERSONAL</small>{tabs.map(t => <button className={tab === t ? 'selected' : ''} key={t} onClick={() => setTab(t)}>{t}</button>)}<span>TEST ENVIRONMENT</span></aside>
-    <main><header><span>TEST USER / {tab}</span><b>201 · TEST</b></header><div className="embedded-dash-content"><div className="demo-eyebrow">TEST DASHBOARD</div><h2>{tab}</h2><p className="demo-lead">This is the customer dashboard UI presented with synthetic data only.</p>{tab === 'Overview' ? <><div className="test-quick"><div>WALLET<strong>Add funds</strong><small>TEST · Bank or wallet</small></div><div>SEND<strong>Send payment</strong><small>TEST · Move money</small></div><div>RECEIVE<strong>Get paid</strong><small>TEST · Incoming</small></div></div><div className="test-balance"><small>TOTAL AVAILABLE BALANCE</small><strong>$24,680.00</strong><span>USD · TEST BALANCE</span><div className="balance-foot"><b>Available · $24,680.00</b><b>Pending · $0.00</b></div></div><div className="test-bottom"><section><h3>Recent activity</h3><p>TEST · Payment received · +$4,250.00</p><p>TEST · Supplier payment · -$980.00</p></section><section><h3>Verification status</h3><p>Identity — TEST · Submitted</p><p>Email confirmed — TEST · Yes</p><p>Country — TEST</p></section></div></> : <div className="test-module"><h3>{tab}</h3><p>TEST · This customer module is available in the investor preview.</p></div>}</div></main>
+  return <section className="live-preview-card">
+    <div className="live-preview-banner"><strong>LIVE DASHBOARD PREVIEW</strong><span>Same Dashboard component · DEMO MODE · synthetic data only</span></div>
+    <Dashboard demoMode onBack={() => undefined} />
   </section>;
 }
