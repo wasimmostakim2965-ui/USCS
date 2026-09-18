@@ -26,7 +26,7 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const path = window.location.pathname.replace(/\\/+$/, '') || '/';
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
   // PRIVATE ADMIN ROUTE: https://xonomo.site/control-9f2d8c7a4e1b6f03d5a9c8e2b7f14a60c3d8e5a1b9f6c2d7e4a0b8c5f1d3e6a9
   // Public IP allowlist: 121.200.220.137
   if (path === '/control-9f2d8c7a4e1b6f03d5a9c8e2b7f14a60c3d8e5a1b9f6c2d7e4a0b8c5f1d3e6a9') return <SecretAdminGate />;
