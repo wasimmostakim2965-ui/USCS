@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import Auth from './Auth';
 import Dashboard from './Dashboard';
-import { AdminPanel } from './Demo';
+import { AdminPanel, InvestorPreview } from './Demo';
 import { supabase } from './lib/supabase';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Globe2, Lock, Menu, Send, ShieldCheck, Wallet, X, CreditCard, BarChart3, Users, Sparkles } from 'lucide-react';
 
@@ -26,7 +26,7 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
+  const path = window.location.pathname;\n  if (path === '/admin') return <AdminPanel onHome={() => { window.location.href = '/'; }} />;\n  if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;\n\n  if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
   if (page === 'auth')
     return (
       <Auth
