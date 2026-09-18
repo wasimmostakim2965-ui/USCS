@@ -1,6 +1,6 @@
 # SOVEREIGN
 
-## A New Era of Global Payment Infrastructure
+## A Global Online Banking & Payment Infrastructure for the World
 
 **Sovereign** is an ambitious financial infrastructure vision built around one simple idea:
 
@@ -8,11 +8,15 @@
 
 The project is designed as a unified financial platform where people and businesses can ultimately manage money, receive payments, send payments, spend, and connect multiple payment rails from one secure experience.
 
-Sovereign's long-term vision is intentionally larger than a conventional wallet or payment app. It aims to bring together the convenience of global payment networks with the security, control, and disciplined architecture expected from serious financial infrastructure.
+Sovereign's long-term vision is intentionally larger than a conventional wallet or payment app. The ambition is to build a global online banking and payment platform designed to support users across countries and connect to the financial rails available in each market. It aims to bring together the convenience of global payment networks with the security, control, and disciplined architecture expected from serious financial infrastructure.
 
 ---
 
-## 🌍 The Vision
+## 🌍 Global Banking for the World
+
+Sovereign is being designed with a **global-first** ambition: one financial platform that can eventually serve users across many countries, currencies, banking systems, and payment ecosystems. Country support would be expanded through the appropriate licensed banking, payment, card, identity, compliance, and local-rail partners.
+
+The goal is not to pretend that every country is already supported. The goal is to build the architecture so that new countries and financial rails can be added systematically without rebuilding the core platform.
 
 Imagine a financial account that can become a single gateway between:
 
@@ -33,7 +37,7 @@ A user could eventually be able to **deposit money through supported local or gl
 
 For example, in markets where services such as **bKash** are widely used, a future Sovereign integration could allow an eligible user to move funds between a supported bKash rail and their Sovereign balance, subject to the applicable provider, regulatory, KYC/AML, and transaction requirements.
 
-The same principle can extend to other local payment ecosystems around the world.
+The same principle can extend to other local payment ecosystems around the world, with country-specific availability determined by regulation, licensing, partner coverage, technical integration, and risk controls.
 
 **One account. Multiple rails. One secure financial experience.**
 
@@ -259,9 +263,9 @@ The exact requirements depend on the countries, services, and financial activiti
 
 ---
 
-## 🚀 The Long-Term Goal
+## 🌍 The Long-Term Global Goal
 
-Sovereign's ambition is to become a **unified financial interface for the internet**:
+Sovereign's ambition is to become one of the world's **largest and most broadly connected online banking and payment platforms**—a **unified financial interface for the internet**:
 
 > **Money in. Money out. Money moving across borders, platforms, merchants, cards, banks, and payment rails — through one coherent and secure experience.**
 
