@@ -300,6 +300,9 @@ function SecurityPanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [mfaSetupSecret, setMfaSetupSecret] = useState('');
+  const [mfaSetupQr, setMfaSetupQr] = useState('');
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
 
   const setMfa = async () => {
     if (!userId) return;
@@ -307,11 +310,15 @@ function SecurityPanel({
     setError('');
     setMessage('');
     try {
-      const secret = makeDashboardSecret();
-      const uri = `otpauth://totp/${encodeURIComponent(`Paywai:${email}`)}?secret=${secret}&issuer=Paywai&algorithm=SHA1&digits=6&period=30`;
-      const qr = await QRCode.toDataURL(uri, { width: 220, margin: 1 });
-      const code = window.prompt('Enter the 6-digit code shown in your authenticator app to enable it:')?.replace(/\D/g, '') ?? '';
-      if (!(await verifyDashboardTotp(secret, code))) throw new Error('That authenticator code is incorrect or expired.');
+      const secret = mfaSetupSecret || makeDashboardSecret();
+      if (!mfaSetupSecret) {
+        const uri = `otpauth://totp/${encodeURIComponent(`Paywai:${email}`)}?secret=${secret}&issuer=Paywai&algorithm=SHA1&digits=6&period=30`;
+        const qr = await QRCode.toDataURL(uri, { width: 220, margin: 1 });
+        setMfaSetupSecret(secret);
+        setMfaSetupQr(qr);
+        return;
+      }
+      if (!(await verifyDashboardTotp(secret, mfaSetupCode))) throw new Error('That authenticator code is incorrect or expired.');
       const next: SecuritySettings = {
         ...(security ?? {
           transaction_password_hash: null,
@@ -326,6 +333,9 @@ function SecurityPanel({
       await saveSecurity(userId, next);
       await recordAudit(userId, 'security.mfa_enabled', 'security_settings');
       onSaved(next);
+      setMfaSetupSecret('');
+      setMfaSetupQr('');
+      setMfaSetupCode('');
       setMessage('Authenticator app enabled successfully.');
     } catch (e) {
       setError((e as Error).message || 'Could not enable the authenticator app.');
@@ -383,6 +393,19 @@ function SecurityPanel({
         <p>Use Google Authenticator or another compatible app for an additional sign-in verification step.</p>
         {security?.mfa_enabled ? (
           <div className="success-note"><CheckCircle2 size={15} /> Authenticator verification is enabled on this account.</div>
+        ) : mfaSetupQr ? (
+          <>
+            <div className="mfa-setup">
+              <img className="mfa-qr" src={mfaSetupQr} alt="Authenticator setup QR code" />
+              <div className="mfa-secret"><span>Manual setup key</span><strong>{mfaSetupSecret}</strong></div>
+              <label>6-digit authenticator code<input className="otp-input" inputMode="numeric" maxLength={6} value={mfaSetupCode} onChange={e=>setMfaSetupCode(e.target.value.replace(/\D/g,''))} placeholder="000000" /></label>
+            </div>
+            {error && <div className="error-note">{error}</div>}
+            <div className="onboarding-actions">
+              <button className="secondary" onClick={()=>{setMfaSetupSecret('');setMfaSetupQr('');setMfaSetupCode('');setError('')}} disabled={busy}>Cancel</button>
+              <button className="primary" onClick={setMfa} disabled={busy}>{busy?'Verifying…':'Enable authenticator'} <CheckCircle2 size={15}/></button>
+            </div>
+          </>
         ) : (
           <div className="onboarding-actions">
             <span />
