@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import './auth-v2.css';
 import QRCode from 'qrcode';
 import { api, auth } from '@appdeploy/client';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, FileCheck2, Lock, Mail, MapPin, Shield, Smartphone, UserRound } from 'lucide-react';
