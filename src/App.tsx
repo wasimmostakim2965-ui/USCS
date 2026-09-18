@@ -26,8 +26,8 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const path = window.location.pathname;
-  if (path === '/admin') return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
+  const path = window.location.pathname.replace(/\\/+$/, '') || '/';
+  if (path === '/admin') return <AdminGate />;
   if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;
 
   if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
@@ -69,6 +69,51 @@ function App() {
     </main>
     <footer><button className="logo"><span>P</span>PAYWAI</button><p>Global financial infrastructure for clear, controlled movement.</p><small>Prototype environment · Synthetic data only · © 2026 Paywai</small></footer>
   </div>;
+}
+
+function AdminGate() {
+  const [status, setStatus] = useState<'checking' | 'signed-out' | 'forbidden' | 'allowed'>('checking');
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData.session?.user;
+      if (!active) return;
+      if (!user) {
+        setStatus('signed-out');
+        return;
+      }
+      const { data, error } = await supabase
+        .from('admin_users')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (!active) return;
+      setStatus(!error && Boolean(data?.user_id) ? 'allowed' : 'forbidden');
+    })().catch(() => { if (active) setStatus('forbidden'); });
+    return () => { active = false; };
+  }, []);
+
+  if (status === 'checking') {
+    return <div className="demo-loading">Checking admin access…</div>;
+  }
+  if (status === 'signed-out') {
+    return <Auth initialMode="signin" onBack={() => { window.location.href = '/'; }} onSuccess={() => window.location.reload()} />;
+  }
+  if (status === 'forbidden') {
+    return (
+      <div className="public-forbidden">
+        <div>
+          <strong>403</strong>
+          <h1>Admin access required</h1>
+          <p>This account is signed in but is not registered as an administrator.</p>
+          <button className="primary" onClick={() => { window.location.href = '/'; }}>Back to Paywai</button>
+        </div>
+      </div>
+    );
+  }
+  return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
 }
 
 function PlatformPage({ onBack, onStart }: { onBack: () => void; onStart: () => void }) {
