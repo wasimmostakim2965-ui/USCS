@@ -152,15 +152,19 @@ export async function saveKyc(userId: string, patch: KycPatch) {
 }
 
 export async function recordAudit(
-  userId: string,
+  _userId: string,
   event: string,
   entity: string,
   entityId?: string,
   metadata: Record<string, unknown> = {},
 ) {
-  await supabase
-    .from('audit_events')
-    .insert({ user_id: userId, event, entity, entity_id: entityId ?? userId, metadata });
+  const { error } = await supabase.rpc('record_audit', {
+    p_event: event,
+    p_entity: entity,
+    p_entity_id: entityId ?? null,
+    p_metadata: metadata,
+  });
+  if (error) throw error;
 }
 
 export async function saveSecurity(userId: string, patch: Partial<SecuritySettings>) {
@@ -170,22 +174,12 @@ export async function saveSecurity(userId: string, patch: Partial<SecuritySettin
   if (error) throw error;
 }
 
-export async function ensureLedgerAccount(userId: string, currency = 'USD') {
-  const { data, error } = await supabase
-    .from('ledger_accounts')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('currency', currency)
-    .maybeSingle();
+export async function ensureLedgerAccount(_userId: string, currency = 'USD') {
+  const { data, error } = await supabase.rpc('ensure_ledger_account', {
+    p_currency: currency,
+  });
   if (error) throw error;
-  if (data) return data as LedgerAccount;
-  const { data: created, error: insertError } = await supabase
-    .from('ledger_accounts')
-    .insert({ user_id: userId, currency })
-    .select('*')
-    .single();
-  if (insertError) throw insertError;
-  return created as LedgerAccount;
+  return data as LedgerAccount;
 }
 
 export const formatMinor = (minor: number, currency = 'USD') =>
