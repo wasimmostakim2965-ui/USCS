@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import AuthV2 from './AuthV2';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Globe2, Lock, Menu, Send, ShieldCheck, Wallet, X, CreditCard, BarChart3, Users, Sparkles, Mail, Smartphone, MapPin, Camera } from 'lucide-react';
 
 type Page = 'home' | 'dashboard' | 'auth' | 'platform';
@@ -15,7 +16,7 @@ function App() {
   const [menu, setMenu] = useState(false);
 
   if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
-  if (page === 'auth') return <AuthFlow onBack={() => setPage('home')} onComplete={() => setPage('dashboard')} />;
+  if (page === 'auth') return <AuthV2 onBack={() => setPage('home')} onSuccess={() => setPage('dashboard')} />;
   if (page === 'platform') return <PlatformPage onBack={() => setPage('home')} onStart={() => setPage('auth')} />;
 
   return <div className="site">
