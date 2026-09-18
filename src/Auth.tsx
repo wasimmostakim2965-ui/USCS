@@ -17,8 +17,10 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  FileCheck2,
   Lock,
   Shield,
+  Smartphone,
 } from 'lucide-react';
 
 type SignupStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
