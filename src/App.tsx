@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Auth from './Auth';
 import Dashboard from './Dashboard';
+import { AdminPanel, TestRegistration, TestDashboard } from './Demo';
 import { supabase } from './lib/supabase';
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Globe2, Lock, Menu, Send, ShieldCheck, Wallet, X, CreditCard, BarChart3, Users, Sparkles } from 'lucide-react';
 
@@ -19,11 +20,17 @@ function App() {
   const [signedIn, setSignedIn] = useState(false);
   const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
 
+  const path = window.location.pathname;
+
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
     const { data } = supabase.auth.onAuthStateChange((_event, session) => { setSignedIn(Boolean(session)); if(session && window.localStorage.getItem('paywai_google_signup')==='1'){setAuthMode('signup');setPage('auth');} });
     return () => data.subscription.unsubscribe();
   }, []);
+
+  if (path === '/admin') return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
+  if (path === '/test-registration') return <TestRegistration onHome={() => { window.location.href = '/'; }} />;
+  if (path === '/test-dashboard') return <TestDashboard onHome={() => { window.location.href = '/'; }} />;
 
   if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
   if (page === 'auth')
