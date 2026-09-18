@@ -12,3 +12,10 @@
 @media(max-width:850px){.flow-shell{grid-template-columns:1fr;gap:45px;padding-top:55px}.flow-brand{max-width:600px}.flow-steps{margin-top:35px}.platform-flow{grid-template-columns:1fr;gap:45px}.platform-steps{max-width:700px}.platform-banner{display:block}.platform-banner .primary{margin-top:25px}}
 @media(max-width:600px){.flow-top{height:68px}.flow-shell{padding:40px 16px}.flow-brand h1,.platform-hero h1{font-size:43px}.auth-card{padding:23px}.flow-steps{gap:13px}.flow-steps span{font-size:9px}.platform-hero{padding:70px 18px}.platform-flow{padding:70px 18px}.platform-flow h2{font-size:38px}.platform-steps{grid-template-columns:1fr}.platform-banner{padding:45px 18px}.platform-banner h2{font-size:35px}}
 .dash-security-link{border:0;background:none;color:#086747;font-weight:700;text-decoration:underline;padding:0;font-size:inherit}.dash-security-link:hover{color:#044f36}
+
+/* Hero copy: text-only adjustment; preserve original visual/art layout */
+.hero-new-copy{text-align:center;margin-left:auto;margin-right:auto}
+.hero-new h1{text-align:center}
+.hero-new-copy>p{text-align:center;margin-left:auto;margin-right:auto}
+.hero-actions{justify-content:center}
+.hero-proof{justify-content:center}
