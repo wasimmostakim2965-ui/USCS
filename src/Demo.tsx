@@ -1,155 +1,47 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './demo.css';
 import Auth from './Auth';
 import Dashboard from './Dashboard';
+import { supabase } from './lib/supabase';
 
-const steps = [
-  ['01','Account','Email, password and account access'],
-  ['02','Email verification','One-time verification code'],
-  ['03','Personal details','Legal name and mobile number'],
-  ['04','Identity','DOB, nationality, document and occupation'],
-  ['05','Residence','Address, city, region, postal code and tax residence'],
-  ['06','Security','Authenticator setup or skip'],
-  ['07','Complete','Account-ready confirmation'],
-] as const;
+const steps = [['01','Account','Google or email, password'],['02','Email','One-time verification code'],['03','Personal details','Legal name and mobile number'],['04','Identity','DOB, nationality, document and occupation'],['05','Residence','Address, city, region, postal code and tax residence'],['06','Security','Authenticator setup or skip'],['07','Complete','Account-ready confirmation']] as const;
+type TestView='dashboard'|'admin'|'registration';
+const randomToken=()=>{const b=new Uint8Array(24);crypto.getRandomValues(b);return Array.from(b,x=>x.toString(16).padStart(2,'0')).join('')};
 
-type TestView = 'dashboard' | 'admin' | 'registration';
-const VISIBILITY_KEY = 'paywai_test_inf_visibility';
-
-export function AdminPanel({ onHome, previewOnly = false }: { onHome?: () => void; previewOnly?: boolean }) {
-  const [testOpen, setTestOpen] = useState(false);
-  const [section, setSection] = useState<'overview' | 'settings'>('overview');
-  const [view, setView] = useState<TestView>('dashboard');
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private');
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(VISIBILITY_KEY);
-    if (saved === 'public') setVisibility('public');
-  }, []);
-
-  const selectTest = (next: TestView) => {
-    if (visibility === 'private') return;
-    setTestOpen(true);
-    setView(next);
-  };
-
-  const goHome = onHome ?? (() => undefined);
-
-  const setPublic = (next: 'public' | 'private') => {
-    setVisibility(next);
-    window.localStorage.setItem(VISIBILITY_KEY, next);
-  };
-
-  return (
-    <div className="admin-shell">
-      <aside className="admin-sidebar">
-        <button className="demo-brand" onClick={goHome}><span>P</span> PAYWAI</button>
-        <div className="admin-account"><b>ADMIN</b><small>Control center</small></div>
-        {['Overview','Users','Transactions','Compliance'].map(item => (
-          <button key={item} className={section === 'overview' && item === 'Overview' ? 'active' : ''} onClick={() => { setSection('overview'); setTestOpen(false); }}>{item}</button>
-        ))}
-        <button className={section === 'settings' ? 'active' : ''} onClick={() => { setSection('settings'); setTestOpen(false); }}>Settings</button>
-        <button className={'test-inf-menu ' + (testOpen ? 'expanded' : '')} onClick={() => setTestOpen(!testOpen)}>
-          <span>TEST INF</span><b>{testOpen ? '−' : '+'}</b>
-        </button>
-        {testOpen && (
-          <div className="test-inf-submenu">
-            <button className={view === 'dashboard' ? 'active' : ''} onClick={() => selectTest('dashboard')}>Test Dashboard</button>
-            <button className={view === 'admin' ? 'active' : ''} onClick={() => selectTest('admin')}>Test Admin</button>
-            <button className={view === 'registration' ? 'active' : ''} onClick={() => selectTest('registration')}>Test Registration</button>
-          </div>
-        )}
-        <button className="admin-exit" onClick={goHome}>← Back to website</button>
-      </aside>
-
-      <main className="admin-main">
-        <header className="admin-topbar">
-          <div><span>ADMIN CONSOLE</span><b>Investor presentation workspace</b></div>
-          <span className="admin-badge">DEMO · SYNTHETIC DATA</span>
-        </header>
-
-        {previewOnly ? (
-          <div className="admin-content"><div className="demo-eyebrow">TEST ADMIN · LIVE UI</div><h1>Control <em>center.</em></h1><p className="demo-lead">This preview uses the same Admin Panel component and styling. Controls are disabled from the investor preview.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>ADMIN WORKSPACE</small><strong>OVERVIEW</strong><p>Users, transactions, compliance and TEST INF are managed from this control center.</p></section><section className="admin-card"><small>SECURITY</small><strong>PROTECTED CONTROLS</strong><div className="admin-list"><span>Authentication <b>Enabled</b></span><span>Production data <b>Protected</b></span><span>Investor demo <b>Isolated</b></span></div></section></div></div>
-        ) : section === 'settings' ? (
-          <AdminSettings visibility={visibility} setPublic={setPublic} />
-        ) : !testOpen ? (
-          <div className="admin-content">
-            <div className="demo-eyebrow">CONTROL CENTER</div>
-            <h1>Paywai <em>control center.</em></h1>
-            <p className="demo-lead">Manage the demonstration environment and open the investor previews from TEST INF.</p>
-            <div className="admin-grid">
-              <section className="admin-card primary-admin">
-                <small>INVESTOR DEMONSTRATION</small>
-                <strong>TEST INF</strong>
-                <p>Three presentation experiences are grouped here so an investor can see the customer dashboard, admin interface and complete registration journey without creating real data.</p>
-                <button className="admin-open-test" onClick={() => setTestOpen(true)}>Open TEST INF</button>
-              </section>
-              <section className="admin-card">
-                <small>LIVE SYSTEM</small>
-                <strong>Production modules</strong>
-                <div className="admin-list">
-                  <span>Authentication <b>Connected</b></span>
-                  <span>Customer dashboard <b>Available</b></span>
-                  <span>Supabase data <b>Protected</b></span>
-                  <span>Demo writes <b>Disabled</b></span>
-                </div>
-              </section>
-            </div>
-
-            <section className="admin-card roadmap">
-              <small>REGISTRATION FLOW</small>
-              <h2>Seven-step investor preview</h2>
-              <div className="step-list">{steps.map(([n,t,d]) => <div key={n}><b>{n}</b><span><strong>{t}</strong><small>{d}</small></span></div>)}</div>
-            </section>
-          </div>
-        ) : (
-          <TestInfWorkspace visibility={visibility} view={view} onView={setView} />
-        )}
-      </main>
-    </div>
-  );
+export function AdminPanel({onHome,previewOnly=false}:{onHome?:()=>void;previewOnly?:boolean}){
+ const [testOpen,setTestOpen]=useState(false),[section,setSection]=useState<'overview'|'settings'>('overview'),[view,setView]=useState<TestView>('dashboard'),[visibility,setVisibility]=useState<'public'|'private'>('private'),[investorLink,setInvestorLink]=useState(''),[message,setMessage]=useState('');
+ const goHome=onHome??(()=>undefined);
+ useEffect(()=>{if(previewOnly)return;void supabase.rpc('get_demo_link').then(({data})=>{if(typeof data==='string'&&data){setVisibility('public');setInvestorLink(window.location.origin+'/i/'+data)}}).catch(()=>undefined)},[previewOnly]);
+ const generate=async()=>{setMessage('');const token=randomToken();const {error}=await supabase.rpc('rotate_demo_link',{p_token:token});if(error){setMessage('Admin authorization is required to generate an investor link.');return}setVisibility('public');setInvestorLink(window.location.origin+'/i/'+token);setMessage('Investor link is active. Share only this link.')};
+ const revoke=async()=>{setMessage('');const {error}=await supabase.rpc('revoke_demo_link');if(error){setMessage('Admin authorization is required to revoke the investor link.');return}setVisibility('private');setInvestorLink('');setMessage('Investor link revoked. The previous link now returns 403.')};
+ const selectTest=(v:TestView)=>{if(visibility!=='public')return;setTestOpen(true);setView(v)};
+ return <div className="admin-shell"><aside className="admin-sidebar">
+  <button className="demo-brand" onClick={goHome}><span>P</span> PAYWAI</button><div className="admin-account"><b>ADMIN</b><small>Control center</small></div>
+  {['Overview','Users','Transactions','Compliance'].map(item=><button key={item} className={section==='overview'&&item==='Overview'?'active':''} onClick={()=>{setSection('overview');setTestOpen(false)}}>{item}</button>)}
+  <button className={section==='settings'?'active':''} onClick={()=>{setSection('settings');setTestOpen(false)}}>Settings</button>
+  <button className={'test-inf-menu '+(testOpen?'expanded':'')} onClick={()=>setTestOpen(!testOpen)}><span>TEST INF</span><b>{testOpen?'−':'+'}</b></button>
+  {testOpen&&<div className="test-inf-submenu"><button className={view==='dashboard'?'active':''} onClick={()=>selectTest('dashboard')}>Test Dashboard</button><button className={view==='admin'?'active':''} onClick={()=>selectTest('admin')}>Test Admin</button><button className={view==='registration'?'active':''} onClick={()=>selectTest('registration')}>Test Registration</button></div>}
+  <button className="admin-exit" onClick={goHome}>← Back to website</button></aside>
+  <main className="admin-main"><header className="admin-topbar"><div><span>ADMIN CONSOLE</span><b>Investor presentation workspace</b></div><span className="admin-badge">DEMO · SYNTHETIC DATA</span></header>
+  {previewOnly?<div className="admin-content"><div className="demo-eyebrow">TEST ADMIN · LIVE UI</div><h1>Control <em>center.</em></h1><p className="demo-lead">Same Admin Panel component and styling, with production controls disabled.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>ADMIN WORKSPACE</small><strong>OVERVIEW</strong><p>Users, transactions, compliance and TEST INF are managed from this control center.</p></section><section className="admin-card"><small>SECURITY</small><strong>PROTECTED CONTROLS</strong><div className="admin-list"><span>Production data <b>Protected</b></span><span>Investor demo <b>Isolated</b></span></div></section></div></div>
+  :section==='settings'?<AdminSettings visibility={visibility} investorLink={investorLink} message={message} onGenerate={generate} onRevoke={revoke}/>
+  :!testOpen?<div className="admin-content"><div className="demo-eyebrow">CONTROL CENTER</div><h1>Paywai <em>control center.</em></h1><p className="demo-lead">TEST INF is isolated from production. Generate a temporary high-entropy investor link when you want to present the product.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>INVESTOR DEMONSTRATION</small><strong>TEST INF</strong><p>Real registration, dashboard and admin components run in safe demo mode. No customer data is written.</p><button className="admin-open-test" onClick={()=>setTestOpen(true)}>Open TEST INF</button></section><section className="admin-card"><small>ACCESS</small><strong>{visibility==='public'?'Investor link active':'Private'}</strong><div className="admin-list"><span>TEST INF <b>{visibility.toUpperCase()}</b></span><span>Production data <b>Protected</b></span><span>Demo writes <b>Disabled</b></span></div></section></div><section className="admin-card roadmap"><small>REGISTRATION FLOW</small><h2>Seven-step investor preview</h2><div className="step-list">{steps.map(([n,t,d])=><div key={n}><b>{n}</b><span><strong>{t}</strong><small>{d}</small></span></div>)}</div></section></div>
+  :<TestInfWorkspace visibility={visibility} view={view} onView={setView}/>}</main></div>;
 }
-
-function AdminSettings({ visibility, setPublic }: { visibility: 'public' | 'private'; setPublic: (next: 'public' | 'private') => void }) {
-  return <div className="admin-content">
-    <div className="demo-eyebrow">ADMIN SETTINGS</div>
-    <h1>Control <em>access.</em></h1>
-    <p className="demo-lead">TEST INF visibility is controlled here so the investor presentation can be temporarily opened or closed.</p>
-    <section className="admin-card visibility-card">
-      <div><small>TEST INF VISIBILITY</small><h2>Investor access</h2><p>Public opens the three TEST INF previews. Private returns the 403 screen.</p></div>
-      <div className="visibility-control">
-        <button className={visibility === 'private' ? 'selected' : ''} onClick={() => setPublic('private')}>Private</button>
-        <button className={visibility === 'public' ? 'selected' : ''} onClick={() => setPublic('public')}>Public</button>
-        <strong>{visibility === 'public' ? '201 · PUBLIC' : '403 · PRIVATE'}</strong>
-      </div>
-    </section>
-  </div>;
+function AdminSettings({visibility,investorLink,message,onGenerate,onRevoke}:{visibility:'public'|'private';investorLink:string;message:string;onGenerate:()=>void;onRevoke:()=>void}){
+ return <div className="admin-content"><div className="demo-eyebrow">ADMIN SETTINGS</div><h1>Control <em>access.</em></h1><p className="demo-lead">Public TEST INF never exposes the Admin route. Access is granted only through a temporary tokenized investor link.</p><section className="admin-card visibility-card"><div><small>TEST INF ACCESS</small><h2>{visibility==='public'?'Investor link active':'Private mode'}</h2><p>{visibility==='public'?'Only the generated /i/&lt;token&gt; link can open the investor preview.':'No investor token is currently active.'}</p></div><div className="visibility-control"><strong>{visibility==='public'?'PUBLIC':'PRIVATE'}</strong><button onClick={onGenerate}>Generate new link</button><button onClick={onRevoke} disabled={visibility!=='public'}>Revoke link</button></div></section>{investorLink&&<section className="admin-card investor-link-card"><small>ACTIVE INVESTOR LINK</small><code>{investorLink}</code><button onClick={()=>navigator.clipboard?.writeText(investorLink)}>Copy link</button></section>}{message&&<div className="test-note">{message}</div>}</div>
 }
-
-function TestInfWorkspace({ visibility, view, onView }: { visibility: 'public' | 'private'; view: TestView; onView: (v: TestView) => void }) {
-  if (visibility === 'private') return <div className="forbidden"><div><strong>403</strong><h1>Test INF is private</h1><p>This investor preview is currently disabled. Change TEST INF visibility to Public in Admin Settings to present it.</p></div></div>;
-  return (
-    <div className="test-inf-workspace">
-      <div className="test-inf-header">
-        <div><div className="demo-eyebrow">TEST INF</div><h1>Investor <em>preview.</em></h1></div>
-        <span>201 · PUBLIC</span>
-      </div>
-      <div className="test-inf-tabs">
-        <button className={view === 'dashboard' ? 'selected' : ''} onClick={() => onView('dashboard')}>Test Dashboard</button>
-        <button className={view === 'admin' ? 'selected' : ''} onClick={() => onView('admin')}>Test Admin</button>
-        <button className={view === 'registration' ? 'selected' : ''} onClick={() => onView('registration')}>Test Registration</button>
-      </div>
-      {view === 'dashboard' && <TestDashboard />}
-      {view === 'admin' && <TestAdmin />}
-      {view === 'registration' && <TestRegistration />}
-    </div>
-  );
+function TestInfWorkspace({visibility,view,onView}:{visibility:'public'|'private';view:TestView;onView:(v:TestView)=>void}){
+ if(visibility!=='public')return <div className="forbidden"><div><strong>403</strong><h1>Test INF is private</h1><p>Generate a temporary investor link in Admin Settings when you need to present it.</p></div></div>;
+ return <div className="test-inf-workspace"><div className="test-inf-header"><div><div className="demo-eyebrow">TEST INF</div><h1>Investor <em>preview.</em></h1></div><span>PUBLIC · TOKEN PROTECTED</span></div><div className="test-inf-tabs"><button className={view==='dashboard'?'selected':''} onClick={()=>onView('dashboard')}>Test Dashboard</button><button className={view==='admin'?'selected':''} onClick={()=>onView('admin')}>Test Admin</button><button className={view==='registration'?'selected':''} onClick={()=>onView('registration')}>Test Registration</button></div>{view==='dashboard'&&<LivePreview title="LIVE DASHBOARD PREVIEW" note="Same Dashboard component · synthetic data only"><Dashboard demoMode onBack={()=>undefined}/></LivePreview>}{view==='admin'&&<TestAdmin/>}{view==='registration'&&<LivePreview title="LIVE REGISTRATION PREVIEW" note="Same Auth component · backend writes disabled"><Auth demoMode initialMode="signup" onBack={()=>undefined} onSuccess={()=>undefined}/></LivePreview>}</div>
 }
-
-function TestAdmin() {
-  return <section className="live-preview-card">
-    <div className="live-preview-banner"><strong>LIVE ADMIN PREVIEW</strong><span>Same Admin Panel component · investor-safe preview</span></div>
-    <AdminPanel previewOnly />
-  </section>;
+function LivePreview({title,note,children}:{title:string;note:string;children:ReactNode}){return <section className="live-preview-card"><div className="live-preview-banner"><strong>{title}</strong><span>{note}</span></div>{children}</section>}
+function TestAdmin(){return <LivePreview title="LIVE ADMIN PREVIEW" note="Same Admin Panel component · investor-safe preview"><AdminPanel previewOnly/></LivePreview>}
+export function InvestorPreview({token}:{token:string}){
+ const [allowed,setAllowed]=useState<boolean|null>(null);
+ useEffect(()=>{let live=true;void supabase.rpc('check_demo_token',{p_token:token}).then(({data})=>{if(live)setAllowed(data===true)}).catch(()=>{if(live)setAllowed(false)});return()=>{live=false}},[token]);
+ if(allowed===null)return <div className="demo-loading">Checking investor access…</div>;
+ if(!allowed)return <div className="forbidden public-forbidden"><div><strong>403</strong><h1>Investor link is invalid</h1><p>This temporary TEST INF link is expired, revoked or incorrect.</p></div></div>;
+ return <InvestorPreviewContent/>;
 }
-
+function InvestorPreviewContent(){const [view,setView]=useState<TestView>('dashboard');return <div className="investor-public-shell"><header className="investor-public-header"><button className="demo-brand" onClick={()=>window.location.href='/'}><span>P</span> PAYWAI</button><span>INVESTOR PREVIEW · TOKEN VERIFIED</span></header><main className="test-inf-public"><div className="test-inf-header"><div><div className="demo-eyebrow">TEST INF</div><h1>Investor <em>preview.</em></h1></div><span>PUBLIC · TOKEN VERIFIED</span></div><div className="test-inf-tabs"><button className={view==='dashboard'?'selected':''} onClick={()=>setView('dashboard')}>Test Dashboard</button><button className={view==='admin'?'selected':''} onClick={()=>setView('admin')}>Test Admin</button><button className={view==='registration'?'selected':''} onClick={()=>setView('registration')}>Test Registration</button></div>{view==='dashboard'&&<LivePreview title="LIVE DASHBOARD PREVIEW" note="Real Dashboard component · synthetic data"><Dashboard demoMode onBack={()=>window.location.href='/'}/></LivePreview>}{view==='admin'&&<TestAdmin/>}{view==='registration'&&<LivePreview title="LIVE REGISTRATION PREVIEW" note="Real Auth component · no database writes"><Auth demoMode initialMode="signup" onBack={()=>window.location.href='/'} onSuccess={()=>undefined}/></LivePreview>}</main></div>}
