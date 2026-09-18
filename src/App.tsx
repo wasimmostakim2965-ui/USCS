@@ -27,7 +27,10 @@ function App() {
   }, []);
 
   const path = window.location.pathname;
-  if (path === '/admin') return <AdminPanel onHome={() => { window.location.href = '/'; }} />;\n  if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;\n\n  if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
+  if (path === '/admin') return <AdminPanel onHome={() => { window.location.href = '/'; }} />;
+  if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;
+
+  if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
   if (page === 'auth')
     return (
       <Auth
