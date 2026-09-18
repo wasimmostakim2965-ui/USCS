@@ -43,14 +43,14 @@ function App() {
       <div className="head-actions"><button onClick={() => { setAuthMode('signin'); setPage(signedIn ? 'dashboard' : 'auth'); }}>Sign in</button><button className="primary" onClick={() => { setAuthMode('signup'); setPage('auth'); }}>Get started <ArrowRight size={15} /></button></div>
       <button className="menu" aria-label="Open navigation" onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</button>
     </header>
-    {menu && <div className="mobile-nav"><a href="#products" onClick={() => setMenu(false)}>Products</a><a href="#audiences" onClick={() => setMenu(false)}>Who we serve</a><a href="#why" onClick={() => setMenu(false)}>Why Paywai</a><a href="#resources" onClick={() => setMenu(false)}>Resources</a><button onClick={() => { setMenu(false); setAuthMode('signup'); setPage('auth'); }}>Get started</button></div>}
+    {menu && <div className="mobile-nav"><a href="#products" onClick={() => setMenu(false)}>Products</a><a href="#audiences" onClick={() => setMenu(false)}>Who we serve</a><a href="#why" onClick={() => setMenu(false)}>Why Paywai</a><a href="#resources" onClick={() => setMenu(false)}>Resources</a><button onClick={() => { setMenu(false); setAuthMode('signin'); setPage(signedIn ? 'dashboard' : 'auth'); }}>Sign in</button><button onClick={() => { setMenu(false); setAuthMode('signup'); setPage('auth'); }}>Get started</button></div>}
     <main>
       <section className="hero-new">
         <div className="hero-new-copy">
           <div className="eyebrow">FOR PEOPLE AND BUSINESSES THAT THINK GLOBAL</div>
           <h1>Move money across borders. <em>Grow without friction.</em></h1>
           <p>Paywai brings payments, balances and controls together so you can operate confidently wherever opportunity takes you.</p>
-          <div className="hero-actions"><button className="primary large" onClick={() => { setAuthMode('signup'); setPage('auth'); }}>Create your account <ArrowRight size={17} /></button><button className="text" onClick={() => setPage('platform')}>Explore the platform <ArrowRight size={15} /></button></div>
+          <div className="hero-actions"><button className="primary large" onClick={() => { setAuthMode('signup'); setPage('auth'); }}>Create your account <ArrowRight size={17} /></button></div>
           <div className="hero-proof"><span><Check size={14} /> Clear, upfront controls</span><span><Check size={14} /> Built for global movement</span></div>
         </div>
         <div className="hero-art" aria-label="Paywai account preview"><div className="glow" /><div className="money-card primary-card"><div className="card-top"><span>PAYWAI</span><span>•••</span></div><div className="card-chip" /><strong>GLOBAL ACCOUNT</strong><small>CONTROL · CLARITY · MOVEMENT</small></div><div className="account-card"><div className="account-head"><span>AVAILABLE BALANCE</span><b>USD · TEST</b></div><strong>$24,680.00</strong><div className="account-foot"><span><i className="dot green" /> Ready to move</span><span>•••</span></div></div><div className="transfer-card"><div><span className="avatar">A</span><span><b>Atlas Studio</b><small>Payment received</small></span></div><strong>+$4,250</strong></div></div>
