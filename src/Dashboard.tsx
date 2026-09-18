@@ -48,7 +48,7 @@ const TABS = [
   'Settings',
 ];
 
-export default function Dashboard({ onBack }: { onBack: () => void }) {
+export default function Dashboard({ onBack, demoMode = false }: { onBack: () => void; demoMode?: boolean }) {
   const [tab, setTab] = useState('Overview');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -61,6 +61,7 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
   const [security, setSecurity] = useState<SecuritySettings | null>(null);
 
   useEffect(() => {
+    if (demoMode) { setEmail('TEST'); setLoading(false); setProfile({id:'demo',email:'TEST',account_type:'personal',country:'TEST',full_name:'TEST',phone:'TEST',phone_verified:true,business_name:null,business_type:null,business_category:null,onboarding_status:'verified',created_at:'',updated_at:''}); setKyc({id:'demo',user_id:'demo',status:'verified',legal_name:'TEST',date_of_birth:'2000-01-01',nationality:'TEST',occupation:'TEST',address_line1:'TEST',address_line2:null,city:'TEST',region:'TEST',postal_code:'TEST',tax_residence:'TEST',document_type:'TEST',document_number:'TEST',document_country:'TEST',submitted_at:null}); setLedger([{id:'demo-usd',currency:'USD',available_minor:2468000,pending_minor:0,status:'active'}]); setTransactions([{id:'demo-1',currency:'USD',amount_minor:425000,direction:'in',status:'settled',rail:'TEST',reference:'TEST',created_at:''},{id:'demo-2',currency:'USD',amount_minor:98000,direction:'out',status:'settled',rail:'TEST',reference:'TEST',created_at:''}]); setSecurity({transaction_password_hash:null,transaction_password_salt:null,transaction_password_iterations:null,mfa_secret:null,mfa_enabled:true}); return; }
     void (async () => {
       const { data } = await supabase.auth.getSession();
       const user = data.session?.user;
