@@ -1,15 +1,17 @@
 {
-  "methods": ["google", "apple", "x"],
-  "headline": "Continue to Sovereign",
-  "subtitle": "Secure sign-in for your Sovereign workspace",
+  "methods": [
+    "email"
+  ],
+  "headline": "Sign in to Paywai",
+  "subtitle": "Secure access to your Paywai account",
   "icon": "shield",
   "style": {
-    "mode": "dark",
-    "accentColor": "#d7b46a",
-    "backgroundColor": "#0a0c10",
-    "panelColor": "#11151b",
-    "textColor": "#f4f1e8",
+    "mode": "light",
+    "accentColor": "#0d6efd",
+    "backgroundColor": "#f7f9fc",
+    "panelColor": "#ffffff",
+    "textColor": "#0d1b2a",
     "fontFamily": "Inter, system-ui, sans-serif",
-    "borderRadius": 16
+    "borderRadius": 10
   }
 }

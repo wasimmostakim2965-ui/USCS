@@ -1,18 +1,28 @@
 {
-  "name": "sovereign-vault",
+  "name": "paywai",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
-    "qrcode": "^1.5.4",
+    "@supabase/supabase-js": "^2.116.0",
     "lucide-react": "latest",
+    "qrcode": "^1.5.4",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
+    "@types/node": "^26.6.1",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "latest",
     "typescript": "latest",
-    "vite": "latest",
-    "@vitejs/plugin-react": "latest"
+    "vite": "latest"
   }
 }

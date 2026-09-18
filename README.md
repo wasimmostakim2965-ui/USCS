@@ -1,381 +1,180 @@
-# SOVEREIGN
+# Paywai
 
-## A Global Online Banking & Payment Infrastructure for the World
+**Global payments, balances and cards in one account.**
 
-**Sovereign** is being built with a world-scale ambition: to become a unified financial platform connecting people, businesses, banks, cards, local payment systems, payment gateways, marketplaces, and global payment networks through one secure digital experience.
+Paywai is a payments platform for people and businesses that work across borders. It brings together
+the way you get paid, hold funds and spend, so the money you earn abroad is usable without waiting
+weeks or juggling several providers.
 
-> **One account. One financial experience. A world of payment rails.**
+The product direction is a single account for the whole flow:
 
-Sovereign is designed to be **global by architecture**: the platform can expand country by country, currency by currency, and payment rail by payment rail while maintaining one coherent online banking experience.
-
----
-
-## 🌍 One Platform for the World
-
-The long-term Sovereign vision is to support users across global markets through country-specific banking, payment, compliance, and regulatory integrations.
-
-The platform is designed to connect with supported:
-
-- Bank accounts
-- Debit cards
-- Credit cards
-- Virtual and physical cards
-- Local payment systems
-- Mobile financial services
-- Payment gateways
-- Global payment networks
-- Real-time payment systems
-- Online marketplaces
-- Merchant platforms
-- Advertising platforms
-- Business payment systems
-- Cross-border payment infrastructure
-
-A country's availability depends on real integrations, provider agreements, licensing, compliance, and regulatory requirements.
+**Create account → Verify identity → Add a funding method → Deposit → Hold → Receive → Send → Spend → Withdraw**
 
 ---
 
-## 💳 Banking + Payments + Cards
+## What works today
 
-Sovereign is not designed around only one payment action.
+This repository is the Paywai web application. The account layer is real and runs on Supabase:
 
-The long-term experience brings together:
+- **Email and password registration** with email confirmation
+- **Sign in, sign out and password reset**
+- **Persistent onboarding** across four steps: account type, identity details, residence, review
+- **Personal and business** account paths, each collecting the fields that path requires
+- **Identity (KYC) application** stored and submitted for review
+- **Per-user ledger accounts** created in the currencies you hold
+- **Transaction password** — a separate secret that authorises sensitive transfers
+- **Two-factor authentication** via any TOTP authenticator app
+- **Audit trail** — sensitive actions are written to an audit history
 
-**Deposit → Hold → Receive → Send → Spend → Withdraw**
+Everything is protected by Postgres row-level security. A user can only ever read or write rows that
+belong to their own account, and anonymous access is denied at the database level rather than in the
+client.
 
-### Deposit
+## What is not wired up yet
 
-Users could eventually fund eligible Sovereign balances through supported:
+Payments, cards, funding rails and payouts need real provider integrations, agreements and licences.
+Those areas deliberately show no balances, transactions or figures, because fabricated financial data
+is worse than an honest empty state.
 
-- Bank transfers
-- Debit/credit cards
-- Local payment services
-- Payment gateways
-- Other supported financial rails
-
-For example, a future Bangladesh integration could connect a supported service such as **bKash** to Sovereign, allowing eligible users to move funds between the two systems subject to provider support, licensing, KYC/AML, limits, and applicable regulations.
-
-The same architecture can be extended to local payment ecosystems in other countries.
-
-### Receive
-
-Users could ultimately receive eligible funds from:
-
-- People
-- Customers
-- Businesses
-- Employers
-- Marketplaces
-- Freelance platforms
-- Payment platforms
-- Other supported financial institutions
-- Other Sovereign users
-
-### Send
-
-Users could ultimately send eligible funds to:
-
-- Individuals
-- Businesses
-- Merchants
-- Suppliers
-- Contractors
-- Supported bank accounts
-- Cards
-- Local payment systems
-- International payment networks
-
-### Spend
-
-The platform is envisioned to support compatible spending through:
-
-- Virtual cards
-- Physical cards
-- Online merchants
-- Payment gateways
-- Subscriptions
-- Business services
-- Advertising platforms
-- Digital commerce
-
-Card issuance, merchant acceptance, transaction routing, limits, and country coverage depend on the licensed partners and networks used in production.
+The roadmap below is direction, not a claim of current connectivity.
 
 ---
 
-## 🌐 The Payment-Rail Bridge
+## Getting started
 
-Sovereign's core architectural idea is **interoperability**.
+```bash
+npm install
+cp .env.example .env.local   # then fill in your Supabase values
+npm run dev
+```
 
-The user should see one coherent financial account while the infrastructure handles the complexity of different payment systems.
+Build and type-check:
 
-Examples of future supported flows could include:
+```bash
+npm run typecheck
+npm run build
+```
 
-**Local payment rail → Sovereign → Online merchant**
+### Required environment variables
 
-**Bank → Sovereign → Card**
+| Variable                   | Where to find it                                      |
+| -------------------------- | ----------------------------------------------------- |
+| `VITE_SUPABASE_URL`        | Supabase → Project Settings → API → Project URL        |
+| `VITE_SUPABASE_ANON_KEY`   | Supabase → Project Settings → API → anon/public key    |
 
-**Marketplace → Sovereign → Bank**
+Set the same two variables in your hosting provider (for Vercel: Project → Settings → Environment
+Variables). The publishable/anon key is designed for browser use and is safe to expose; row-level
+security is what protects the data.
 
-**Card → Sovereign → Supported service**
+### Database setup
 
-**Customer → Sovereign → Business**
+The schema lives in [`supabase/schema.sql`](supabase/schema.sql). Apply it once to a new Supabase
+project to create the tables, row-level security policies, the signup trigger that provisions a
+profile for every new user, and the `updated_at` triggers.
 
-**Sovereign → Advertising platform**
+Tables:
 
-These are architectural examples, not claims that every route is currently connected.
+| Table                | Purpose                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `profiles`           | Account identity: type, country, contact, onboarding status     |
+| `kyc_applications`   | Identity verification data and its review status                |
+| `security_settings`  | Transaction password hash and authenticator enrolment           |
+| `ledger_accounts`    | Per-currency balances for a user                                |
+| `transactions`       | Payment records                                                  |
+| `audit_events`       | Immutable record of sensitive account actions                   |
 
----
-
-## 🏦 More Than a Wallet
-
-Sovereign is intended to evolve into a complete online financial platform.
-
-### Accounts
-
-- Multi-currency balances
-- Account information
-- Statements
-- Transaction history
-- Funding methods
-- Withdrawal methods
-
-### Payments
-
-- Person-to-person transfers
-- Business payments
-- Merchant payments
-- International transfers
-- Payment requests
-- Recurring payments where supported
-
-### Cards
-
-- Virtual cards
-- Physical cards
-- Card controls
-- Spending controls
-- Transaction authorization
-
-### Business Finance
-
-- Business accounts
-- Team payments
-- Supplier payments
-- Business expenses
-- Financial reporting
-
-### Commerce
-
-- Online checkout
-- Payment gateways
-- Marketplace payments
-- Advertising payments
-- Platform integrations
+In Supabase, also set **Authentication → URL Configuration → Site URL** to your production domain
+and add your deployment domains to the redirect allow-list, otherwise confirmation and reset emails
+will point at the wrong host.
 
 ---
 
-## 🔐 Security Is the Foundation
+## Registration flow
 
-A world-scale financial platform requires security at every layer.
+Financial regulation requires identity checks, so Paywai collects them once, upfront, in the order
+established platforms use:
 
-Sovereign is designed around capabilities such as:
+1. **Create account** — country, email, password. A confirmation link verifies the email address.
+2. **Account** — personal or business, name, contact number, and business details when applicable.
+3. **Identity** — legal name, date of birth, nationality, occupation, document type and number.
+4. **Residence** — residential address and country of tax residence.
+5. **Review and submit** — the application goes to identity review.
 
-- Strong authentication
-- Multi-factor authentication
-- Authenticator applications
-- Transaction security controls
-- Protected sessions
-- Device and session controls
-- Identity verification
-- KYC/AML
-- Sanctions screening
-- Transaction monitoring
-- Fraud detection
-- Risk-based authentication
-- Account takeover protection
-- Rate limiting
-- Secure API authorization
-- User-scoped financial data
-- Security notifications
-- Auditable transaction records
-
-The principle is simple:
-
-> **Every sensitive action needs a security boundary. Every financial movement needs an auditable record.**
+Transaction passwords and two-factor authentication are **not** part of sign-up. Asking a brand new
+user to invent an extra password and scan a QR code before they have seen the product adds friction
+and confusion without adding trust. Both are configured afterwards, from **Settings**, where they
+protect the actions they actually guard.
 
 ---
 
-## 🧬 Financial Infrastructure
+## Project structure
 
-Sovereign is designed so that the interface can remain simple while the infrastructure remains modular and expandable.
+```
+src/
+  App.tsx                 Session routing: landing, auth, onboarding, dashboard
+  components/Brand.tsx    Wordmark and mark
+  lib/
+    supabase.ts           Supabase client
+    account.ts            Data access for profiles, KYC, ledger, audit
+    security.ts           PBKDF2 hashing, TOTP, password policy
+  pages/
+    Landing.tsx           Public site
+    Auth.tsx              Sign in, sign up, verify email, reset password
+    Onboarding.tsx        Four-step account opening
+    Dashboard.tsx         Account workspace
+    SecurityPanel.tsx     Transaction password and 2FA management
+  styles.css              Design tokens and all component styles
+supabase/schema.sql       Database schema, RLS policies and triggers
+backend/index.ts          Legacy AppDeploy-style API, kept for reference
+```
 
-Core layers include:
-
-1. Identity
-2. Authentication
-3. Account security
-4. KYC and compliance
-5. Customer profile
-6. Ledger and balances
-7. Payment orchestration
-8. Bank integrations
-9. Card infrastructure
-10. Local payment rails
-11. International payment rails
-12. Risk and fraud systems
-13. Transaction monitoring
-14. Notifications
-15. Reporting
-16. Audit infrastructure
-
-This structure is intended to make new countries, currencies, providers, and financial products easier to integrate.
-
----
-
-## 🌎 Global Country Architecture
-
-The expansion model is:
-
-**Sovereign Global Core**
-
-↓
-
-**Country-specific compliance and financial integrations**
-
-↓
-
-**Local banks + cards + payment services + payment gateways**
-
-↓
-
-**One consistent Sovereign experience**
-
-Different countries have different financial infrastructure and regulations. Sovereign's architecture is therefore designed to adapt underneath the interface rather than force every country into the same payment system.
+`backend/index.ts` is the previous server-side draft of these same flows. The application now talks
+to Supabase directly with RLS enforcing authorisation, so that file is retained only as a reference
+and is not built or deployed.
 
 ---
 
-## 🛡️ Trust, Compliance & Regulation
+## Security model
 
-Global financial infrastructure cannot responsibly operate by simply connecting payment methods without controls.
+- Row-level security on every table; policies scope rows to `auth.uid()`.
+- Anonymous and cross-user reads are denied by the database, not by the UI.
+- The transaction password is stored as a PBKDF2-SHA256 hash (210,000 iterations, per-user random
+  salt). Plaintext passwords are never stored or logged.
+- TOTP secrets are verified against a ±1 step window to tolerate clock drift.
+- Email ownership is confirmed before an account becomes usable.
+- Sensitive actions are recorded in `audit_events`.
 
-Production deployment would require appropriate:
+### Reporting a problem
 
-- Banking/payment licenses
-- Payment-provider agreements
-- KYC/identity verification
-- AML controls
-- Sanctions screening
-- Fraud prevention
-- Transaction monitoring
-- Consumer protection
-- Data protection
-- Card-industry compliance where applicable
-- Local regulatory approvals
-
-Requirements vary by country, product, and transaction type.
-
-**Compliance is part of the infrastructure—not an optional feature.**
+If you find a security issue, do not open a public issue. Contact the maintainer directly.
 
 ---
 
-## 🚀 The Bigger Vision
+## Roadmap
 
-Sovereign's ambition is to become a **global online banking and payment layer for the internet**.
+**Phase 1 — Account foundation (current)**
+Secure web application, authentication, onboarding, KYC capture, ledger foundation, audit history.
 
-Not merely a wallet.
+**Phase 2 — Financial connectivity**
+Banking integrations, card issuing partners, payment gateways, deposit and withdrawal rails.
 
-Not merely a card.
+**Phase 3 — Expansion**
+Country-by-country integrations, local payment systems, cross-border transfers, merchant
+connectivity.
 
-Not merely a payment gateway.
+**Phase 4 — Platform**
+Unified payment orchestration, advanced risk systems, business finance, commerce connectivity.
 
-Not merely an online banking interface.
-
-But a platform designed to connect these experiences.
-
-> **Banking + Cards + Local Payments + Global Payments + Commerce + Business Finance — unified through one secure platform.**
-
-The goal is to make moving money across the internet simple for the user while the infrastructure underneath provides the authorization, security, accounting, compliance, risk management, and payment connectivity required for serious financial operations.
-
----
-
-## ⚡ The Sovereign Experience
-
-The long-term experience is:
-
-**Create account → Verify identity → Secure account → Add funding method → Deposit → Hold funds → Receive → Send → Spend → Withdraw → Monitor**
-
-Everything important remains visible.
-
-Every transaction is recorded.
-
-Every sensitive operation is protected.
-
-Every user's financial data is isolated.
+Availability of any rail, country or card programme depends on real technical integrations, provider
+agreements, licensing, compliance and regulated partners. A country appearing on the roadmap does not
+mean it is supported.
 
 ---
 
-## 🗺️ Roadmap
+## Status
 
-### Phase 1 — Foundation
+Paywai is a prototype. It is not a licensed financial institution and does not offer financial
+services. Nothing in this repository should be treated as an offer of banking, payment or card
+services.
 
-- Secure web application
-- User authentication
-- Account onboarding
-- MFA/security architecture
-- User-scoped APIs
-- Financial workspace
-- Ledger foundation
-
-### Phase 2 — Financial Connectivity
-
-- Banking integrations
-- Card issuing/processing partners
-- Payment gateway integrations
-- Local payment integrations
-- Multi-currency infrastructure
-- Deposit and withdrawal rails
-
-### Phase 3 — Global Expansion
-
-- Country-by-country integrations
-- Local compliance infrastructure
-- International payment networks
-- Cross-border transfers
-- Global merchant connectivity
-
-### Phase 4 — Global Financial Platform
-
-- Unified payment orchestration
-- Global account infrastructure
-- Advanced risk systems
-- Business financial infrastructure
-- Global commerce connectivity
-- Expanded card and payment capabilities
-
----
-
-## 📌 Current Repository Status
-
-This repository contains the current Sovereign web application and its financial-interface foundation.
-
-The global network described here is the **product vision and architecture direction**. Individual banks, card networks, local payment services, payment gateways, and countries are not automatically supported simply because they appear in the vision.
-
-Production connectivity requires real technical integrations, contracts, licensing, compliance, and regulated financial partners.
-
----
-
-## 🤝 The Mission
-
-> **Build a financial platform that can connect the world's payment systems while giving people one secure, coherent online banking experience.**
-
-A user should not have to understand which payment rail is underneath.
-
-They should simply have one secure place to manage the movement of money.
-
-**Sovereign — One platform. A world of payment rails.**
-
----
-
-## License
-
-See the repository for the applicable project license and source terms.
+**Paywai — one account for global money movement.**
