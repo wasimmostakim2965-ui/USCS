@@ -21,7 +21,7 @@ function App() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => setSignedIn(Boolean(session)));
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => { setSignedIn(Boolean(session)); if(session && window.localStorage.getItem('paywai_google_signup')==='1'){setAuthMode('signup');setPage('auth');} });
     return () => data.subscription.unsubscribe();
   }, []);
 
