@@ -16,6 +16,7 @@ const VISIBILITY_KEY = 'paywai_test_inf_visibility';
 
 export function AdminPanel({ onHome }: { onHome: () => void }) {
   const [testOpen, setTestOpen] = useState(false);
+  const [section, setSection] = useState<'overview' | 'settings'>('overview');
   const [view, setView] = useState<TestView>('dashboard');
   const [visibility, setVisibility] = useState<'public' | 'private'>('private');
 
@@ -40,9 +41,10 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
       <aside className="admin-sidebar">
         <button className="demo-brand" onClick={onHome}><span>P</span> PAYWAI</button>
         <div className="admin-account"><b>ADMIN</b><small>Control center</small></div>
-        {['Overview','Users','Transactions','Compliance','Settings'].map(item => (
-          <button key={item} className={item === 'Overview' ? 'active' : ''}>{item}</button>
+        {['Overview','Users','Transactions','Compliance'].map(item => (
+          <button key={item} className={section === 'overview' && item === 'Overview' ? 'active' : ''} onClick={() => { setSection('overview'); setTestOpen(false); }}>{item}</button>
         ))}
+        <button className={section === 'settings' ? 'active' : ''} onClick={() => { setSection('settings'); setTestOpen(false); }}>Settings</button>
         <button className={'test-inf-menu ' + (testOpen ? 'expanded' : '')} onClick={() => setTestOpen(!testOpen)}>
           <span>TEST INF</span><b>{testOpen ? '−' : '+'}</b>
         </button>
@@ -62,7 +64,9 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
           <span className="admin-badge">DEMO · SYNTHETIC DATA</span>
         </header>
 
-        {!testOpen ? (
+        {!testOpen && section === 'settings' ? (
+          <AdminSettings visibility={visibility} setPublic={setPublic} />
+        ) : !testOpen ? (
           <div className="admin-content">
             <div className="demo-eyebrow">CONTROL CENTER</div>
             <h1>Paywai <em>control center.</em></h1>
@@ -86,19 +90,6 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
               </section>
             </div>
 
-            <section className="admin-card visibility-card">
-              <div>
-                <small>TEST INF VISIBILITY</small>
-                <h2>Investor access</h2>
-                <p>Public lets the presentation previews open. Private shows a 403 access screen inside TEST INF.</p>
-              </div>
-              <div className="visibility-control">
-                <button className={visibility === 'private' ? 'selected' : ''} onClick={() => setPublic('private')}>Private</button>
-                <button className={visibility === 'public' ? 'selected' : ''} onClick={() => setPublic('public')}>Public</button>
-                <strong>{visibility === 'public' ? '201 · PUBLIC' : '403 · PRIVATE'}</strong>
-              </div>
-            </section>
-
             <section className="admin-card roadmap">
               <small>REGISTRATION FLOW</small>
               <h2>Seven-step investor preview</h2>
@@ -111,6 +102,22 @@ export function AdminPanel({ onHome }: { onHome: () => void }) {
       </main>
     </div>
   );
+}
+
+function AdminSettings({ visibility, setPublic }: { visibility: 'public' | 'private'; setPublic: (next: 'public' | 'private') => void }) {
+  return <div className="admin-content">
+    <div className="demo-eyebrow">ADMIN SETTINGS</div>
+    <h1>Control <em>access.</em></h1>
+    <p className="demo-lead">TEST INF visibility is controlled here so the investor presentation can be temporarily opened or closed.</p>
+    <section className="admin-card visibility-card">
+      <div><small>TEST INF VISIBILITY</small><h2>Investor access</h2><p>Public opens the three TEST INF previews. Private returns the 403 screen.</p></div>
+      <div className="visibility-control">
+        <button className={visibility === 'private' ? 'selected' : ''} onClick={() => setPublic('private')}>Private</button>
+        <button className={visibility === 'public' ? 'selected' : ''} onClick={() => setPublic('public')}>Public</button>
+        <strong>{visibility === 'public' ? '201 · PUBLIC' : '403 · PRIVATE'}</strong>
+      </div>
+    </section>
+  </div>;
 }
 
 function TestInfWorkspace({ visibility, view, onView }: { visibility: 'public' | 'private'; view: TestView; onView: (v: TestView) => void }) {
