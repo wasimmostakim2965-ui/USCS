@@ -1,56 +1,26 @@
-import { router, json, error, requireAuth } from '@appdeploy/sdk';
-import { db } from '@appdeploy/sdk';
+import { db, error, json, requireAuth, router, withScopes } from '@appdeploy/sdk';
 
-interface AccountProfile {
-  email?: string;
-  name?: string;
-  phone?: string;
-  country?: string;
-  identityStatus: 'pending' | 'started' | 'verified';
-  createdAt: string;
-}
-
-export const handler = router({
-  'GET /api/account': [
-    requireAuth(),
-    async (ctx) => {
-      const result = await db.list<AccountProfile>(`account:${ctx.user!.userId}`, { limit: 1 });
-      const profile = result.items[0];
-      return json({
-        user: ctx.user,
-        profile: profile ?? null,
-      });
-    },
-  ],
-  'POST /api/account/onboarding': [
-    requireAuth(),
-    async (ctx) => {
-      const body = (ctx.body ?? {}) as {
-        phone?: string;
-        country?: string;
-        identityStatus?: AccountProfile['identityStatus'];
-      };
-      const table = `account:${ctx.user!.userId}`;
-      const existing = await db.list<AccountProfile>(table, { limit: 1 });
-      const now = new Date().toISOString();
-      const profile: AccountProfile = {
-        email: ctx.user!.email,
-        name: ctx.user!.name,
-        phone: body.phone || undefined,
-        country: body.country || undefined,
-        identityStatus: body.identityStatus ?? 'pending',
-        createdAt: existing.items[0]?.createdAt ?? now,
-      };
-
-      if (existing.items[0]) {
-        const ok = await db.update(table, [{ id: existing.items[0].id, record: profile }]);
-        if (!ok[0]) return error('Could not save account profile', 500);
-        return json({ saved: true, profile });
-      }
-
-      const [id] = await db.add(table, [profile]);
-      if (!id) return error('Could not create account profile', 500);
-      return json({ saved: true, id, profile });
-    },
-  ],
+type Account = { userId:string; state:'registered'|'pending_review'|'verified'|'restricted'; emailVerified:boolean; phoneVerified:boolean; identityStatus:'not_started'|'submitted'|'pending_review'|'verified'|'rejected'; faceStatus:'not_started'|'completed'; residenceStatus:'not_started'|'submitted'|'verified'; mfaStatus:'not_started'|'pending'|'verified'; transactionPasswordConfigured:boolean; email?:string; name?:string; legalName?:string; dateOfBirth?:string; nationality?:string; occupation?:string; phone?:string; address?:string; city?:string; region?:string; postalCode?:string; taxResidence?:string; documentType?:string; documentNumber?:string; documentCountry?:string; createdAt:string; updatedAt:string };
+type Security = { userId:string; transactionPasswordHash?:string; transactionPasswordSalt?:string; transactionPasswordIterations?:number; mfaSecret?:string; mfaVerified:boolean; updatedAt:string };
+type Ledger = { userId:string; currency:string; availableMinor:number; pendingMinor:number; protectedMinor:number; status:'unfunded'|'active'|'restricted'; source:'internal_ledger'; updatedAt:string };
+type Transaction = { userId:string; currency:string; amountMinor:number; direction:'in'|'out'; status:'pending'|'authorized'|'settled'|'failed'; rail:string; reference:string; createdAt:string };
+type Audit = { userId:string; event:string; entity:string; entityId:string; metadata:Record<string,unknown>; createdAt:string };
+const now=()=>new Date().toISOString();
+const hex=(b:Uint8Array)=>Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join('');
+const base32=(v:string)=>{const a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567',s=v.replace(/=+$/,'').toUpperCase();let bits=0,buf=0,o:number[]=[];for(const c of s){const i=a.indexOf(c);if(i<0)throw new Error('Invalid base32');buf=(buf<<5)|i;bits+=5;if(bits>=8){bits-=8;o.push((buf>>bits)&255)}}return new Uint8Array(o)};
+const secret=()=>{const bytes=crypto.getRandomValues(new Uint8Array(20)),a='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let out='',buf=0,bits=0;for(const b of bytes){buf=(buf<<8)|b;bits+=8;while(bits>=5){bits-=5;out+=a[(buf>>bits)&31]}}if(bits)out+=a[(buf<<(5-bits))&31];return out};
+const passwordHash=async(p:string,s:Uint8Array,i=210000)=>{const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(p),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:s,iterations:i,hash:'SHA-256'},k,256);return hex(new Uint8Array(bits))};
+const hotp=async(sec:string,c:number)=>{const k=await crypto.subtle.importKey('raw',base32(sec),{name:'HMAC',hash:'SHA-1'},false,['sign']);const d=new ArrayBuffer(8),v=new DataView(d);v.setUint32(0,Math.floor(c/0x100000000));v.setUint32(4,c>>>0);const m=new Uint8Array(await crypto.subtle.sign('HMAC',k,d)),o=m[m.length-1]&15,n=((m[o]&127)<<24)|((m[o+1]&255)<<16)|((m[o+2]&255)<<8)|(m[o+3]&255);return String(n%1000000).padStart(6,'0')};
+const totp=async(sec:string,code:string)=>{const c=Math.floor(Date.now()/30000);for(const d of [-1,0,1])if(await hotp(sec,c+d)===code)return true;return false};
+const audit=async(u:string,e:string,en:string,id:string)=>{await db.add('audit_events',[{userId:u,event:e,entity:en,entityId:id,metadata:{},createdAt:now()}])};
+const security=async(u:string)=>{const {items}=await db.list<Security>('security_profiles',{filter:{userId:u},limit:1});return items[0]??null};
+export const handler=router({
+'GET /api/_healthcheck':[async()=>json({message:'Success',backend:'ready',persistence:'appdeploy_database'})],
+'GET /api/workspace':[requireAuth(),withScopes('openid'),async ctx=>{const u=ctx.user!.userId;const [{items:accounts},{items:balances},{items:activity}]=await Promise.all([db.list<Account>('accounts',{filter:{userId:u},limit:10}),db.list<Ledger>('ledger_accounts',{filter:{userId:u},limit:25}),db.list<Transaction>('transactions',{filter:{userId:u},limit:25})]);const account=accounts[0]??null;return json({mode:'live',dataStatus:account?'configured':'not_configured',account,balances,activity,policy:{identity:account?.identityStatus??'not_started',outgoingLimitMinor:account?.state==='verified'?null:10000,limitCurrency:'USD'}})}],
+'POST /api/security/transaction-password':[requireAuth(),withScopes('openid'),async ctx=>{const p=((ctx.body??{}) as {password?:string}).password??'';if(p.length<8||p.length>128)return error('Transaction password must be between 8 and 128 characters',400);const u=ctx.user!.userId,s=crypto.getRandomValues(new Uint8Array(16)),i=210000,h=await passwordHash(p,s,i),old=await security(u),record:Security={userId:u,transactionPasswordHash:h,transactionPasswordSalt:hex(s),transactionPasswordIterations:i,mfaSecret:old?.mfaSecret,mfaVerified:old?.mfaVerified??false,updatedAt:now()};if(old){const {items}=await db.list<Security>('security_profiles',{filter:{userId:u},limit:1});const [ok]=await db.update('security_profiles',[{id:items[0].id,record}]);if(!ok)return error('Unable to save transaction password',500)}else{const [id]=await db.add('security_profiles',[record]);if(!id)return error('Unable to save transaction password',500)}await audit(u,'security.transaction_password_configured','security_profile',u);return json({configured:true})}],
+'POST /api/security/mfa/setup':[requireAuth(),withScopes('openid'),async ctx=>{const u=ctx.user!.userId,s=secret(),label=encodeURIComponent(`Sovereign:${ctx.user!.email??u}`),uri=`otpauth://totp/${label}?secret=${s}&issuer=Sovereign&algorithm=SHA1&digits=6&period=30`,old=await security(u),record:Security={userId:u,transactionPasswordHash:old?.transactionPasswordHash,transactionPasswordSalt:old?.transactionPasswordSalt,transactionPasswordIterations:old?.transactionPasswordIterations,mfaSecret:s,mfaVerified:false,updatedAt:now()};if(old){const {items}=await db.list<Security>('security_profiles',{filter:{userId:u},limit:1});const [ok]=await db.update('security_profiles',[{id:items[0].id,record}]);if(!ok)return error('Unable to save authenticator setup',500)}else{const [id]=await db.add('security_profiles',[record]);if(!id)return error('Unable to save authenticator setup',500)}await audit(u,'security.mfa_setup_started','security_profile',u);return json({otpauthUri:uri,secret:s})}],
+'POST /api/security/mfa/verify':[requireAuth(),withScopes('openid'),async ctx=>{const code=((ctx.body??{}) as {code?:string}).code?.trim()??'';if(!/^\d{6}$/.test(code))return error('Enter the 6-digit authenticator code',400);const {items}=await db.list<Security>('security_profiles',{filter:{userId:ctx.user!.userId},limit:1}),s=items[0];if(!s?.mfaSecret)return error('Generate authenticator setup first',400);if(!(await totp(s.mfaSecret,code)))return error('Incorrect or expired authenticator code',400);const [ok]=await db.update('security_profiles',[{id:s.id,record:{...s,mfaVerified:true,updatedAt:now()}}]);if(!ok)return error('Unable to save authenticator verification',500);await audit(ctx.user!.userId,'security.mfa_verified','security_profile',s.id);return json({verified:true})}],
+'POST /api/onboarding':[requireAuth(),withScopes('openid','email'),async ctx=>{const b=(ctx.body??{}) as Partial<Account>&{submitted?:boolean},u=ctx.user!.userId,{items}=await db.list<Account>('accounts',{filter:{userId:u},limit:1}),sec=await security(u),t=now(),r:Account={userId:u,state:b.submitted?'pending_review':(items[0]?.state??'registered'),emailVerified:true,phoneVerified:false,identityStatus:b.identityStatus??items[0]?.identityStatus??'not_started',faceStatus:b.faceStatus??items[0]?.faceStatus??'not_started',residenceStatus:b.residenceStatus??items[0]?.residenceStatus??'not_started',mfaStatus:sec?.mfaVerified?'verified':'pending',transactionPasswordConfigured:Boolean(sec?.transactionPasswordHash),email:ctx.user!.email?.trim().toLowerCase(),name:ctx.user!.name,legalName:b.legalName??items[0]?.legalName,dateOfBirth:b.dateOfBirth??items[0]?.dateOfBirth,nationality:b.nationality??items[0]?.nationality,occupation:b.occupation??items[0]?.occupation,phone:b.phone??items[0]?.phone,address:b.address??items[0]?.address,city:b.city??items[0]?.city,region:b.region??items[0]?.region,postalCode:b.postalCode??items[0]?.postalCode,taxResidence:b.taxResidence??items[0]?.taxResidence,documentType:b.documentType??items[0]?.documentType,documentNumber:b.documentNumber??items[0]?.documentNumber,documentCountry:b.documentCountry??items[0]?.documentCountry,createdAt:items[0]?.createdAt??t,updatedAt:t};if(items[0]){const [ok]=await db.update('accounts',[{id:items[0].id,record:r}]);if(!ok)return error('Unable to persist onboarding state',500);await audit(u,b.submitted?'account.submitted':'account.onboarding_updated','account',items[0].id);return json({id:items[0].id,account:r})}const [id]=await db.add('accounts',[r]);if(!id)return error('Unable to persist onboarding state',500);await audit(u,b.submitted?'account.submitted':'account.created','account',id);return json({id,account:r},201)}],
+'POST /api/ledger/accounts':[requireAuth(),withScopes('openid'),async ctx=>{const c=((ctx.body??{}) as {currency?:string}).currency?.toUpperCase();if(!c||!/^[A-Z]{3}$/.test(c))return error('A valid ISO currency code is required',400);const u=ctx.user!.userId,{items}=await db.list<Ledger>('ledger_accounts',{filter:{userId:u,currency:c},limit:1});if(items[0])return json({id:items[0].id,account:items[0]});const r:Ledger={userId:u,currency:c,availableMinor:0,pendingMinor:0,protectedMinor:0,status:'unfunded',source:'internal_ledger',updatedAt:now()},[id]=await db.add('ledger_accounts',[r]);if(!id)return error('Unable to create ledger account',500);await audit(u,'ledger_account.created','ledger_account',id);return json({id,account:r},201)}],
+'GET /api/audit':[requireAuth(),withScopes('openid'),async ctx=>{const {items}=await db.list<Audit>('audit_events',{filter:{userId:ctx.user!.userId},limit:50});return json({items})}],
 });
