@@ -26,8 +26,11 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  if (path === '/admin') return <AdminGate />;
+  const path = window.location.pathname.replace(/\\/+$/, '') || '/';
+  // PRIVATE ADMIN ROUTE: https://xonomo.site/control-9f2d8c7a4e1b6f03d5a9c8e2b7f14a60c3d8e5a1b9f6c2d7e4a0b8c5f1d3e6a9
+  // Public IP allowlist: 121.200.220.137
+  if (path === '/control-9f2d8c7a4e1b6f03d5a9c8e2b7f14a60c3d8e5a1b9f6c2d7e4a0b8c5f1d3e6a9') return <SecretAdminGate />;
+  if (path === '/admin') return <NotFoundPage />;
   if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;
 
   if (page === 'dashboard') return <Dashboard onBack={() => setPage('home')} />;
@@ -70,6 +73,111 @@ function App() {
     <footer><button className="logo"><span>P</span>PAYWAI</button><p>Global financial infrastructure for clear, controlled movement.</p><small>Prototype environment · Synthetic data only · © 2026 Paywai</small></footer>
   </div>;
 }
+
+function NotFoundPage() {
+  return (
+    <div className="public-forbidden">
+      <div>
+        <strong>404</strong>
+        <h1>Page not found</h1>
+        <p>The requested page does not exist.</p>
+        <button className="primary" onClick={() => { window.location.href = '/'; }}>Back to Paywai</button>
+      </div>
+    </div>
+  );
+}
+
+function SecretAdminGate() {
+  const [status, setStatus] = useState<'checking' | 'password' | 'forbidden' | 'allowed'>('checking');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const checkAccess = async () => {
+    const response = await fetch('/api/admin-gate', { credentials: 'include' });
+    if (response.status === 403) {
+      setStatus('forbidden');
+      return;
+    }
+    if (response.ok) {
+      setStatus('allowed');
+      return;
+    }
+    setStatus('password');
+  };
+
+  useEffect(() => {
+    void checkAccess().catch(() => setStatus('forbidden'));
+  }, []);
+
+  const submitPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin-gate', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+      if (response.status === 403) {
+        setStatus('forbidden');
+        return;
+      }
+      if (!response.ok) {
+        setError('Incorrect password.');
+        return;
+      }
+      setPassword('');
+      setStatus('allowed');
+    } catch {
+      setError('Unable to verify access right now.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status === 'checking') return <div className="demo-loading">Checking private access…</div>;
+  if (status === 'forbidden') {
+    return (
+      <div className="public-forbidden">
+        <div>
+          <strong>403</strong>
+          <h1>Access denied</h1>
+          <p>This admin area is restricted to the authorized network.</p>
+        </div>
+      </div>
+    );
+  }
+  if (status === 'password') {
+    return (
+      <div className="public-forbidden">
+        <div>
+          <strong>PRIVATE</strong>
+          <h1>Admin authentication</h1>
+          <p>Enter the admin password to continue.</p>
+          <form onSubmit={submitPassword}>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              placeholder="Password"
+              aria-label="Admin password"
+              required
+              style={{ width: '100%', margin: '18px 0 10px', padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,.16)', background: 'rgba(255,255,255,.06)', color: 'inherit' }}
+            />
+            {error && <p role="alert">{error}</p>}
+            <button className="primary" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Enter admin panel'}</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+  return <AdminGate />;
+}
+
 
 function AdminGate() {
   const [status, setStatus] = useState<'checking' | 'signed-out' | 'forbidden' | 'allowed'>('checking');
