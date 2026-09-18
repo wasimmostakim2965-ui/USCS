@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Auth from './Auth';
 import Dashboard from './Dashboard';
 import { AdminPanel, InvestorPreview } from './Demo';
@@ -110,7 +110,7 @@ function SecretAdminGate() {
     void checkAccess().catch(() => setStatus('forbidden'));
   }, []);
 
-  const submitPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+  const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setBusy(true);
     setError('');
