@@ -44,7 +44,7 @@ const decodeBase32=(value:string)=>{const clean=value.replace(/=+$/,'').toUpperC
 const hotp=async(secret:string,counter:number)=>{const key=await crypto.subtle.importKey('raw',decodeBase32(secret),{name:'HMAC',hash:'SHA-1'},false,['sign']);const data=new ArrayBuffer(8),view=new DataView(data);view.setUint32(0,Math.floor(counter/0x100000000));view.setUint32(4,counter>>>0);const digest=new Uint8Array(await crypto.subtle.sign('HMAC',key,data));const offset=digest[digest.length-1]&15;const n=((digest[offset]&127)<<24)|((digest[offset+1]&255)<<16)|((digest[offset+2]&255)<<8)|(digest[offset+3]&255);return String(n%1000000).padStart(6,'0')};
 const validTotp=async(secret:string,code:string)=>{if(!/^\d{6}$/.test(code))return false;const counter=Math.floor(Date.now()/30000);for(const delta of [-1,0,1])if(await hotp(secret,counter+delta)===code)return true;return false};
 
-export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=>void;onSuccess:()=>void;initialMode?:'signup'|'signin'}) {
+export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=false}:{onBack:()=>void;onSuccess:()=>void;initialMode?:'signup'|'signin';demoMode?:boolean}) {
   const [mode,setMode]=useState<'signup'|'signin'>(initialMode);
   const [step,setStep]=useState<SignupStep>(1);
   const [loginStep,setLoginStep]=useState<LoginStep>('credentials');
@@ -79,7 +79,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   const [googleSignup,setGoogleSignup]=useState(false);
   const passwordProblems=useMemo(()=>passwordIssues(password),[password]);
 
-  useEffect(()=>{void (async()=>{const {data}=await supabase.auth.getSession();if(data.session?.user){setUserId(data.session.user.id);setEmail(data.session.user.email??'');const pending=window.localStorage.getItem('paywai_google_signup')==='1';if(pending){window.localStorage.removeItem('paywai_google_signup');setGoogleSignup(true);const name=data.session.user.user_metadata?.full_name??data.session.user.user_metadata?.name??'';if(name){setFullName(name);setLegalName(name);}setNotice('Google verified your email. Now create your Paywai password to continue.');}}})().catch(()=>undefined);},[]);
+  useEffect(()=>{if(demoMode){setEmail('TEST');setPassword('TEST1234');setPassword2('TEST1234');setEmailCode('TEST');setFullName('TEST');setPhone('TEST');setLegalName('TEST');setDob('2000-01-01');setOccupation('TEST');setDocumentNumber('TEST');setAddress('TEST');setCity('TEST');setRegion('TEST');setPostal('TEST');setStep(1);return;} void (async()=>{const {data}=await supabase.auth.getSession();if(data.session?.user){setUserId(data.session.user.id);setEmail(data.session.user.email??'');const pending=window.localStorage.getItem('paywai_google_signup')==='1';if(pending){window.localStorage.removeItem('paywai_google_signup');setGoogleSignup(true);const name=data.session.user.user_metadata?.full_name??data.session.user.user_metadata?.name??'';if(name){setFullName(name);setLegalName(name);}setNotice('Google verified your email. Now create your Paywai password to continue.');}}})().catch(()=>undefined);},[]);
 
   const go=(next:SignupStep)=>{setError('');setNotice('');setStep(next);window.scrollTo({top:0,behavior:'smooth'})};
 
@@ -90,6 +90,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   const completeGooglePassword=async()=>{if(!userId){setError('Your Google sign-in session could not be found. Please start again.');return}if(passwordProblems.length){setError(`Your password needs ${passwordProblems.join(', ')}.`);return}if(password!==password2){setError('The two passwords do not match.');return}setBusy(true);setError('');const {error:e}=await supabase.auth.updateUser({password});if(e){setBusy(false);setError(e.message);return}await recordAudit(userId,'onboarding.google_password_set','auth');setBusy(false);go(3)};
 
   const createAccount=async()=>{
+    if(demoMode){go(2);return}
     if(!supabaseConfigured){setError('Account creation is not configured on this deployment yet.');return}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setError('Enter a valid email address.');return}
     if(passwordProblems.length){setError(`Your password needs ${passwordProblems.join(', ')}.`);return}
@@ -115,6 +116,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   const resendSignupCode=async()=>{setBusy(true);setError('');try{await sendSignupCode();setNotice('A new verification code has been sent to your email.');}catch(e){setError((e as Error).message||'Could not send a new code.');}finally{setBusy(false)}};
 
   const persistDetails=async()=>{
+    if(demoMode){go(4);return}
     if(!userId||!fullName.trim()){setError('Enter your full legal name.');return}
     if(!/^\+?[\d\s()-]{7,}$/.test(phone.trim())){setError('Enter a valid mobile number including the country code.');return}
     setBusy(true);setError('');
@@ -122,12 +124,14 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   };
 
   const persistIdentity=async()=>{
+    if(demoMode){go(5);return}
     if(!userId||!legalName.trim()||!dob||!documentNumber.trim()||!occupation.trim()){setError('Legal name, date of birth, document number and occupation are required.');return}
     setBusy(true);setError('');
     try{await saveKyc(userId,{legal_name:legalName.trim(),date_of_birth:dob,nationality,occupation:occupation.trim(),document_type:documentType,document_number:documentNumber.trim(),document_country:documentCountry,status:'draft'});await saveProfile(userId,{onboarding_status:'kyc_pending'});await recordAudit(userId,'onboarding.identity_saved','kyc_application');go(5)}catch(e){setError((e as Error).message||'We could not save your identity details.')}finally{setBusy(false)}
   };
 
   const persistResidence=async()=>{
+    if(demoMode){go(6);return}
     if(!userId||!address.trim()||!city.trim()||!postal.trim()){setError('Street address, city and postal code are required.');return}
     setBusy(true);setError('');
     try{await saveKyc(userId,{address_line1:address.trim(),city:city.trim(),region:region.trim(),postal_code:postal.trim(),tax_residence:taxResidence});await recordAudit(userId,'onboarding.residence_saved','kyc_application');await setupAuthenticator();go(6)}catch(e){setError((e as Error).message||'We could not save your address.')}finally{setBusy(false)}
@@ -144,12 +148,13 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   };
 
   const verifyAuthenticator=async()=>{
+    if(demoMode){go(7);return}
     if(!userId||!mfaSecret){setError('Generate the authenticator setup first.');return}
     setBusy(true);setError('');
     try{if(!(await validTotp(mfaSecret,mfaCode.trim())))throw new Error('That authenticator code is incorrect or expired.');await saveSecurity(userId,{mfa_secret:mfaSecret,mfa_enabled:true});await recordAudit(userId,'security.mfa_enabled','security_settings');await finishAccount(true)}catch(e){setError((e as Error).message||'Could not enable the authenticator.')}finally{setBusy(false)}
   };
 
-  const skipAuthenticator=async()=>{if(!userId)return;setBusy(true);setError('');try{await saveSecurity(userId,{mfa_secret:null,mfa_enabled:false});await recordAudit(userId,'security.mfa_skipped','security_settings');await finishAccount(false)}catch(e){setError((e as Error).message||'Could not finish account setup.')}finally{setBusy(false)}};
+  const skipAuthenticator=async()=>{if(demoMode){go(7);return}if(!userId)return;setBusy(true);setError('');try{await saveSecurity(userId,{mfa_secret:null,mfa_enabled:false});await recordAudit(userId,'security.mfa_skipped','security_settings');await finishAccount(false)}catch(e){setError((e as Error).message||'Could not finish account setup.')}finally{setBusy(false)}};
 
   const finishAccount=async(mfa:boolean)=>{
     if(!userId)return;
