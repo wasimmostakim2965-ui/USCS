@@ -73,16 +73,21 @@ export default function Auth({onBack,onSuccess,initialMode='signup'}:{onBack:()=
   const [mfaQr,setMfaQr]=useState('');
   const [mfaCode,setMfaCode]=useState('');
   const [loginMfaSecret,setLoginMfaSecret]=useState('');
-  const [loginUserId,setLoginUserId]=useState<string|null>(null);\n  const [googleSignup,setGoogleSignup]=useState(false);
+  const [loginUserId,setLoginUserId]=useState<string|null>(null);
+  const [googleSignup,setGoogleSignup]=useState(false);
   const passwordProblems=useMemo(()=>passwordIssues(password),[password]);
 
   useEffect(()=>{void (async()=>{const {data}=await supabase.auth.getSession();if(data.session?.user){setUserId(data.session.user.id);setEmail(data.session.user.email??'');const pending=window.localStorage.getItem('paywai_google_signup')==='1';if(pending){window.localStorage.removeItem('paywai_google_signup');setGoogleSignup(true);const name=data.session.user.user_metadata?.full_name??data.session.user.user_metadata?.name??'';if(name){setFullName(name);setLegalName(name);}setNotice('Google verified your email. Now create your Paywai password to continue.');}}})().catch(()=>undefined);},[]);
 
-  const go=(next:SignupStep)=>{setError('');setNotice('');setStep(next);window.scrollTo({top:0,behavior:'smooth'})};\n\n  const startGoogleSignup=async()=>{if(!supabaseConfigured){setError('Account creation is not configured on this deployment yet.');return}setBusy(true);setError('');window.localStorage.setItem('paywai_google_signup','1');const {error:e}=await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin}});if(e){window.localStorage.removeItem('paywai_google_signup');setBusy(false);setError(e.message)}};
+  const go=(next:SignupStep)=>{setError('');setNotice('');setStep(next);window.scrollTo({top:0,behavior:'smooth'})};
+
+  const startGoogleSignup=async()=>{if(!supabaseConfigured){setError('Account creation is not configured on this deployment yet.');return}setBusy(true);setError('');window.localStorage.setItem('paywai_google_signup','1');const {error:e}=await supabase.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin}});if(e){window.localStorage.removeItem('paywai_google_signup');setBusy(false);setError(e.message)}};
 
   const sendSignupCode=async()=>{const {error:e}=await supabase.auth.resend({type:'signup',email:email.trim()});if(e)throw e};
 
-  const completeGooglePassword=async()=>{if(!userId){setError('Your Google sign-in session could not be found. Please start again.');return}if(passwordProblems.length){setError(`Your password needs ${passwordProblems.join(', ')}.`);return}if(password!==password2){setError('The two passwords do not match.');return}setBusy(true);setError('');const {error:e}=await supabase.auth.updateUser({password});if(e){setBusy(false);setError(e.message);return}await recordAudit(userId,'onboarding.google_password_set','auth');setBusy(false);go(3)};\n\n  const createAccount=async()=>{
+  const completeGooglePassword=async()=>{if(!userId){setError('Your Google sign-in session could not be found. Please start again.');return}if(passwordProblems.length){setError(`Your password needs ${passwordProblems.join(', ')}.`);return}if(password!==password2){setError('The two passwords do not match.');return}setBusy(true);setError('');const {error:e}=await supabase.auth.updateUser({password});if(e){setBusy(false);setError(e.message);return}await recordAudit(userId,'onboarding.google_password_set','auth');setBusy(false);go(3)};
+
+  const createAccount=async()=>{
     if(!supabaseConfigured){setError('Account creation is not configured on this deployment yet.');return}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){setError('Enter a valid email address.');return}
     if(passwordProblems.length){setError(`Your password needs ${passwordProblems.join(', ')}.`);return}
