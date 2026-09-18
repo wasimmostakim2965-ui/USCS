@@ -33,6 +33,8 @@ export function AdminPanel({ onHome, previewOnly = false }: { onHome?: () => voi
     setView(next);
   };
 
+  const goHome = onHome ?? (() => undefined);
+
   const setPublic = (next: 'public' | 'private') => {
     setVisibility(next);
     window.localStorage.setItem(VISIBILITY_KEY, next);
@@ -57,7 +59,7 @@ export function AdminPanel({ onHome, previewOnly = false }: { onHome?: () => voi
             <button className={view === 'registration' ? 'active' : ''} onClick={() => selectTest('registration')}>Test Registration</button>
           </div>
         )}
-        <button className="admin-exit" onClick={onHome}>← Back to website</button>
+        <button className="admin-exit" onClick={goHome}>← Back to website</button>
       </aside>
 
       <main className="admin-main">
@@ -66,7 +68,9 @@ export function AdminPanel({ onHome, previewOnly = false }: { onHome?: () => voi
           <span className="admin-badge">DEMO · SYNTHETIC DATA</span>
         </header>
 
-        {previewOnly ? (\n          <div className="admin-content"><div className="demo-eyebrow">TEST ADMIN · LIVE UI</div><h1>Control <em>center.</em></h1><p className="demo-lead">This preview uses the same Admin Panel component and styling. Controls are disabled from the investor preview.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>ADMIN WORKSPACE</small><strong>OVERVIEW</strong><p>Users, transactions, compliance and TEST INF are managed from this control center.</p></section><section className="admin-card"><small>SECURITY</small><strong>PROTECTED CONTROLS</strong><div className="admin-list"><span>Authentication <b>Enabled</b></span><span>Production data <b>Protected</b></span><span>Investor demo <b>Isolated</b></span></div></section></div></div>\n        ) : section === 'settings' ? (
+        {previewOnly ? (
+          <div className="admin-content"><div className="demo-eyebrow">TEST ADMIN · LIVE UI</div><h1>Control <em>center.</em></h1><p className="demo-lead">This preview uses the same Admin Panel component and styling. Controls are disabled from the investor preview.</p><div className="admin-grid"><section className="admin-card primary-admin"><small>ADMIN WORKSPACE</small><strong>OVERVIEW</strong><p>Users, transactions, compliance and TEST INF are managed from this control center.</p></section><section className="admin-card"><small>SECURITY</small><strong>PROTECTED CONTROLS</strong><div className="admin-list"><span>Authentication <b>Enabled</b></span><span>Production data <b>Protected</b></span><span>Investor demo <b>Isolated</b></span></div></section></div></div>
+        ) : section === 'settings' ? (
           <AdminSettings visibility={visibility} setPublic={setPublic} />
         ) : !testOpen ? (
           <div className="admin-content">
