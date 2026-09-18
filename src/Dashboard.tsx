@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
 import { supabase } from './lib/supabase';
 import {
@@ -28,9 +29,15 @@ import {
   ShieldCheck,
   Smartphone,
   Wallet,
+  CheckCircle2,
 } from 'lucide-react';
 
-const TABS = [
+\nconst DASHBOARD_B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const makeDashboardSecret = () => { const bytes = crypto.getRandomValues(new Uint8Array(20)); let out='',buf=0,bits=0; for (const b of bytes) { buf=(buf<<8)|b; bits+=8; while(bits>=5){bits-=5;out+=DASHBOARD_B32[(buf>>bits)&31]} } if(bits) out+=DASHBOARD_B32[(buf<<(5-bits))&31]; return out; };
+const decodeDashboardBase32 = (value:string) => { const clean=value.replace(/=+$/,'').toUpperCase(); let buf=0,bits=0; const out:number[]=[]; for(const c of clean){const n=DASHBOARD_B32.indexOf(c);if(n<0)throw new Error('Invalid authenticator secret');buf=(buf<<5)|n;bits+=5;if(bits>=8){bits-=8;out.push((buf>>bits)&255)}} return new Uint8Array(out); };
+const dashboardHotp = async (secret:string,counter:number) => { const key=await crypto.subtle.importKey('raw',decodeDashboardBase32(secret),{name:'HMAC',hash:'SHA-1'},false,['sign']); const data=new ArrayBuffer(8),view=new DataView(data);view.setUint32(0,Math.floor(counter/0x100000000));view.setUint32(4,counter>>>0);const d=new Uint8Array(await crypto.subtle.sign('HMAC',key,data));const o=d[d.length-1]&15;const n=((d[o]&127)<<24)|((d[o+1]&255)<<16)|((d[o+2]&255)<<8)|(d[o+3]&255);return String(n%1000000).padStart(6,'0'); };
+const verifyDashboardTotp = async (secret:string,code:string) => { if(!/^\\d{6}$/.test(code)) return false; const counter=Math.floor(Date.now()/30000); for(const delta of [-1,0,1]) if(await dashboardHotp(secret,counter+delta)===code)return true; return false; };
+\nconst TABS = [
   'Overview',
   'Money',
   'Payments',
@@ -142,13 +149,10 @@ export default function Dashboard({ onBack }: { onBack: () => void }) {
           <span className="env">● {profile?.onboarding_status.toUpperCase() ?? 'LOADING'}</span>
         </header>
         <div className="dash-content">
-          {profile && profile.onboarding_status !== 'verified' && (
+          {security && !security.mfa_enabled && (
             <div className="limit">
-              <b>{statusCopy}</b>
-              <span>
-                Outgoing transactions are limited to <strong>$100</strong> until identity review is
-                approved.
-              </span>
+              <b>Set up your authenticator app</b>
+              <span>Your account does not have authenticator verification enabled yet. <button className="dash-security-link" onClick={() => selectTab('Settings')}>Set it up in Security Settings</button></span>
             </div>
           )}
 
@@ -297,6 +301,39 @@ function SecurityPanel({
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
+  const setMfa = async () => {
+    if (!userId) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const secret = makeDashboardSecret();
+      const uri = `otpauth://totp/${encodeURIComponent(`Paywai:${email}`)}?secret=${secret}&issuer=Paywai&algorithm=SHA1&digits=6&period=30`;
+      const qr = await QRCode.toDataURL(uri, { width: 220, margin: 1 });
+      const code = window.prompt('Enter the 6-digit code shown in your authenticator app to enable it:')?.replace(/\D/g, '') ?? '';
+      if (!(await verifyDashboardTotp(secret, code))) throw new Error('That authenticator code is incorrect or expired.');
+      const next: SecuritySettings = {
+        ...(security ?? {
+          transaction_password_hash: null,
+          transaction_password_salt: null,
+          transaction_password_iterations: null,
+          mfa_secret: null,
+          mfa_enabled: false,
+        }),
+        mfa_secret: secret,
+        mfa_enabled: true,
+      };
+      await saveSecurity(userId, next);
+      await recordAudit(userId, 'security.mfa_enabled', 'security_settings');
+      onSaved(next);
+      setMessage('Authenticator app enabled successfully.');
+    } catch (e) {
+      setError((e as Error).message || 'Could not enable the authenticator app.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const setTransactionPassword = async () => {
     if (!userId) return;
     if (password.length < 8) {
@@ -341,6 +378,19 @@ function SecurityPanel({
 
   return (
     <>
+      <section className="module">
+        <h2>Authenticator app</h2>
+        <p>Use Google Authenticator or another compatible app for an additional sign-in verification step.</p>
+        {security?.mfa_enabled ? (
+          <div className="success-note"><CheckCircle2 size={15} /> Authenticator verification is enabled on this account.</div>
+        ) : (
+          <div className="onboarding-actions">
+            <span />
+            <button className="primary" onClick={setMfa} disabled={busy}>Set up authenticator</button>
+          </div>
+        )}
+      </section>
+
       <section className="module">
         <h2>Transaction password</h2>
         <p>
