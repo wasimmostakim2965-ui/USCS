@@ -26,7 +26,7 @@ function App() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const path = window.location.pathname.replace(/\\/+$/, '') || '/';
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (path === '/admin') return <AdminGate />;
   if (path.startsWith('/i/')) return <InvestorPreview token={decodeURIComponent(path.slice(3).split('/')[0])} />;
 
