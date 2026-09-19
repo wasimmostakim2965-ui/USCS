@@ -1,0 +1,49 @@
+/* Paywai brand system — shared logo treatment */
+.logo,.demo-brand,.brand{
+  background-repeat:no-repeat;
+  background-position:left center;
+  background-size:contain;
+  color:transparent !important;
+  font-size:0 !important;
+  line-height:0;
+}
+.logo > *, .demo-brand > *, .brand > *{display:none !important;}
+.logo{
+  width:150px;
+  min-width:150px;
+  height:42px;
+  padding:0 !important;
+  background-image:url('/paywai-lockup-light.svg');
+}
+.site footer .logo{
+  background-image:url('/paywai-lockup-dark.svg');
+}
+.dash .logo{
+  background-image:url('/paywai-lockup-dark.svg');
+}
+.demo-brand{
+  width:156px;
+  height:42px;
+  padding:0 !important;
+  background-image:url('/paywai-lockup-dark.svg');
+}
+.auth-side .brand{
+  width:205px;
+  height:46px;
+  padding:0 !important;
+  background-image:url('/paywai-lockup-dark.svg');
+}
+.mobile-auth-logo .brand{
+  width:155px;
+  height:40px;
+  padding:0 !important;
+  background-image:url('/paywai-lockup-light.svg');
+}
+.flow-top .logo{
+  background-image:url('/paywai-lockup-light.svg');
+}
+@media(max-width:600px){
+  .logo{width:132px;min-width:132px;height:38px;}
+  .demo-brand{width:145px;height:38px;}
+  .auth-side .brand,.mobile-auth-logo .brand{width:145px;height:38px;}
+}
