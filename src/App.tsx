@@ -15,12 +15,22 @@ const products = [
 ];
 
 function App() {
-  const [page, setPage] = useState<Page>('home');
+  const initialPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  const initialPage: Page = initialPath === '/signin' ? 'auth' : initialPath === '/signup' ? 'auth' : initialPath === '/platform' ? 'platform' : initialPath === '/dashboard' ? 'dashboard' : 'home';
+  const [page, setPage] = useState<Page>(initialPage);
   const [menu, setMenu] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
 
   useEffect(() => {
+    const titles: Record<string, string> = {
+      '/': 'Paywai — Global Payments, Balances & Financial Control',
+      '/signin': 'Sign in to Paywai — Global Financial Account',
+      '/signup': 'Create your Paywai account — Global Financial Platform',
+      '/platform': 'Paywai Platform — Payments, Balances & Financial Control',
+      '/dashboard': 'Paywai Dashboard — Your Financial Workspace',
+    };
+    document.title = titles[window.location.pathname.replace(/\/+$/, '') || '/'] || 'Paywai — Global Financial Platform';
     void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
     const { data } = supabase.auth.onAuthStateChange((_event, session) => { setSignedIn(Boolean(session)); if(session && window.localStorage.getItem('paywai_google_signup')==='1'){setAuthMode('signup');setPage('auth');} });
     return () => data.subscription.unsubscribe();
