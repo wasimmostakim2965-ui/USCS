@@ -42,6 +42,15 @@ export type KycApplication = {
   gender: string | null;
   marital_status: string | null;
   employer: string | null;
+  employment_status: string | null;
+  source_of_funds: string | null;
+  expected_monthly_volume: string | null;
+  bank_country: string | null;
+  bank_name: string | null;
+  bank_account_holder: string | null;
+  bank_account_number: string | null;
+  bank_iban: string | null;
+  bank_swift_bic: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
