@@ -37,7 +37,16 @@ function App() {
       '/platform': 'Paywai Platform — Payments, Balances & Financial Control',
       '/dashboard': 'Paywai Dashboard — Your Financial Workspace',
     };
-    document.title = titles[window.location.pathname.replace(/\/+$/, '') || '/'] || 'Paywai — Global Financial Platform';
+    const currentPath = window.location.pathname.replace(/\\/+$/, '') || '/';
+    document.title = titles[currentPath] || 'Paywai — Global Financial Platform';
+    const canonicalUrl = currentPath === '/platform' ? 'https://xonomo.site/platform' : 'https://xonomo.site/';
+    let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (!canonical) { canonical = document.createElement('link'); canonical.rel = 'canonical'; document.head.appendChild(canonical); }
+    canonical.href = canonicalUrl;
+    const privateRoute = currentPath === '/signin' || currentPath === '/signup' || currentPath === '/dashboard' || currentPath.startsWith('/control-') || currentPath.startsWith('/i/');
+    let robots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
+    if (!robots) { robots = document.createElement('meta'); robots.name = 'robots'; document.head.appendChild(robots); }
+    robots.content = privateRoute ? 'noindex,nofollow' : 'index,follow,max-image-preview:large';
     void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
     const { data } = supabase.auth.onAuthStateChange((_event, session) => { setSignedIn(Boolean(session)); if(session && window.localStorage.getItem('paywai_google_signup')==='1'){setAuthMode('signup');setPage('auth');} });
     return () => data.subscription.unsubscribe();
