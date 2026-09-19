@@ -18,10 +18,23 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "Paywai",
-        "alternateName": ["Paywai Financial"],
-        "url": "https://xonomo.site/"
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://xonomo.site/#organization",
+            "name": "Paywai",
+            "url": "https://xonomo.site/",
+            "logo": "https://xonomo.site/favicon.svg"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://xonomo.site/#website",
+            "name": "Paywai",
+            "alternateName": ["Paywai Financial"],
+            "url": "https://xonomo.site/",
+            "publisher": { "@id": "https://xonomo.site/#organization" }
+          }
+        ]
       }
     </script>
   </head>
