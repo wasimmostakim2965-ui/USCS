@@ -47,9 +47,19 @@ function App() {
     let robots = document.querySelector('meta[name="robots"]') as HTMLMetaElement | null;
     if (!robots) { robots = document.createElement('meta'); robots.name = 'robots'; document.head.appendChild(robots); }
     robots.content = privateRoute ? 'noindex,nofollow' : 'index,follow,max-image-preview:large';
+    const handlePopState = () => {
+      const nextPath = window.location.pathname.replace(/\/+$/, '') || '/';
+      const nextPage: Page = nextPath === '/signin' || nextPath === '/signup' ? 'auth' : nextPath === '/platform' ? 'platform' : nextPath === '/dashboard' ? 'dashboard' : 'home';
+      if (nextPage === 'auth') setAuthMode(nextPath === '/signin' ? 'signin' : 'signup');
+      setPage(nextPage);
+    };
+    window.addEventListener('popstate', handlePopState);
     void supabase.auth.getSession().then(({ data }) => setSignedIn(Boolean(data.session)));
     const { data } = supabase.auth.onAuthStateChange((_event, session) => { setSignedIn(Boolean(session)); if(session && window.localStorage.getItem('paywai_google_signup')==='1'){setAuthMode('signup');setPage('auth');} });
-    return () => data.subscription.unsubscribe();
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
