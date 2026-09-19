@@ -90,3 +90,42 @@
 
 /* Professional rectangular onboarding controls */
 .verification-panel input,.verification-panel select,.form-grid input,.form-grid select{width:100%;min-height:47px;border:1px solid #cfdad4;background:#fff;color:#16251e;border-radius:0;padding:0 13px;font:inherit;font-weight:500;font-size:12px}.verification-panel input:focus,.verification-panel select:focus{outline:none;border-color:#0a704b;box-shadow:0 0 0 2px #e5f3ec}.type-choice{position:relative;border:1px solid #d5e2da;background:#fff;border-radius:0;padding:20px 18px;text-align:left;display:grid;gap:3px;transition:.18s}.type-choice:hover{border-color:#a8cfb8;background:#fafdfb}.type-choice.selected{border-color:#0a704b;background:#f4fbf7;box-shadow:inset 0 0 0 1px #0a704b}.notice{display:flex;align-items:flex-start;gap:10px;padding:13px 14px;border:1px solid #d9e4de;background:#f7faf8;border-radius:0;color:#586a60;font-size:11px;line-height:1.55;margin-top:16px}.error-note{margin-top:14px;padding:11px 13px;border:1px solid #ead1d1;background:#fff7f7;color:#8a3d3d;border-radius:0;font-size:11px;line-height:1.45}.success-note{display:flex;align-items:center;gap:8px;margin-top:14px;padding:11px 13px;border:1px solid #cfe5d8;background:#f2faf5;color:#236044;border-radius:0;font-size:11px}.verify-box{padding:17px;background:#f2faf5;border:1px solid #cfe6d7;border-radius:0;display:grid;grid-template-columns:24px 1fr;column-gap:11px;align-items:center;margin:18px 0;color:#1d3328}.review-list{display:grid;gap:1px;border:1px solid #dbe4df;border-radius:0;overflow:hidden;background:#dbe4df}.review-list>div{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;background:#fff}.secondary{border:1px solid #c8d9cf;background:#fff;color:#0a704b;border-radius:0;padding:12px 18px;font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:7px;transition:.2s}.auth-submit{border-radius:0!important}.google-button{border-radius:0!important}.verification-panel{border-radius:0}.verification-icon{border-radius:0}
+
+
+/* Final onboarding UI polish: restrained banking visual language + mobile-safe sizing */
+.onboarding-page,.onboarding-page *,.onboarding-page *::before,.onboarding-page *::after{box-sizing:border-box}
+.onboarding-page .verification-panel,
+.onboarding-page .verification-panel input,
+.onboarding-page .verification-panel select,
+.onboarding-page .type-choice,
+.onboarding-page .notice,
+.onboarding-page .error-note,
+.onboarding-page .success-note,
+.onboarding-page .verify-box,
+.onboarding-page .review-list,
+.onboarding-page .secondary,
+.onboarding-page .google-button,
+.onboarding-page .auth-submit{border-radius:0}
+.onboarding-page .verification-panel{box-shadow:0 10px 28px rgba(17,67,40,.045)}
+.onboarding-page .verification-icon,
+.onboarding-page .brand-mark{border-radius:0}
+.onboarding-page .notice svg,
+.onboarding-page .onboarding-foot svg,
+.onboarding-page .onboarding-assurance svg,
+.onboarding-page .verify-box svg{display:none}
+.onboarding-page .notice,.onboarding-page .verify-box{grid-template-columns:1fr}
+.onboarding-page .notice{gap:0}
+.onboarding-page .onboarding-foot{gap:0}
+.onboarding-page .onboarding-actions{width:100%;min-width:0}
+.onboarding-page .onboarding-actions button{min-width:0;box-sizing:border-box}
+.onboarding-page .secondary,.onboarding-page .primary{min-width:0}
+.onboarding-page .form-grid{min-width:0}
+.onboarding-page .form-grid>*,.onboarding-page .verification-panel label{min-width:0}
+.onboarding-page input,.onboarding-page select,.onboarding-page button{max-width:100%}
+@media(max-width:640px){
+  .onboarding-page .auth-form-wrap{padding-left:16px;padding-right:16px}
+  .onboarding-page .onboarding-form{width:100%;max-width:100%}
+  .onboarding-page .verification-panel{padding:18px}
+  .onboarding-page .onboarding-actions{gap:8px}
+  .onboarding-page .onboarding-actions button{flex:1 1 0;width:0;padding-left:10px;padding-right:10px}
+}
