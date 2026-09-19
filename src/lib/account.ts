@@ -13,6 +13,7 @@ export type Profile = {
   business_name: string | null;
   business_type: string | null;
   business_category: string | null;
+  onboarding_step: number;
   onboarding_status:
     | 'started'
     | 'details_pending'
@@ -134,6 +135,7 @@ export type ProfilePatch = Partial<
     | 'business_type'
     | 'business_category'
     | 'onboarding_status'
+    | 'onboarding_step'
   >
 >;
 
