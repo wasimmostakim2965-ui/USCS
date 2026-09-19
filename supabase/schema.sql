@@ -15,6 +15,7 @@ create table if not exists public.profiles (
   business_name      text,
   business_type      text,
   business_category  text,
+  onboarding_step   integer not null default 1 check (onboarding_step between 1 and 7),
   onboarding_status  text not null default 'started'
                        check (onboarding_status in
                          ('started','details_pending','kyc_pending','submitted','verified','rejected')),
