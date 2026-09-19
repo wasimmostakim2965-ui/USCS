@@ -2,7 +2,7 @@
 .logo,.demo-brand,.brand{background-repeat:no-repeat !important;background-position:left center !important;background-size:contain !important;color:transparent !important;font-size:0 !important;line-height:0 !important}
 .logo > *, .demo-brand > *, .brand > *{display:none !important}
 .logo{width:150px !important;min-width:150px !important;height:42px !important;padding:0 !important;background-image:url('/paywai-exact-logo.svg') !important}
-.site footer .logo,.dash .logo,.demo-brand,.auth-side .brand{background-image:url('/paywai-exact-logo.svg') !important}
+.site footer .logo,.dash .logo,.demo-brand,.auth-side .brand{background-image:url('/paywai-exact-logo.svg') !important}.test-dash aside .demo-brand,.admin-sidebar .demo-brand,.embedded-dashboard aside .demo-brand{background-image:url('/paywai-exact-logo-dark.svg') !important}
 .demo-brand{width:156px !important;height:42px !important;padding:0 !important}
 .auth-side .brand{width:205px !important;height:46px !important;padding:0 !important}
 .mobile-auth-logo .brand,.flow-top .logo{background-image:url('/paywai-exact-logo.svg') !important}
