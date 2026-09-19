@@ -32,7 +32,16 @@ export type KycApplication = {
   legal_name: string | null;
   date_of_birth: string | null;
   nationality: string | null;
+  first_name: string | null;
+  middle_name: string | null;
+  last_name: string | null;
   occupation: string | null;
+  place_of_birth: string | null;
+  country_of_birth: string | null;
+  secondary_nationality: string | null;
+  gender: string | null;
+  marital_status: string | null;
+  employer: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
