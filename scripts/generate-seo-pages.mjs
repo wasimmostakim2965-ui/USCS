@@ -13,7 +13,7 @@ const routes = {
 
 for (const [route, meta] of Object.entries(routes)) {
   const html = base
-    .replace(/<title>[^<]*<\\/title>/, '<title>' + meta.title + '</title>')
+    .replace(/<title>[^<]*<\/title>/, '<title>' + meta.title + '</title>')
     .replace(/<meta name="description" content="[^"]*" \/>/, '<meta name="description" content="' + meta.description + '" />')
     .replace(/<meta name="robots" content="[^"]*" \/>/, '<meta name="robots" content="' + meta.robots + '" />')
     .replace(/<link rel="canonical" href="[^"]*" \/>/, '<link rel="canonical" href="' + meta.canonical + '" />')
