@@ -114,7 +114,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=fal
 
   useEffect(()=>{void (async()=>{
     try{
-      const res=await fetch(\`\${GEO_API}/countries/codes\`);
+      const res=await fetch(`${GEO_API}/countries/codes`);
       const json=await res.json();
       const rows=Array.isArray(json?.data)?json.data:[];
       const normalized=rows.map((x:any)=>({name:String(x.name).trim(),code:String(x.code).trim().toUpperCase(),dial_code:String(x.dial_code).trim()})).filter((x:GeoCountry)=>x.name&&x.code);
@@ -130,7 +130,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=fal
     if(!residenceCountry){setStates([]);setCities([]);return}
     setGeoLoading(true);setStates([]);setCities([]);setRegion('');setCity('');
     try{
-      const res=await fetch(\`\${GEO_API}/countries/states/q?country=\${encodeURIComponent(residenceCountry)}\`);
+      const res=await fetch(`${GEO_API}/countries/states/q?country=${encodeURIComponent(residenceCountry)}`);
       const json=await res.json();
       const rows=Array.isArray(json?.data?.states)?json.data.states:[];
       setStates(rows.map((x:any)=>({name:String(x.name).trim()})).filter((x:GeoState)=>x.name));
@@ -142,7 +142,7 @@ export default function Auth({onBack,onSuccess,initialMode='signup',demoMode=fal
     if(!residenceCountry||!region){setCities([]);return}
     setCityLoading(true);setCities([]);
     try{
-      const res=await fetch(\`\${GEO_API}/countries/state/cities\`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({country:residenceCountry,state:region})});
+      const res=await fetch(`${GEO_API}/countries/state/cities`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({country:residenceCountry,state:region})});
       const json=await res.json();
       const rows=Array.isArray(json?.data)?json.data:[];
       setCities(rows.map((x:any)=>String(typeof x==='string'?x:x.name??'').trim()).filter(Boolean));
