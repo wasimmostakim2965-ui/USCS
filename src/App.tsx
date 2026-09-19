@@ -37,7 +37,7 @@ function App() {
       '/platform': 'Paywai Platform — Payments, Balances & Financial Control',
       '/dashboard': 'Paywai Dashboard — Your Financial Workspace',
     };
-    const currentPath = window.location.pathname.replace(/\\/+$/, '') || '/';
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
     document.title = titles[currentPath] || 'Paywai — Global Financial Platform';
     const canonicalUrl = currentPath === '/platform' ? 'https://xonomo.site/platform' : 'https://xonomo.site/';
     let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
