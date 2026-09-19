@@ -20,7 +20,14 @@ function App() {
   const [page, setPage] = useState<Page>(initialPage);
   const [menu, setMenu] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
-  const [authMode, setAuthMode] = useState<'signup' | 'signin'>('signup');
+  const [authMode, setAuthMode] = useState<'signup' | 'signin'>(initialPath === '/signin' ? 'signin' : 'signup');
+  const openPublicPage = (target: 'signin' | 'signup' | 'platform') => {
+    window.history.pushState({}, '', `/${target}`);
+    if (target === 'platform') openPublicPage('platform');
+    else { setAuthMode(target); setPage('auth'); }
+    const titles: Record<string, string> = { '/signin': 'Sign in to Paywai — Global Financial Account', '/signup': 'Create your Paywai account — Global Financial Platform', '/platform': 'Paywai Platform — Payments, Balances & Financial Control' };
+    document.title = titles[`/${target}`];
+  };
 
   useEffect(() => {
     const titles: Record<string, string> = {
@@ -58,10 +65,10 @@ function App() {
     <header className="header">
       <button className="logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><span>P</span>PAYWAI</button>
       <nav><a href="#products">Products <ChevronDown size={14} /></a><a href="#audiences">Who we serve</a><a href="#why">Why Paywai</a><a href="#resources">Resources</a></nav>
-      <div className="head-actions"><button onClick={() => { setAuthMode('signin'); setPage(signedIn ? 'dashboard' : 'auth'); }}>Sign in</button><button className="primary" onClick={() => { setAuthMode('signup'); setPage('auth'); }}>Get started <ArrowRight size={15} /></button></div>
+      <div className="head-actions"><button onClick={() => { setAuthMode('signin'); if (signedIn) { window.history.pushState({}, '', '/dashboard'); setPage('dashboard'); } else { openPublicPage('signin'); }; }}>Sign in</button><button className="primary" onClick={() => { openPublicPage('signup'); }}>Get started <ArrowRight size={15} /></button></div>
       <button className="menu" aria-label="Open navigation" onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</button>
     </header>
-    {menu && <div className="mobile-nav"><a href="#products" onClick={() => setMenu(false)}>Products</a><a href="#audiences" onClick={() => setMenu(false)}>Who we serve</a><a href="#why" onClick={() => setMenu(false)}>Why Paywai</a><a href="#resources" onClick={() => setMenu(false)}>Resources</a><button onClick={() => { setMenu(false); setAuthMode('signin'); setPage(signedIn ? 'dashboard' : 'auth'); }}>Sign in</button><button onClick={() => { setMenu(false); setAuthMode('signup'); setPage('auth'); }}>Get started</button></div>}
+    {menu && <div className="mobile-nav"><a href="#products" onClick={() => setMenu(false)}>Products</a><a href="#audiences" onClick={() => setMenu(false)}>Who we serve</a><a href="#why" onClick={() => setMenu(false)}>Why Paywai</a><a href="#resources" onClick={() => setMenu(false)}>Resources</a><button onClick={() => { setMenu(false); if (signedIn) { window.history.pushState({}, '', '/dashboard'); setPage('dashboard'); } else { openPublicPage('signin'); }; }}>Sign in</button><button onClick={() => { setMenu(false); openPublicPage('signup'); }}>Get started</button></div>}
     <main>
       <section className="hero-new">
         <div className="hero-new-copy">
