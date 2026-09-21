@@ -11,7 +11,11 @@ const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | unde
 const supabaseUrl = configuredSupabaseUrl === CANONICAL_SUPABASE_URL
   ? configuredSupabaseUrl
   : CANONICAL_SUPABASE_URL;
-const supabasePublishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? "sb_publishable_lG-q-jr7VNotmSNiO6gV9Q_hwelEAH-";
+const CANONICAL_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_lG-q-jr7VNotmSNiO6gV9Q_hwelEAH-";
+const configuredSupabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const supabasePublishableKey = configuredSupabasePublishableKey === CANONICAL_SUPABASE_PUBLISHABLE_KEY
+  ? configuredSupabasePublishableKey
+  : CANONICAL_SUPABASE_PUBLISHABLE_KEY;
 
 export const isSupabaseAuthConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
