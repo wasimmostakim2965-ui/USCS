@@ -86,6 +86,15 @@ export async function getBrowserAuthUser(): Promise<BrowserAuthUser | null> {
       ? metadata.name
       : user.email?.split("@")[0] ?? null;
 
+  // The auth trigger is intentionally non-blocking. Retry tenant provisioning
+  // from the authenticated browser so a transient trigger failure never makes
+  // a valid Google session look unauthenticated.
+  await supabase.rpc("ensure_user_workspace", {
+    target_user_id: user.id,
+    target_email: user.email ?? "",
+    target_metadata: metadata,
+  });
+
   return {
     id: user.id,
     name: fallbackName,
