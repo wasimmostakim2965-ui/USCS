@@ -69,7 +69,6 @@
   font-weight: 700;
   line-height: 1;
 }
-.auth-provider-button + .auth-config-warning { margin-top: 14px; }
 .auth-config-warning { display: flex; align-items: flex-start; gap: 9px; margin-top: 14px; padding: 12px 13px; color: #8d610d; background: #fff9e9; border: 1px solid #f0d99f; border-radius: 9px; font-size: 10px; line-height: 1.45; }
 .auth-config-warning svg { flex: 0 0 auto; margin-top: 1px; }
 .auth-config-warning span { display: grid; gap: 3px; }
