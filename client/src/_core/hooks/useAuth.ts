@@ -2,23 +2,51 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserAuthUser, getSupabaseSession, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
+import { getSupabaseSession, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
   redirectPath?: string;
 };
 
+type BrowserAuthUser = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  loginMethod: string;
+  role: "user";
+};
+
+function browserUserFromSession(session: Session | null): BrowserAuthUser | null {
+  const user = session?.user;
+  if (!user) return null;
+
+  const metadata = user.user_metadata ?? {};
+  const fallbackName = typeof metadata.full_name === "string"
+    ? metadata.full_name
+    : typeof metadata.name === "string"
+      ? metadata.name
+      : user.email?.split("@")[0] ?? null;
+
+  return {
+    id: user.id,
+    name: fallbackName,
+    email: user.email ?? null,
+    loginMethod: user.app_metadata?.provider ?? "supabase",
+    role: "user",
+  };
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
-  const [browserUser, setBrowserUser] = useState<Awaited<ReturnType<typeof getBrowserAuthUser>>>(null);
+  const [browserUser, setBrowserUser] = useState<BrowserAuthUser | null>(null);
   const [browserLoading, setBrowserLoading] = useState(true);
 
   // The browser Supabase session is the source of truth for this client.
-  // Do not call the legacy server auth endpoint until a Supabase user exists:
-  // otherwise an anonymous page load produces UNAUTHORIZED and can trigger a
-  // legacy login redirect before the user has a chance to use Supabase OAuth.
+  // Server-side authorization is still verified separately by the tRPC auth
+  // endpoint using the Supabase access token.
   const meQuery = trpc.auth.me.useQuery(undefined, {
     enabled: Boolean(browserUser),
     retry: false,
@@ -56,42 +84,37 @@ export function useAuth(options?: UseAuthOptions) {
   useEffect(() => {
     let mounted = true;
 
-    // Subscribe before resolving the stored session so an OAuth callback cannot
-    // be missed during the initial page load.
+    // IMPORTANT: keep this callback synchronous. Supabase currently documents
+    // a deadlock risk when async Supabase calls (for example getUser/getSession
+    // or table queries) are made from inside onAuthStateChange.
+    // The session already contains the user needed to update the UI. The
+    // server verifies the access token separately through tRPC.
     const { data } = subscribeToSupabaseAuth((_event, session) => {
       if (!mounted) return;
-      if (!session) {
-        setBrowserUser(null);
-        setBrowserLoading(false);
-      } else {
-        void getBrowserAuthUser().then(user => {
-          if (!mounted) return;
-          setBrowserUser(user);
-          setBrowserLoading(false);
-        });
-      }
-      void utils.auth.me.invalidate();
+      setBrowserUser(browserUserFromSession(session));
+      setBrowserLoading(false);
     });
 
+    // Resolve the initial/persisted session outside the auth-state callback.
     void getSupabaseSession().then(({ data: { session } }) => {
       if (!mounted) return;
-      if (!session) {
-        setBrowserUser(null);
-        setBrowserLoading(false);
-        return;
-      }
-      void getBrowserAuthUser().then(user => {
-        if (!mounted) return;
-        setBrowserUser(user);
-        setBrowserLoading(false);
-      });
+      setBrowserUser(browserUserFromSession(session));
+      setBrowserLoading(false);
     });
 
     return () => {
       mounted = false;
       data.subscription.unsubscribe();
     };
-  }, [utils]);
+  }, []);
+
+  // Invalidate the server-auth query only after the Supabase callback has
+  // returned. This avoids starting another Supabase-backed request while the
+  // auth state lock is held.
+  useEffect(() => {
+    if (!browserUser) return;
+    void utils.auth.me.invalidate();
+  }, [browserUser?.id, utils]);
 
   const state = useMemo(() => {
     const user = meQuery.data ?? browserUser;
