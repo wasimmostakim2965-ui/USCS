@@ -2,7 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getBrowserAuthUser, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
+import { getBrowserAuthUser, getSupabaseSession, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -57,21 +57,44 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     let mounted = true;
-    void getBrowserAuthUser().then(user => {
-      if (!mounted) return;
-      setBrowserUser(user);
-      setBrowserLoading(false);
-    });
+
+    // Register the auth listener before resolving the current session so an
+    // OAuth callback cannot be missed during the initial page load.
     const { data } = subscribeToSupabaseAuth((_event, session) => {
+      if (!mounted) return;
       if (!session) {
         setBrowserUser(null);
         setBrowserLoading(false);
       } else {
-        void getBrowserAuthUser().then(user => mounted && setBrowserUser(user));
+        void getBrowserAuthUser().then(user => {
+          if (!mounted) return;
+          setBrowserUser(user);
+          setBrowserLoading(false);
+        });
       }
       void utils.auth.me.invalidate();
     });
-    return () => { mounted = false; data.subscription.unsubscribe(); };
+
+    // Explicitly resolve the persisted browser session as well. Supabase's
+    // browser client persists sessions and detects OAuth grants in the URL.
+    void getSupabaseSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      if (!session) {
+        setBrowserUser(null);
+        setBrowserLoading(false);
+        return;
+      }
+      void getBrowserAuthUser().then(user => {
+        if (!mounted) return;
+        setBrowserUser(user);
+        setBrowserLoading(false);
+      });
+    });
+
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
   }, [utils]);
 
   const state = useMemo(() => {
