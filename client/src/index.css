@@ -540,3 +540,13 @@ h3 { font-size: 14px; }
 .subsection-copy p { max-width: 680px; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .subsection-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
 @media (max-width: 760px) { .subsection-surface { align-items: flex-start; flex-direction: column; } .subsection-actions { width: 100%; justify-content: space-between; } }
+
+/* Primary navigation: user-goal categories stay visible; detail opens only on demand. */
+.nav-group-trigger { min-height: 38px; margin-top: 3px; color: #20262d; font-size: 12px; font-weight: 650; letter-spacing: -.01em; }
+.nav-group-trigger:hover, .nav-group-active > .nav-group-trigger { color: #111; background: #fff; }
+.nav-group-active > .nav-group-trigger { box-shadow: inset 2px 0 0 #111; }
+.nav-group-active > .nav-group-trigger svg:first-child { color: #111; }
+.nav-child { min-height: 31px; }
+.nav-child-active { color: #111; background: #f7f7f6; }
+.nav-child-active .nav-label { font-weight: 650; }
+.nav-child-active .nav-child-marker { background: #111; }

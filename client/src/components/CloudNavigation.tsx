@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  Server,
   Settings2,
   ShieldCheck,
   Users,
@@ -60,17 +61,30 @@ type NavigationGroup = {
 
 export const navigationGroups: NavigationGroup[] = [
   {
-    label: "Build",
+    label: "Projects & hosting",
     icon: Wrench,
     items: [
       { label: "Projects", section: "Projects", icon: Box, available: true, subItems: ["All projects", "Create project", "Project settings"] },
-      { label: "Deployments", section: "Deployments", icon: Layers3, available: true, subItems: ["All deployments", "Production", "Preview"] },
-      { label: "Domains", section: "Domains", icon: Globe2, available: true, subItems: ["Overview", "Market", "My domains", "DNS & nameservers"] },
+      { label: "Hosting & runtime", section: "Projects", icon: Server, available: true, subItems: ["Environments", "Build settings", "Runtime settings"] },
       { label: "Environment configuration", section: "Developer", available: true, subItems: ["Variables", "Secrets", "Runtime configuration"] },
     ],
   },
   {
-    label: "Data",
+    label: "Domains",
+    icon: Globe2,
+    items: [
+      { label: "Domain overview", section: "Domains", icon: Globe2, available: true, subItems: ["Overview", "Market", "My domains", "DNS & nameservers"] },
+    ],
+  },
+  {
+    label: "Deployments",
+    icon: Layers3,
+    items: [
+      { label: "Deployment overview", section: "Deployments", icon: Layers3, available: true, subItems: ["All deployments", "Production", "Preview", "Logs & rollback"] },
+    ],
+  },
+  {
+    label: "Data services",
     icon: Database,
     items: [
       { label: "Databases", section: "Data", icon: Database, available: true, subItems: ["Overview", "Tables", "SQL editor", "Backups & recovery"] },
@@ -82,7 +96,7 @@ export const navigationGroups: NavigationGroup[] = [
     ],
   },
   {
-    label: "Security",
+    label: "Security & protection",
     icon: ShieldCheck,
     items: [
       { label: "Security overview", section: "Security", icon: ShieldCheck, available: true, subItems: ["Posture", "Findings", "Remediation"] },
@@ -99,7 +113,7 @@ export const navigationGroups: NavigationGroup[] = [
     ],
   },
   {
-    label: "Observe",
+    label: "Observability",
     icon: BarChart3,
     items: [
       { label: "Logs", section: "Observability", icon: ScrollText, available: true, subItems: ["Live logs", "Search", "Saved views"] },
@@ -112,7 +126,7 @@ export const navigationGroups: NavigationGroup[] = [
     ],
   },
   {
-    label: "Developer",
+    label: "Developer tools",
     icon: Code2,
     items: [
       { label: "GitHub", section: "Developer", icon: Code2, available: true, subItems: ["Repositories", "Branches", "Webhooks"] },
