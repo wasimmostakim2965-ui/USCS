@@ -3,7 +3,14 @@ import { createClient, type AuthChangeEvent, type Session, type SupabaseClient }
 // The publishable key is intentionally browser-safe. Environment variables remain
 // the preferred deployment configuration; these fallbacks keep a static Vercel
 // build functional when the project was deployed without Vercel env injection.
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? "https://lqaocykcxwnulirtykqy.supabase.co";
+const CANONICAL_SUPABASE_URL = "https://lqaocykcxwnulirtykqy.supabase.co";
+const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+
+// USCS currently has one authoritative Supabase project. Never allow a stale
+// deployment environment variable to silently redirect OAuth to another host.
+const supabaseUrl = configuredSupabaseUrl === CANONICAL_SUPABASE_URL
+  ? configuredSupabaseUrl
+  : CANONICAL_SUPABASE_URL;
 const supabasePublishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ?? "sb_publishable_lG-q-jr7VNotmSNiO6gV9Q_hwelEAH-";
 
 export const isSupabaseAuthConfigured = Boolean(supabaseUrl && supabasePublishableKey);
@@ -30,7 +37,16 @@ export type BrowserAuthUser = {
 
 export function getAuthRedirectUrl() {
   const configured = import.meta.env.VITE_SUPABASE_AUTH_REDIRECT_URL as string | undefined;
-  if (configured) return configured;
+  if (configured) {
+    try {
+      const configuredUrl = new URL(configured);
+      if (configuredUrl.origin === window.location.origin) {
+        return configuredUrl.toString();
+      }
+    } catch {
+      // Fall through to the current browser origin.
+    }
+  }
   return `${window.location.origin}/`;
 }
 
