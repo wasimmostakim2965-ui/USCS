@@ -25,6 +25,7 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        flowType: "pkce",
       },
     })
   : null;
@@ -51,7 +52,7 @@ export function getAuthRedirectUrl() {
       // Fall through to the current browser origin.
     }
   }
-  return `${window.location.origin}/`;
+  return `${window.location.origin}/auth/callback`;
 }
 
 export async function signInWithProvider(provider: SupabaseProvider) {
