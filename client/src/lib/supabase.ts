@@ -31,71 +31,7 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
 
 export type SupabaseProvider = "google" | "github" | "gitlab";
 
-export type BrowserAuthUser = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  loginMethod: string;
-  role: "user";
-};
-
-export function getAuthRedirectUrl() {
-  const configured = import.meta.env.VITE_SUPABASE_AUTH_REDIRECT_URL as string | undefined;
-  if (configured) {
-    try {
-      const configuredUrl = new URL(configured);
-      if (configuredUrl.origin === window.location.origin) {
-        return configuredUrl.toString();
-      }
-    } catch {
-      // Fall through to the current browser origin.
-    }
-  }
-  return `${window.location.origin}/`;
-}
-
-export async function signInWithProvider(provider: SupabaseProvider) {
-  if (!supabase) {
-    return { error: new Error("Supabase authentication is not configured for this deployment.") };
-  }
-  return supabase.auth.signInWithOAuth({
-    provider,
-    options: {
-      redirectTo: getAuthRedirectUrl(),
-      queryParams: { prompt: "select_account" },
-    },
-  });
-}
-
-export async function getSupabaseSession() {
-  return supabase?.auth.getSession() ?? { data: { session: null }, error: null };
-}
-
-export async function getBrowserAuthUser(): Promise<BrowserAuthUser | null> {
-  if (!supabase) return null;
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-
-  const metadata = user.user_metadata ?? {};
-  const fallbackName = typeof metadata.full_name === "string"
-    ? metadata.full_name
-    : typeof metadata.name === "string"
-      ? metadata.name
-      : user.email?.split("@")[0] ?? null;
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("display_name, email")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  return {
-    id: user.id,
-    name: profile?.display_name ?? fallbackName,
-    email: profile?.email ?? user.email ?? null,
-    loginMethod: user.app_metadata?.provider ?? "supabase",
-    role: "user",
-  };
-}
+export type SupabaseProvider = "google" | "github" | "gitlab";
 
 export function subscribeToSupabaseAuth(callback: (event: AuthChangeEvent, session: Session | null) => void) {
   return supabase?.auth.onAuthStateChange(callback) ?? { data: { subscription: { unsubscribe: () => undefined } } };
