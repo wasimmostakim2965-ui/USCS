@@ -73,7 +73,7 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Domains",
     icon: Globe2,
     items: [
-      { label: "Domain overview", section: "Domains", icon: Globe2, available: true, subItems: ["Overview", "Market", "My domains", "DNS & nameservers"] },
+      { label: "Domains", section: "Domains", icon: Globe2, available: true, subItems: ["Market", "My domains", "DNS & nameservers"] },
     ],
   },
   {
@@ -251,7 +251,7 @@ export function CloudNavigation({
                 {group.items.map((item) => {
                   const ItemIcon = item.icon;
                   const isActive = item.section === activeSection && item.available;
-                  const domainItem = item.label === "Domains";
+                  const domainItem = group.label === "Domains";
                   return <div key={item.label} className="nav-child-wrap">
                     <button className={`nav-child ${isActive ? "nav-child-active" : ""} ${item.available ? "" : "nav-child-planned"}`} onClick={() => activate(item)} title={item.available ? item.label : `${item.label} — planned`}>
                       <span className="nav-child-marker" />{ItemIcon ? <ItemIcon size={14} /> : null}<span className="nav-label">{item.label}</span>{!item.available && <span className="nav-detail">Soon</span>}
