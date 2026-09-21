@@ -1,8 +1,8 @@
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useMemo } from "react";
-import { supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getBrowserAuthUser, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -16,6 +16,8 @@ export function useAuth(options?: UseAuthOptions) {
   // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
+  const [browserUser, setBrowserUser] = useState<Awaited<ReturnType<typeof getBrowserAuthUser>>>(null);
+  const [browserLoading, setBrowserLoading] = useState(true);
 
   const meQuery = trpc.auth.me.useQuery(undefined, {
     retry: false,
@@ -41,6 +43,7 @@ export function useAuth(options?: UseAuthOptions) {
       throw error;
     } finally {
       await supabase?.auth.signOut();
+      setBrowserUser(null);
       // Clear the Preview auto-login token mirrored into sessionStorage, so
       // header-based sessions (Safari ITP / WebView) are logged out too. The
       // backend cookie is cleared by the logout mutation.
@@ -53,21 +56,36 @@ export function useAuth(options?: UseAuthOptions) {
   }, [logoutMutation, utils]);
 
   useEffect(() => {
-    const { data } = subscribeToSupabaseAuth(() => {
+    let mounted = true;
+    void getBrowserAuthUser().then(user => {
+      if (!mounted) return;
+      setBrowserUser(user);
+      setBrowserLoading(false);
+    });
+    const { data } = subscribeToSupabaseAuth((_event, session) => {
+      if (!session) {
+        setBrowserUser(null);
+        setBrowserLoading(false);
+      } else {
+        void getBrowserAuthUser().then(user => mounted && setBrowserUser(user));
+      }
       void utils.auth.me.invalidate();
     });
-    return () => data.subscription.unsubscribe();
+    return () => { mounted = false; data.subscription.unsubscribe(); };
   }, [utils]);
 
   const state = useMemo(() => {
+    const user = meQuery.data ?? browserUser;
     return {
-      user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending,
+      user,
+      loading: (meQuery.isLoading && !browserUser) || browserLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
-      isAuthenticated: Boolean(meQuery.data),
+      isAuthenticated: Boolean(user),
     };
   }, [
     meQuery.data,
+    browserUser,
+    browserLoading,
     meQuery.error,
     meQuery.isLoading,
     logoutMutation.error,
@@ -76,7 +94,7 @@ export function useAuth(options?: UseAuthOptions) {
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
-    if (meQuery.isLoading || logoutMutation.isPending) return;
+    if (meQuery.isLoading || browserLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
@@ -92,6 +110,7 @@ export function useAuth(options?: UseAuthOptions) {
     redirectPath,
     logoutMutation.isPending,
     meQuery.isLoading,
+    browserLoading,
     state.user,
   ]);
 
