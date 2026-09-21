@@ -309,8 +309,10 @@ export function AuthCallback() {
           throw new Error("No authenticated session was returned by Supabase.");
         }
 
-        window.history.replaceState({}, document.title, "/dashboard");
-        if (active) setLocation("/dashboard");
+        // Force a fresh app bootstrap after persistence. A client-side route
+        // transition can mount Home before Supabase's storage event is visible
+        // on mobile Chrome, briefly rendering the public landing page.
+        if (active) window.location.replace("/dashboard");
       } catch (err) {
         if (active) {
           setError(err instanceof Error ? err.message : "Unable to complete sign-in.");
