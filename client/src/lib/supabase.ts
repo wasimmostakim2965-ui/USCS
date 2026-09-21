@@ -24,7 +24,9 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        // AuthCallback performs the PKCE code exchange exactly once. Leaving
+        // automatic URL detection enabled creates a race on mobile browsers.
+        detectSessionInUrl: false,
         flowType: "pkce",
       },
     })

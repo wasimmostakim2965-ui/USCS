@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } fro
 import { useLocation } from "wouter";
 import { startLogin } from "@/const";
 import { supabase } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CloudNavigation, type Section, getNavigationLabel } from "@/components/CloudNavigation";
 import AuthDialog from "@/components/AuthDialog";
@@ -283,13 +284,16 @@ export function AuthCallback() {
       const code = params.get("code");
 
       try {
+        let exchangedSession: Session | null = null;
         if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) throw exchangeError;
+          exchangedSession = data.session;
         }
 
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        const { data: { session: storedSession }, error: sessionError } = await supabase.auth.getSession();
         if (sessionError) throw sessionError;
+        const session = exchangedSession ?? storedSession;
 
         if (!session?.user) {
           throw new Error("No authenticated session was returned by Supabase.");
