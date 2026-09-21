@@ -31,8 +31,6 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
 
 export type SupabaseProvider = "google" | "github" | "gitlab";
 
-export type SupabaseProvider = "google" | "github" | "gitlab";
-
 export function subscribeToSupabaseAuth(callback: (event: AuthChangeEvent, session: Session | null) => void) {
   return supabase?.auth.onAuthStateChange(callback) ?? { data: { subscription: { unsubscribe: () => undefined } } };
 }
