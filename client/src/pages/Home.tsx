@@ -112,64 +112,30 @@ function Overview({ onNavigate }: { onNavigate: (section: Section) => void }) {
   return (
     <>
       <SectionHeader
-        eyebrow="Control plane / Overview"
-        title="Good morning."
-        description="One secure place to build, deploy, and operate your applications."
+        eyebrow="Workspace / Overview"
+        title="Overview"
+        description="A clear view of your projects, domains, deployments, and security posture."
         action={<button className="button button-primary" onClick={() => onNavigate("Projects")}><Plus size={16} /> New project</button>}
       />
 
-      <div className="notice-banner">
-        <div className="notice-icon"><AlertTriangle size={18} /></div>
-        <div className="notice-copy"><strong>Platform configuration required</strong><span>Connect your infrastructure providers to enable real domain, deployment, data, and security operations. USCS never presents simulated provider data.</span></div>
-        <button className="button button-quiet" onClick={() => onNavigate("Settings")}>Review setup <ArrowUpRight size={15} /></button>
-      </div>
+      <div className="context-strip"><div><span className="context-label">Workspace</span><strong>Personal workspace</strong></div><div><span className="context-label">Environment</span><strong><span className="context-dot" /> Production</strong></div><div><span className="context-label">Region</span><strong>Global</strong></div><StatusPill tone="warning">Setup required</StatusPill></div>
 
       <div className="metric-grid">
-        <MetricCard label="Projects" value="Not connected" detail="No deployment provider" onClick={() => onNavigate("Projects")} />
-        <MetricCard label="Domains" value="Not connected" detail="Registrar required" onClick={() => onNavigate("Domains")} />
-        <MetricCard label="Data resources" value="Not connected" detail="Database or storage required" onClick={() => onNavigate("Data")} />
-        <MetricCard label="Security posture" value="Unknown" detail="Run checks after setup" onClick={() => onNavigate("Security")} />
+        <MetricCard label="Projects" value="0" detail="No projects yet" onClick={() => onNavigate("Projects")} />
+        <MetricCard label="Deployments" value="0" detail="No deployments yet" onClick={() => onNavigate("Deployments")} />
+        <MetricCard label="Domains" value="0" detail="No domains yet" onClick={() => onNavigate("Domains")} />
+        <MetricCard label="Security" value="Setup" detail="Review workspace controls" onClick={() => onNavigate("Security")} />
       </div>
 
-      <div className="content-grid two-thirds">
-        <div className="panel setup-panel">
-          <div className="panel-heading"><div><div className="eyebrow">Recommended path</div><h2>From idea to production</h2></div><span className="panel-kicker">4 steps</span></div>
-          <div className="step-list">
-            {[
-              ["01", "Connect a provider", "Choose GitHub, a registrar, or a data provider.", "Developer" as Section, Github],
-              ["02", "Create your first project", "Bring a repository or start from a secure template.", "Projects" as Section, Box],
-              ["03", "Attach your domain", "Configure DNS and TLS without leaving the workspace.", "Domains" as Section, Globe2],
-              ["04", "Review protection", "Confirm WAF, secrets, access, and audit settings.", "Security" as Section, ShieldCheck],
-            ].map(([index, title, body, target, Icon]) => (
-              <button className="step-row" key={index as string} onClick={() => onNavigate(target as Section)}>
-                <span className="step-number">{index as string}</span><span className="step-copy"><strong>{title as string}</strong><small>{body as string}</small></span><ChevronRight size={16} className="step-arrow" />
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="panel quick-panel">
-          <div className="panel-heading"><div><div className="eyebrow">Shortcuts</div><h2>Quick actions</h2></div><Command size={17} className="muted-icon" /></div>
-          <div className="quick-list">{quickActions.map(({ label, section }) => <button className="quick-row" key={label} onClick={() => onNavigate(section)}><span>{label}</span><ArrowUpRight size={14} /></button>)}</div>
-          <div className="tip-box"><Sparkles size={15} /><span>Press <kbd>⌘ K</kbd> to jump anywhere.</span></div>
-        </div>
+      <div className="content-grid two-thirds overview-primary-grid">
+        <div className="panel setup-panel"><div className="panel-heading"><div><div className="eyebrow">Get started</div><h2>Set up your workspace</h2></div><span className="panel-kicker">3 tasks</span></div><div className="setup-cards">
+          <button className="setup-card" onClick={() => onNavigate("Developer")}><span className="setup-card-icon"><Github size={17} /></span><span><strong>Connect GitHub</strong><small>Import a repository and deploy your first project.</small></span><ChevronRight size={16} /></button>
+          <button className="setup-card" onClick={() => onNavigate("Domains")}><span className="setup-card-icon"><Globe2 size={17} /></span><span><strong>Buy or connect a domain</strong><small>Search the market or attach a domain to a project.</small></span><ChevronRight size={16} /></button>
+          <button className="setup-card" onClick={() => onNavigate("Security")}><span className="setup-card-icon"><ShieldCheck size={17} /></span><span><strong>Review security</strong><small>Set the baseline before production traffic arrives.</small></span><ChevronRight size={16} /></button>
+        </div></div>
+        <div className="panel quick-panel"><div className="panel-heading"><div><div className="eyebrow">Workspace status</div><h2>Provider connections</h2></div><button className="icon-button" aria-label="Refresh status" onClick={() => toast.info("Provider status refresh requires a connected provider.")}><RefreshCw size={16} /></button></div><div className="provider-list">{statusItems.map(({ label, description, icon: Icon }) => <div className="provider-row" key={label}><span className="provider-icon"><Icon size={17} /></span><span className="provider-copy"><strong>{label}</strong><small>{description}</small></span><StatusPill>Not connected</StatusPill></div>)}</div></div>
       </div>
-
-      <div className="content-grid two-thirds lower-grid">
-        <div className="panel">
-          <div className="panel-heading"><div><div className="eyebrow">Provider readiness</div><h2>Connection status</h2></div><button className="icon-button" aria-label="Refresh status" onClick={() => toast.info("Provider status refresh requires a connected provider.")}><RefreshCw size={16} /></button></div>
-          <div className="provider-list">{statusItems.map(({ label, description, icon: Icon }) => <div className="provider-row" key={label}><span className="provider-icon"><Icon size={17} /></span><span className="provider-copy"><strong>{label}</strong><small>{description}</small></span><StatusPill>Not connected</StatusPill><button className="text-button" onClick={() => onNavigate(label === "Database" || label === "Object storage" ? "Data" : label === "Domain provider" ? "Domains" : "Developer")}>Configure <ArrowUpRight size={14} /></button></div>)}</div>
-        </div>
-        <div className="panel">
-          <div className="panel-heading"><div><div className="eyebrow">Security center</div><h2>Baseline controls</h2></div><button className="text-button" onClick={() => onNavigate("Security")}>View all <ArrowUpRight size={14} /></button></div>
-          <div className="security-mini-grid">{securityChecks.slice(0, 4).map(([label, status, Icon]) => <div className="security-mini" key={label as string}><Icon size={16} /><span><strong>{label as string}</strong><small>{status as string}</small></span></div>)}</div>
-          <div className="security-foot"><StatusPill tone="warning">No score shown until checks run</StatusPill></div>
-        </div>
-      </div>
-
-      <div className="panel activity-panel">
-        <div className="panel-heading"><div><div className="eyebrow">Audit trail</div><h2>Recent activity</h2></div><button className="text-button" onClick={() => onNavigate("Observability")}>Open observability <ArrowUpRight size={14} /></button></div>
-        <EmptyState icon={Activity} title="No activity yet" body="Security-sensitive actions will appear here once you connect a provider and create a resource." />
-      </div>
+      <div className="panel activity-panel"><div className="panel-heading"><div><div className="eyebrow">Activity</div><h2>Recent activity</h2></div><button className="text-button" onClick={() => onNavigate("Observability")}>View logs <ArrowUpRight size={14} /></button></div><EmptyState icon={Activity} title="No activity yet" body="Deployments, domain changes, security events, and team actions will appear here." /></div>
     </>
   );
 }
