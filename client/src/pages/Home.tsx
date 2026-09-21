@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CloudNavigation, type Section, getNavigationLabel } from "@/components/CloudNavigation";
@@ -266,17 +267,18 @@ function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user
 
 export default function Home() {
   const auth = useAuth();
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     if (auth.loading || !auth.isAuthenticated || typeof window === "undefined") return;
     if (window.location.pathname !== "/dashboard") {
-      // OAuth returns to the site origin. Once Supabase has restored the session,
-      // move the authenticated user onto the explicit dashboard route.
-      window.location.replace("/dashboard");
+      // Keep the OAuth callback inside the SPA. The Supabase browser session is
+      // already restored here, so there is no need to hard-reload the page.
+      setLocation("/dashboard");
     }
-  }, [auth.loading, auth.isAuthenticated]);
+  }, [auth.loading, auth.isAuthenticated, setLocation]);
 
-  if (auth.loading) return <div className="auth-loading"><div className="brand-mark"><span /></div><span>Loading your workspace…</span></div>;
+  if (auth.loading) return <div className="auth-loading" aria-label="Loading" />;
   if (!auth.isAuthenticated) return <LandingPage />;
   return <DashboardApp user={auth.user} logout={auth.logout} />;
 }
