@@ -1,10 +1,10 @@
-import { Github, Gitlab, LockKeyhole, X } from "lucide-react";
+import { Chrome, Github, Gitlab, LockKeyhole, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { isSupabaseAuthConfigured, signInWithProvider, type SupabaseProvider } from "@/lib/supabase";
 
 const providers: Array<{ id: SupabaseProvider; label: string; note: string; icon: typeof Github }> = [
-  { id: "google", label: "Continue with Google", note: "Google Workspace or personal account", icon: LockKeyhole },
+  { id: "google", label: "Continue with Google", note: "Google Workspace or personal account", icon: Chrome },
   { id: "github", label: "Continue with GitHub", note: "Developer identity and repositories", icon: Github },
   { id: "gitlab", label: "Continue with GitLab", note: "GitLab.com account", icon: Gitlab },
 ];
@@ -43,7 +43,7 @@ export default function AuthDialog({ open, onClose }: { open: boolean; onClose: 
         <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")} role="tab" aria-selected={mode === "signup"}>Create account</button>
       </div>
       <div className="auth-provider-list">
-        {providers.map(({ id, label, note, icon: Icon }) => <button className="auth-provider-button" key={id} disabled={Boolean(pending)} onClick={() => continueWith(id)}>
+        {providers.map(({ id, label, note, icon: Icon }) => <button className="auth-provider-button" key={id} disabled={Boolean(pending)} aria-busy={pending === id} onClick={() => continueWith(id)}>
           <span className={`auth-provider-icon auth-provider-${id}`}><Icon size={17} /></span>
           <span><strong>{pending === id ? "Opening secure sign-in…" : label}</strong><small>{note}</small></span>
           <span className="auth-provider-arrow">→</span>
