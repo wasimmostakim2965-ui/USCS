@@ -66,41 +66,9 @@ type Section =
 type NavItem = { label: Section; icon: typeof Activity; detail?: string };
 
 const navGroups: { label: string; items: NavItem[] }[] = [
-  {
-    label: "Overview",
-    items: [
-      { label: "Overview", icon: Layers3 },
-      { label: "Observability", icon: Activity, detail: "Logs & uptime" },
-    ],
-  },
-  {
-    label: "Build",
-    items: [
-      { label: "Projects", icon: Box },
-      { label: "Deployments", icon: UploadCloud },
-      { label: "Domains", icon: Globe2 },
-    ],
-  },
-  {
-    label: "Data",
-    items: [{ label: "Data", icon: Database, detail: "Databases & storage" }],
-  },
-  {
-    label: "Security",
-    items: [{ label: "Security", icon: ShieldCheck, detail: "Protection & access" }],
-  },
-  {
-    label: "Developer",
-    items: [{ label: "Developer", icon: TerminalSquare, detail: "GitHub & secrets" }],
-  },
-  {
-    label: "Workspace",
-    items: [
-      { label: "Team", icon: UserRound },
-      { label: "Billing", icon: Layers3 },
-      { label: "Settings", icon: Settings2 },
-    ],
-  },
+  { label: "Workspace", items: [{ label: "Overview", icon: Layers3 }, { label: "Projects", icon: Box }, { label: "Domains", icon: Globe2 }] },
+  { label: "Operate", items: [{ label: "Data", icon: Database }, { label: "Security", icon: ShieldCheck }, { label: "Observability", icon: Activity }] },
+  { label: "Manage", items: [{ label: "Settings", icon: Settings2 }] },
 ];
 
 const statusItems = [
@@ -273,8 +241,28 @@ function CommandPalette({ open, onClose, onNavigate }: { open: boolean; onClose:
   return <div className="command-backdrop" onMouseDown={onClose}><div className="command-dialog" onMouseDown={e => e.stopPropagation()}><div className="command-search"><Search size={17} /><input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="Search USCS" /><kbd>ESC</kbd></div><div className="command-label">Jump to</div>{actions.length ? actions.map(({ label, section, icon: Icon }) => <button className="command-row" key={label} onClick={() => { onNavigate(section); onClose(); }}><span className="quick-icon"><Icon size={16} /></span><span>{label}</span><span className="command-hint">{section}</span></button>) : <div className="command-empty">No matching action.</div>}<div className="command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span></div></div></div>;
 }
 
-export default function Home() {
-  const { user, loading, isAuthenticated, logout } = useAuth();
+function LandingPage({ onLogin }: { onLogin: () => void }) {
+  return <div className="landing-page">
+    <header className="landing-nav">
+      <a className="landing-brand" href="#top" aria-label="USCS home"><span className="brand-mark"><span /></span><span><strong>USCS</strong><small>Unified cloud platform</small></span></a>
+      <nav className="landing-links" aria-label="Main navigation"><a href="#platform">Platform</a><a href="#security">Security</a><a href="#developers">Developers</a><a href="#pricing">Pricing</a></nav>
+      <div className="landing-actions"><button className="landing-signin" onClick={onLogin}>Sign in</button><button className="landing-cta" onClick={onLogin}>Get started <ArrowUpRight size={15} /></button></div>
+    </header>
+    <main id="top">
+      <section className="landing-hero">
+        <div className="hero-copy"><div className="hero-kicker"><span className="live-dot" />The operating system for modern applications</div><h1>Build the web.<br /><em>Without the glue.</em></h1><p>Domains, deployments, databases, storage, and security in one calm, beautifully simple workspace.</p><div className="hero-actions"><button className="landing-cta landing-cta-large" onClick={onLogin}>Create your workspace <ArrowUpRight size={17} /></button><button className="hero-text-button" onClick={() => document.getElementById("platform")?.scrollIntoView({ behavior: "smooth" })}>Explore the platform <ChevronRight size={16} /></button></div><div className="hero-note"><LockKeyhole size={14} /> Secure by default. No fake metrics. No hidden infrastructure surprises.</div></div>
+        <div className="hero-visual" aria-label="USCS platform preview"><div className="hero-glow" /><div className="mini-window"><div className="mini-window-bar"><span className="mini-dots"><i /><i /><i /></span><span>app.uscs.io / overview</span><span className="mini-live">PREVIEW</span></div><div className="mini-window-body"><div className="mini-sidebar"><strong>USCS</strong><span className="mini-active">Overview</span><span>Projects</span><span>Domains</span><span>Security</span><span>Settings</span></div><div className="mini-content"><small>CONTROL PLANE / OVERVIEW</small><h3>Ship with confidence.</h3><div className="mini-cards"><div><small>Production</small><strong>Not connected</strong><span className="mini-line" /></div><div><small>Security</small><strong>Configuration</strong><span className="mini-line short" /></div></div><div className="mini-table"><span /><span /><span /><span /></div></div></div></div></div>
+      </section>
+      <section className="trusted-row"><span>Everything your product needs to run</span><div><b>DOMAINS</b><b>DEPLOYMENTS</b><b>DATA</b><b>SECURITY</b><b>OBSERVABILITY</b></div></section>
+      <section className="landing-section" id="platform"><div className="section-intro"><div className="landing-eyebrow">One surface</div><h2>From first commit<br />to production.</h2><p>USCS turns the scattered work of running an application into one clear path. Simple enough for a solo builder, powerful enough for a serious team.</p></div><div className="feature-grid"><article className="feature-card feature-wide"><span className="feature-index">01 / BUILD</span><h3>Deploy without the dance.</h3><p>Connect GitHub, choose a branch, and let USCS detect your framework, run checks, and ship a real deployment.</p><div className="feature-foot"><GitBranch size={16} /> Preview environments · Rollbacks · Logs</div></article><article className="feature-card"><span className="feature-index">02 / OWN</span><h3>Your domain, finally in context.</h3><p>Search, connect DNS, and secure a domain next to the project it belongs to.</p><div className="feature-foot"><Globe2 size={16} /> Registrar-ready architecture</div></article><article className="feature-card"><span className="feature-index">03 / PROTECT</span><h3>Security is the starting line.</h3><p>Private data, scoped access, audit trails, and production checks are designed into the workflow.</p><div className="feature-foot"><ShieldCheck size={16} /> Evidence over empty scores</div></article></div></section>
+      <section className="security-section" id="security"><div className="security-copy"><div className="landing-eyebrow">Security, not theatre</div><h2>Nothing is called<br /><em>protected</em> without proof.</h2><p>USCS makes the honest state visible. If a provider is not connected, you see “Configuration required”—not a made-up green check.</p><button className="hero-text-button" onClick={onLogin}>See the control plane <ArrowUpRight size={16} /></button></div><div className="security-list"><div><span>01</span><strong>Private by default</strong><small>Databases, buckets, and secrets start behind an explicit access boundary.</small></div><div><span>02</span><strong>Every action has a trail</strong><small>Deployments, DNS changes, access changes, and security events are auditable.</small></div><div><span>03</span><strong>Providers stay replaceable</strong><small>Your business logic is not locked to one registrar or deployment vendor.</small></div></div></section>
+      <section className="final-cta" id="developers"><div><div className="landing-eyebrow">The quiet advantage</div><h2>Less infrastructure<br /><em>in your head.</em></h2><p>Start with a workspace. Add providers when you are ready.</p></div><button className="landing-cta landing-cta-large" onClick={onLogin}>Create your workspace <ArrowUpRight size={17} /></button></section>
+    </main>
+    <footer className="landing-footer"><span>© 2026 USCS</span><span>Built for people who ship.</span><span><a href="#security">Security</a><a href="#pricing">Pricing</a><button onClick={onLogin}>Sign in</button></span></footer>
+  </div>;
+}
+
+function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user"]; logout: () => void }) {
   const [active, setActive] = useState<Section>("Overview");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -283,16 +271,14 @@ export default function Home() {
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const page = active === "Overview" ? <Overview onNavigate={navigate} /> : active === "Projects" ? <Projects onNavigate={navigate} /> : active === "Deployments" ? <Deployments onNavigate={navigate} /> : active === "Domains" ? <Domains /> : active === "Data" ? <Data /> : active === "Security" ? <Security /> : active === "Observability" ? <Observability /> : active === "Developer" ? <Developer /> : active === "Team" ? <Team onNavigate={navigate} /> : active === "Billing" ? <Billing /> : <Settings />;
   return <div className="app-shell">
-    <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "sidebar-mobile-open" : ""}`}>
-      <div className="brand"><div className="brand-mark"><span /></div>{!collapsed && <div className="brand-wordmark"><strong>USCS</strong><small>Unified cloud platform</small></div>}<button className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={18} /></button></div>
-      <div className="workspace-switcher"><div className="workspace-avatar">U</div>{!collapsed && <div className="workspace-copy"><strong>Personal workspace</strong><small>Owner workspace</small></div>} {!collapsed && <ChevronDown size={14} />}</div>
-      <nav className="sidebar-nav">{navGroups.map(group => <div className="nav-group" key={group.label}><div className="nav-group-label">{!collapsed && group.label}</div>{group.items.map(({ label, icon: Icon, detail }) => <button className={`nav-item ${active === label ? "nav-active" : ""}`} key={label} onClick={() => navigate(label)} title={collapsed ? label : undefined}><Icon size={17} /><span className="nav-label">{label}</span>{!collapsed && detail && <span className="nav-detail">{detail}</span>}</button>)}</div>)}</nav>
-      <div className="sidebar-bottom"><button className="help-link" onClick={() => toast.info("Support center is available once the workspace is connected.")}><LifeBuoy size={17} /><span className="nav-label">Support</span></button><button className="collapse-button" onClick={() => setCollapsed(v => !v)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span className="nav-label">{collapsed ? "Expand" : "Collapse"}</span></button></div>
-    </aside>
-    <main className="main-area">
-      <header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{active}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button>{loading ? <div className="user-skeleton" /> : isAuthenticated ? <button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button> : <button className="button button-secondary button-small" onClick={() => startLogin()}>Sign in</button>}</div></header>
-      <div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div>
-    </main>
-    <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
+    <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "sidebar-mobile-open" : ""}`}><div className="brand"><div className="brand-mark"><span /></div>{!collapsed && <div className="brand-wordmark"><strong>USCS</strong><small>Unified cloud platform</small></div>}<button className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={18} /></button></div><div className="workspace-switcher"><div className="workspace-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</div>{!collapsed && <div className="workspace-copy"><strong>{user?.name || "Your workspace"}</strong><small>Personal workspace</small></div>} {!collapsed && <ChevronDown size={14} />}</div><nav className="sidebar-nav">{navGroups.map(group => <div className="nav-group" key={group.label}><div className="nav-group-label">{!collapsed && group.label}</div>{group.items.map(({ label, icon: Icon, detail }) => <button className={`nav-item ${active === label ? "nav-active" : ""}`} key={label} onClick={() => navigate(label)} title={collapsed ? label : undefined}><Icon size={17} /><span className="nav-label">{label}</span>{!collapsed && detail && <span className="nav-detail">{detail}</span>}</button>)}</div>)}</nav><div className="sidebar-bottom"><button className="help-link" onClick={() => toast.info("Support center is available once the workspace is connected.")}><LifeBuoy size={17} /><span className="nav-label">Support</span></button><button className="collapse-button" onClick={() => setCollapsed(v => !v)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span className="nav-label">{collapsed ? "Expand" : "Collapse"}</span></button></div></aside>
+    <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{active}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button><button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button></div></header><div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div></main><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
   </div>;
+}
+
+export default function Home() {
+  const auth = useAuth();
+  if (auth.loading) return <div className="auth-loading"><div className="brand-mark"><span /></div><span>Loading your workspace…</span></div>;
+  if (!auth.isAuthenticated) return <LandingPage onLogin={() => startLogin()} />;
+  return <DashboardApp user={auth.user} logout={auth.logout} />;
 }
