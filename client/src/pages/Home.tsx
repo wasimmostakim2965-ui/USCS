@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { startLogin } from "@/const";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { CloudNavigation, type Section, getNavigationLabel } from "@/components/CloudNavigation";
 import AuthDialog from "@/components/AuthDialog";
@@ -263,6 +264,63 @@ function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user
     <CloudNavigation activeSection={active} onNavigate={navigate} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} workspaceName={user?.name || "Your workspace"} />
     <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{getNavigationLabel(active)}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button><button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button></div></header><div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div></main><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
   </div>;
+}
+
+export function AuthCallback() {
+  const [, setLocation] = useLocation();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const completeOAuth = async () => {
+      if (!supabase) {
+        if (active) setError("Authentication is not configured for this deployment.");
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+
+      try {
+        if (code) {
+          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+        }
+
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+
+        if (!session?.user) {
+          throw new Error("No authenticated session was returned by Supabase.");
+        }
+
+        window.history.replaceState({}, document.title, "/dashboard");
+        if (active) setLocation("/dashboard");
+      } catch (err) {
+        if (active) {
+          setError(err instanceof Error ? err.message : "Unable to complete sign-in.");
+        }
+      }
+    };
+
+    void completeOAuth();
+    return () => {
+      active = false;
+    };
+  }, [setLocation]);
+
+  if (error) {
+    return (
+      <div className="auth-loading" style={{ flexDirection: "column", gap: 12 }}>
+        <strong>Sign-in could not be completed</strong>
+        <span>{error}</span>
+        <button className="button button-primary" onClick={() => setLocation("/")}>Back to sign in</button>
+      </div>
+    );
+  }
+
+  return <div className="auth-loading" aria-label="Completing sign-in" />;
 }
 
 export default function Home() {
