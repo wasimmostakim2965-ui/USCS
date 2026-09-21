@@ -38,7 +38,10 @@ export type Section =
   | "Developer"
   | "Team"
   | "Billing"
+  | "Admin"
   | "Settings";
+
+export type DomainView = "market" | "my-domains";
 
 type NavigationItem = {
   label: string;
@@ -62,10 +65,6 @@ export const navigationGroups: NavigationGroup[] = [
       { label: "Projects", section: "Projects", icon: Box, available: true },
       { label: "Deployments", section: "Deployments", icon: Layers3, available: true },
       { label: "Domains", section: "Domains", icon: Globe2, available: true },
-      { label: "DNS", section: "Domains", available: false },
-      { label: "Hosting", section: "Projects", available: false },
-      { label: "Functions", section: "Projects", available: false },
-      { label: "Cron / Jobs", section: "Projects", available: false },
       { label: "Environment configuration", section: "Developer", available: true },
     ],
   },
@@ -128,6 +127,7 @@ export const navigationGroups: NavigationGroup[] = [
     items: [
       { label: "Team", section: "Team", icon: Users, available: true },
       { label: "Billing", section: "Billing", icon: CircleDollarSign, available: true },
+      { label: "Admin console", section: "Admin", icon: ShieldCheck, available: true },
       { label: "Settings", section: "Settings", icon: Settings2, available: true },
     ],
   },
@@ -152,6 +152,8 @@ export function CloudNavigation({
   mobileOpen,
   onCloseMobile,
   workspaceName,
+  domainView,
+  onDomainView,
 }: {
   activeSection: Section;
   onNavigate: (section: Section) => void;
@@ -160,6 +162,8 @@ export function CloudNavigation({
   mobileOpen: boolean;
   onCloseMobile: () => void;
   workspaceName: string;
+  domainView: DomainView;
+  onDomainView: (view: DomainView) => void;
 }) {
   const activeGroup = getNavigationGroupForSection(activeSection)?.label;
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -179,7 +183,12 @@ export function CloudNavigation({
     localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded));
   }, [expanded]);
 
-  const visibleGroups = useMemo(() => navigationGroups, []);
+  const visibleGroups = useMemo(
+    () => navigationGroups
+      .map((group) => ({ ...group, items: group.items.filter((item) => item.available) }))
+      .filter((group) => group.items.length > 0),
+    [],
+  );
   const initials = workspaceName.slice(0, 1).toUpperCase() || "U";
 
   const toggleGroup = (label: string) => {
@@ -230,9 +239,16 @@ export function CloudNavigation({
                 {group.items.map((item) => {
                   const ItemIcon = item.icon;
                   const isActive = item.section === activeSection && item.available;
-                  return <button className={`nav-child ${isActive ? "nav-child-active" : ""} ${item.available ? "" : "nav-child-planned"}`} key={item.label} onClick={() => activate(item)} title={item.available ? item.label : `${item.label} — planned`}>
-                    <span className="nav-child-marker" />{ItemIcon ? <ItemIcon size={14} /> : null}<span className="nav-label">{item.label}</span>{!item.available && <span className="nav-detail">Soon</span>}
-                  </button>;
+                  const domainItem = item.label === "Domains";
+                  return <div key={item.label} className="nav-child-wrap">
+                    <button className={`nav-child ${isActive ? "nav-child-active" : ""} ${item.available ? "" : "nav-child-planned"}`} onClick={() => activate(item)} title={item.available ? item.label : `${item.label} — planned`}>
+                      <span className="nav-child-marker" />{ItemIcon ? <ItemIcon size={14} /> : null}<span className="nav-label">{item.label}</span>{!item.available && <span className="nav-detail">Soon</span>}
+                    </button>
+                    {domainItem && isActive && <div className="nav-subchildren">
+                      <button className={domainView === "market" ? "nav-subchild-active" : ""} onClick={() => { onDomainView("market"); onCloseMobile(); }}><span />Market</button>
+                      <button className={domainView === "my-domains" ? "nav-subchild-active" : ""} onClick={() => { onDomainView("my-domains"); onCloseMobile(); }}><span />My domains</button>
+                    </div>}
+                  </div>;
                 })}
               </div>}
             </div>

@@ -4,7 +4,7 @@ import { startLogin } from "@/const";
 import { supabase } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { CloudNavigation, type Section, getNavigationLabel } from "@/components/CloudNavigation";
+import { CloudNavigation, type DomainView, type Section, getNavigationLabel } from "@/components/CloudNavigation";
 import AuthDialog from "@/components/AuthDialog";
 import { toast } from "sonner";
 import {
@@ -43,6 +43,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ScrollText,
   Server,
   Settings2,
   ShieldCheck,
@@ -51,6 +52,7 @@ import {
   Timer,
   UploadCloud,
   UserRound,
+  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -186,10 +188,25 @@ function Deployments({ onNavigate }: { onNavigate: (section: Section) => void })
 
 function PipelineStep({ label, icon: Icon }: { label: string; icon: typeof Activity }) { return <div className="pipeline-step"><span className="pipeline-icon"><Icon size={17} /></span><span>{label}</span><span className="pipeline-state">Waiting</span></div>; }
 
-function Domains() {
+function Domains({ view, onViewChange }: { view: DomainView; onViewChange: (view: DomainView) => void }) {
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState(false);
-  return <><SectionHeader eyebrow="Build / Domains" title="Domains" description="Search, register, transfer, and secure domains through a replaceable registrar provider." action={<button className="button button-secondary" onClick={() => toast.info("A registrar provider is required before transfer or renewal actions are enabled.")}><ExternalLink size={15} /> Provider setup</button>} /><div className="panel domain-search"><div className="eyebrow">Find your domain</div><h2>Search for your perfect domain</h2><p>Availability and pricing are only shown from a live registrar connection.</p><div className="search-row"><div className="input-wrap"><Search size={17} /><input value={query} onChange={e => { setQuery(e.target.value); setSearched(false); }} placeholder="example.com or mycompany.ai" aria-label="Search for a domain" /><button className="clear-input" onClick={() => setQuery("")} aria-label="Clear domain search"><X size={15} /></button></div><button className="button button-primary" onClick={() => { setSearched(true); toast.info("No registrar connected — no availability result was returned."); }}>Search</button></div>{searched && <div className="result-message"><AlertTriangle size={17} /><div><strong>No live result returned</strong><span>{query ? `“${query}” was not checked because no registrar provider is connected.` : "Enter a domain to search after connecting a registrar provider."}</span></div></div>}</div><div className="content-grid three"><InfoCard icon={Globe2} title="Registration" text="Registration, renewal, transfer, WHOIS, and privacy depend on a live provider." /><InfoCard icon={Network} title="DNS & nameservers" text="Manage records and DNSSEC after a domain is attached to a project." /><InfoCard icon={LockKeyhole} title="Secure by default" text="TLS, domain locking, auto-renew, and expiration alerts are explicit controls." /></div></>;
+  const market = view === "market";
+  return <>
+    <SectionHeader eyebrow="Workspace / Domains" title={market ? "Find your next domain" : "My domains"} description={market ? "Search availability, compare registrar pricing, and attach a domain to a project." : "Manage the domains owned by this workspace, their nameservers, and project assignments."} action={market ? <button className="button button-secondary" onClick={() => toast.info("Connect a registrar provider to enable domain purchasing.")}><ExternalLink size={15} /> Connect registrar</button> : <button className="button button-primary" onClick={() => onViewChange("market")}><Plus size={16} /> Buy a domain</button>} />
+    <div className="surface-tabs" role="tablist" aria-label="Domain workspace">
+      <button className={market ? "surface-tab-active" : ""} onClick={() => onViewChange("market")} role="tab" aria-selected={market}><Globe2 size={15} /> Market</button>
+      <button className={!market ? "surface-tab-active" : ""} onClick={() => onViewChange("my-domains")} role="tab" aria-selected={!market}><Box size={15} /> My domains</button>
+    </div>
+    {market ? <>
+      <div className="domain-search domain-search-premium">
+        <div className="domain-search-copy"><div className="eyebrow">Domain market</div><h2>Own the name people remember.</h2><p>Search any domain. Real availability and price are shown only after a registrar is connected.</p></div>
+        <div className="search-row"><div className="input-wrap"><Search size={17} /><input value={query} onChange={e => { setQuery(e.target.value); setSearched(false); }} placeholder="Search for a domain, e.g. acme.com" aria-label="Search for a domain" /><button className="clear-input" onClick={() => setQuery("")} aria-label="Clear domain search"><X size={15} /></button></div><button className="button button-primary" onClick={() => { setSearched(true); toast.info("Connect a registrar to return live availability."); }}>Search</button></div>
+        {searched && <div className="result-message"><AlertTriangle size={17} /><div><strong>Registrar connection required</strong><span>{query ? `We did not guess availability for “${query}”. Connect a registrar to search live.` : "Enter a domain to begin a live search."}</span></div></div>}
+      </div>
+      <div className="content-grid three"><InfoCard icon={Globe2} title="Buy & transfer" text="Register, renew, transfer, and protect domains from one place." /><InfoCard icon={Network} title="DNS & nameservers" text="Manage records, nameservers, DNSSEC, and project routing after purchase." /><InfoCard icon={LockKeyhole} title="Secure by default" text="TLS, domain lock, auto-renew, and expiration alerts are explicit controls." /></div>
+    </> : <div className="panel my-domains-panel"><div className="panel-heading"><div><div className="eyebrow">Owned by this workspace</div><h2>Your domains</h2></div><StatusPill>0 domains</StatusPill></div><EmptyState icon={Globe2} title="No domains yet" body="Domains you purchase or transfer will appear here with nameserver, renewal, and project controls." action="Browse domain market" onAction={() => onViewChange("market")} /></div>}
+  </>;
 }
 
 function Data() {
@@ -212,6 +229,7 @@ function Developer() {
 
 function Team({ onNavigate }: { onNavigate: (section: Section) => void }) { return <><SectionHeader eyebrow="Workspace / Team" title="Team & access" description="Separate identity, organization, and infrastructure privileges with explicit roles." action={<button className="button button-primary" onClick={() => toast.info("Invite flow requires an authenticated organization.")}><Plus size={16} /> Invite member</button>} /><div className="panel"><EmptyState icon={UserRound} title="No organization configured" body="Create or connect an organization to manage members, roles, permissions, and audit logs." action="Review settings" onAction={() => onNavigate("Settings")} /></div><div className="content-grid three"><InfoCard icon={UserRound} title="Members" text="Owner, admin, developer, viewer, billing, and security roles." /><InfoCard icon={LockKeyhole} title="Permissions" text="Authorization is enforced server-side, not only in the interface." /><InfoCard icon={Fingerprint} title="Audit logs" text="Role changes and invitations become append-only events." /></div></>; }
 function Billing() { return <><SectionHeader eyebrow="Workspace / Billing" title="Billing" description="Subscriptions, usage, domain charges, invoices, and payment methods." action={<button className="button button-secondary" onClick={() => toast.info("Billing requires a real payment provider connection.")}><Settings2 size={15} /> Billing setup</button>} /><div className="panel"><EmptyState icon={Layers3} title="Billing provider not connected" body="No balances, invoices, payment methods, or charges are shown until a real payment provider is configured." action="Configure billing" onAction={() => toast.info("Payment provider configuration is required.")} /></div></>; }
+function Admin() { return <><SectionHeader eyebrow="Workspace / Admin" title="Admin console" description="Governance, provider connections, audit visibility, and workspace-wide controls." action={<button className="button button-secondary" onClick={() => toast.info("Admin actions are restricted to workspace owners.")}><LockKeyhole size={15} /> Access policy</button>} /><div className="notice-banner notice-subtle"><div className="notice-icon"><ShieldCheck size={17} /></div><div className="notice-copy"><strong>Owner access required</strong><span>Administrative changes are protected by role checks on the server. This view is the control surface; it never grants access by itself.</span></div></div><div className="content-grid three"><InfoCard icon={Users} title="People & roles" text="Invite members, review roles, and revoke access with an audit trail." /><InfoCard icon={Cloud} title="Provider connections" text="Manage registrar, deployment, data, and observability integrations." /><InfoCard icon={ScrollText} title="Audit center" text="Review security-sensitive actions and export evidence when connected." /></div><div className="panel admin-table"><div className="panel-heading"><div><div className="eyebrow">Governance</div><h2>Recent administrative activity</h2></div><StatusPill>No events</StatusPill></div><EmptyState icon={Activity} title="No administrative events" body="Workspace changes will appear here once an owner connects a provider or changes access." /></div></>; }
 function Settings() { return <><SectionHeader eyebrow="Workspace / Settings" title="Settings" description="Account, organization, security, notifications, privacy, and connected accounts." /><div className="settings-grid">{[[UserRound, "Account", "Profile and session preferences"], [LockKeyhole, "Security", "MFA, recovery, devices, and access"], [Bell, "Notifications", "Alerts and delivery channels"], [Github, "Connected accounts", "OAuth connections and revocation"], [CircleHelp, "Privacy", "Data access and retention"], [AlertTriangle, "Danger zone", "Destructive actions with explicit confirmation"]].map(([Icon, title, body]) => <button className="settings-tile" key={title as string} onClick={() => toast.info(`${title} settings are ready for configuration.`)}><span className="settings-icon"><Icon size={18} /></span><span><strong>{title as string}</strong><small>{body as string}</small></span><ChevronRight size={16} /></button>)}</div><div className="notice-banner notice-subtle"><div className="notice-icon"><LockKeyhole size={17} /></div><div className="notice-copy"><strong>Secure defaults</strong><span>HTTPS, secure cookies, rate limiting, private storage, and audit logging should be enabled where the underlying provider supports them.</span></div></div></>; }
 
 function InfoCard({ title, text }: { icon?: typeof Activity; title: string; text: string }) { return <div className="panel info-card"><h3>{title}</h3><p>{text}</p><span className="info-arrow"><ArrowUpRight size={15} /></span></div>; }
@@ -255,14 +273,15 @@ function LandingPage() {
 
 function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user"]; logout: () => void }) {
   const [active, setActive] = useState<Section>("Overview");
+  const [domainView, setDomainView] = useState<DomainView>("market");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const navigate = (section: Section) => { setActive(section); setMobileOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); };
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
-  const page = active === "Overview" ? <Overview onNavigate={navigate} /> : active === "Projects" ? <Projects onNavigate={navigate} /> : active === "Deployments" ? <Deployments onNavigate={navigate} /> : active === "Domains" ? <Domains /> : active === "Data" ? <Data /> : active === "Security" ? <Security /> : active === "Observability" ? <Observability /> : active === "Developer" ? <Developer /> : active === "Team" ? <Team onNavigate={navigate} /> : active === "Billing" ? <Billing /> : <Settings />;
+  const page = active === "Overview" ? <Overview onNavigate={navigate} /> : active === "Projects" ? <Projects onNavigate={navigate} /> : active === "Deployments" ? <Deployments onNavigate={navigate} /> : active === "Domains" ? <Domains view={domainView} onViewChange={setDomainView} /> : active === "Data" ? <Data /> : active === "Security" ? <Security /> : active === "Observability" ? <Observability /> : active === "Developer" ? <Developer /> : active === "Team" ? <Team onNavigate={navigate} /> : active === "Billing" ? <Billing /> : active === "Admin" ? <Admin /> : <Settings />;
   return <div className="app-shell">
-    <CloudNavigation activeSection={active} onNavigate={navigate} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} workspaceName={user?.name || "Your workspace"} />
+    <CloudNavigation activeSection={active} onNavigate={navigate} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} workspaceName={user?.name || "Your workspace"} domainView={domainView} onDomainView={(view) => { setDomainView(view); setActive("Domains"); }} />
     <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{getNavigationLabel(active)}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button><button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button></div></header><div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div></main><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
   </div>;
 }

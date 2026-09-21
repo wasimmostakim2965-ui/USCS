@@ -487,4 +487,26 @@ h3 { font-size: 14px; }
   .final-cta { align-items: flex-start; flex-direction: column; padding: 78px 0; }
   .landing-footer { align-items: flex-start; flex-direction: column; padding-left: 16px; padding-right: 16px; }
 }
-*** End Patch
+/* Workspace IA refinement: quiet hierarchy, explicit domain surfaces, no visual noise. */
+.nav-child-wrap { display: grid; gap: 2px; }
+.nav-subchildren { display: grid; gap: 2px; margin: 0 0 4px 27px; padding-left: 12px; border-left: 1px solid var(--line); }
+.nav-subchildren button { min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--muted); background: transparent; border-radius: 5px; text-align: left; font-size: 11px; }
+.nav-subchildren button:hover, .nav-subchildren button.nav-subchild-active { color: var(--ink); background: var(--surface-2); }
+.nav-subchildren button span { width: 4px; height: 4px; border-radius: 50%; background: #b7c0ca; }
+.nav-subchildren button.nav-subchild-active { font-weight: 600; }
+.nav-subchildren button.nav-subchild-active span { background: var(--accent); }
+.surface-tabs { display: flex; align-items: center; gap: 3px; width: fit-content; margin: -7px 0 22px; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+.surface-tabs button { min-height: 31px; display: inline-flex; align-items: center; gap: 7px; padding: 0 11px; color: var(--muted); background: transparent; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.surface-tabs button:hover { color: var(--ink); }
+.surface-tabs button.surface-tab-active { color: var(--ink); background: var(--surface); box-shadow: 0 1px 3px rgba(17,24,39,.08); }
+.domain-search-premium { display: grid; gap: 22px; padding: 28px; border-color: #dfe3e8; background: linear-gradient(135deg, #fff 0%, #fafbfc 100%); }
+.domain-search-copy h2 { margin-top: 5px; font-size: 24px; letter-spacing: -.045em; }
+.domain-search-copy p { max-width: 590px; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.domain-search-premium .search-row { max-width: 720px; }
+.my-domains-panel { min-height: 330px; }
+.admin-table { margin-top: 15px; }
+@media (max-width: 760px) {
+  .surface-tabs { width: 100%; }
+  .surface-tabs button { flex: 1; justify-content: center; }
+  .domain-search-premium { padding: 20px; }
+}
