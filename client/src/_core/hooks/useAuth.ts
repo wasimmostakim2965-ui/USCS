@@ -2,6 +2,7 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
+import { supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -39,6 +40,7 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      await supabase?.auth.signOut();
       // Clear the Preview auto-login token mirrored into sessionStorage, so
       // header-based sessions (Safari ITP / WebView) are logged out too. The
       // backend cookie is cleared by the logout mutation.
@@ -49,6 +51,13 @@ export function useAuth(options?: UseAuthOptions) {
       await utils.auth.me.invalidate();
     }
   }, [logoutMutation, utils]);
+
+  useEffect(() => {
+    const { data } = subscribeToSupabaseAuth(() => {
+      void utils.auth.me.invalidate();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [utils]);
 
   const state = useMemo(() => {
     localStorage.setItem(

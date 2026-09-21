@@ -1,0 +1,27 @@
+.auth-dialog-backdrop { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(17, 24, 39, .34); backdrop-filter: blur(8px); }
+.auth-dialog { position: relative; width: min(420px, 100%); padding: 30px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); animation: command-in .18s var(--ease-out); }
+.auth-dialog-close { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; display: grid; place-items: center; color: var(--muted); background: transparent; border-radius: 7px; }
+.auth-dialog-close:hover { color: var(--ink); background: var(--surface-2); }
+.auth-dialog-mark { width: 38px; height: 38px; display: grid; place-items: center; margin-bottom: 19px; color: #fff; background: var(--ink); border-radius: 10px; font-weight: 700; letter-spacing: .05em; }
+.auth-dialog-eyebrow { margin-bottom: 7px; color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.auth-dialog h2 { margin-bottom: 8px; font-size: 25px; letter-spacing: -.04em; }
+.auth-dialog-copy { color: var(--muted); font-size: 12px; line-height: 1.55; }
+.auth-mode-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 21px 0 13px; padding: 3px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; }
+.auth-mode-toggle button { min-height: 30px; color: var(--muted); background: transparent; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.auth-mode-toggle button.active { color: var(--ink); background: #fff; box-shadow: var(--shadow-sm); }
+.auth-provider-list { display: grid; gap: 8px; }
+.auth-provider-button { min-height: 56px; display: flex; align-items: center; gap: 11px; padding: 8px 11px; color: var(--ink); background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; text-align: left; transition: border-color .16s, background .16s, transform .16s; }
+.auth-provider-button:hover:not(:disabled) { background: var(--surface-2); border-color: #a8b6c3; }
+.auth-provider-button:disabled { cursor: wait; opacity: .7; }
+.auth-provider-icon { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; color: #fff; border-radius: 7px; }
+.auth-provider-google { background: #4285f4; }
+.auth-provider-github { background: #161b22; }
+.auth-provider-gitlab { background: #fc6d26; }
+.auth-provider-button > span:nth-child(2) { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.auth-provider-button strong { font-size: 12px; }
+.auth-provider-button small { color: var(--muted); font-size: 10px; }
+.auth-provider-arrow { color: #9da8b6; font-size: 16px; }
+.auth-config-warning { display: flex; align-items: flex-start; gap: 8px; margin-top: 13px; padding: 10px; color: #8d610d; background: var(--warning-soft); border: 1px solid #f0d99f; border-radius: 7px; font-size: 10px; line-height: 1.45; }
+.auth-config-warning svg { flex: 0 0 auto; margin-top: 1px; }
+.auth-dialog-footnote { margin-top: 16px; color: #9aa5b5; font-size: 9px; line-height: 1.5; }
+@media (max-width: 570px) { .auth-dialog { padding: 24px 18px; border-radius: 11px; } }
