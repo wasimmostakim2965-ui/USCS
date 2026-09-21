@@ -266,6 +266,16 @@ function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user
 
 export default function Home() {
   const auth = useAuth();
+
+  useEffect(() => {
+    if (auth.loading || !auth.isAuthenticated || typeof window === "undefined") return;
+    if (window.location.pathname !== "/dashboard") {
+      // OAuth returns to the site origin. Once Supabase has restored the session,
+      // move the authenticated user onto the explicit dashboard route.
+      window.location.replace("/dashboard");
+    }
+  }, [auth.loading, auth.isAuthenticated]);
+
   if (auth.loading) return <div className="auth-loading"><div className="brand-mark"><span /></div><span>Loading your workspace…</span></div>;
   if (!auth.isAuthenticated) return <LandingPage />;
   return <DashboardApp user={auth.user} logout={auth.logout} />;
