@@ -282,12 +282,22 @@ export function AuthCallback() {
 
       const params = new URLSearchParams(window.location.search);
       const code = params.get("code");
+      const oauthError = params.get("error_description") || params.get("error");
+      const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 
       try {
+        if (oauthError) throw new Error(oauthError);
         let exchangedSession: Session | null = null;
         if (code) {
           const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) throw exchangeError;
+          exchangedSession = data.session;
+        } else if (hashParams.get("access_token") && hashParams.get("refresh_token")) {
+          const { data, error: hashError } = await supabase.auth.setSession({
+            access_token: hashParams.get("access_token")!,
+            refresh_token: hashParams.get("refresh_token")!,
+          });
+          if (hashError) throw hashError;
           exchangedSession = data.session;
         }
 
