@@ -60,6 +60,20 @@ button:active { transform: scale(.985); }
 .nav-item svg, .help-link svg, .collapse-button svg { flex: 0 0 auto; color: #8591a2; }
 .nav-item.nav-active { color: var(--accent-deep); background: var(--accent-soft); font-weight: 600; }
 .nav-item.nav-active svg { color: var(--accent); }
+.nav-group-trigger { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 9px; padding: 0 10px; color: var(--ink-2); background: transparent; border-radius: 7px; text-align: left; font-size: 12px; font-weight: 600; transition: color .16s, background .16s; }
+.nav-group-trigger:hover, .nav-group-active > .nav-group-trigger { color: var(--ink); background: var(--surface-2); }
+.nav-group-trigger > svg:first-child { color: #8591a2; }
+.nav-chevron { margin-left: auto; color: #9aa5b5; transition: transform .18s var(--ease-out); }
+.nav-children { display: grid; gap: 2px; margin: 2px 0 4px 15px; padding: 0 0 0 12px; border-left: 1px solid var(--line); }
+.nav-child { min-height: 31px; display: flex; align-items: center; gap: 8px; padding: 0 8px; color: var(--muted); background: transparent; border-radius: 6px; text-align: left; font-size: 11px; transition: color .16s, background .16s; }
+.nav-child:hover { color: var(--ink); background: var(--surface-2); }
+.nav-child > svg { flex: 0 0 auto; color: #9aa5b5; }
+.nav-child-marker { width: 3px; height: 3px; flex: 0 0 auto; border-radius: 50%; background: #b9c0ca; }
+.nav-child-active { color: var(--accent-deep); background: var(--accent-soft); font-weight: 600; }
+.nav-child-active > svg, .nav-child-active .nav-child-marker { color: var(--accent); background: var(--accent); }
+.nav-child-planned { color: #a6afbb; }
+.nav-child-planned .nav-detail { margin-left: auto; font-size: 9px; color: #b2bac5; }
+.nav-overview-group { margin-bottom: 8px; }
 .nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-detail { margin-left: auto; color: #a2acba; font-size: 10px; white-space: nowrap; }
 .sidebar-collapsed .nav-item, .sidebar-collapsed .help-link, .sidebar-collapsed .collapse-button { justify-content: center; padding: 0; }
@@ -294,6 +308,7 @@ h3 { font-size: 14px; }
   .sidebar-collapsed .collapse-button .nav-label { display: inline; }
   .sidebar-collapsed .brand { padding-left: 20px; }
   .mobile-close { display: grid; }
+  .nav-children { margin-left: 15px; }
   .main-area, .sidebar-collapsed + .main-area { width: 100%; margin-left: 0; }
   .topbar { padding: 0 20px; }
   .mobile-menu { display: grid; }

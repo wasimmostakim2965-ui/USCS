@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { startLogin } from "@/const";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { CloudNavigation, type Section, getNavigationLabel } from "@/components/CloudNavigation";
 import { toast } from "sonner";
 import {
   Activity,
@@ -49,27 +50,6 @@ import {
   X,
   Zap,
 } from "lucide-react";
-
-type Section =
-  | "Overview"
-  | "Projects"
-  | "Deployments"
-  | "Domains"
-  | "Data"
-  | "Security"
-  | "Observability"
-  | "Developer"
-  | "Team"
-  | "Billing"
-  | "Settings";
-
-type NavItem = { label: Section; icon: typeof Activity; detail?: string };
-
-const navGroups: { label: string; items: NavItem[] }[] = [
-  { label: "Workspace", items: [{ label: "Overview", icon: Layers3 }, { label: "Projects", icon: Box }, { label: "Domains", icon: Globe2 }] },
-  { label: "Operate", items: [{ label: "Data", icon: Database }, { label: "Security", icon: ShieldCheck }, { label: "Observability", icon: Activity }] },
-  { label: "Manage", items: [{ label: "Settings", icon: Settings2 }] },
-];
 
 const statusItems = [
   { label: "Domain provider", icon: Globe2, description: "Search and register domains" },
@@ -271,8 +251,8 @@ function DashboardApp({ user, logout }: { user: ReturnType<typeof useAuth>["user
   useEffect(() => { const handler = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setCommandOpen(true); } }; window.addEventListener("keydown", handler); return () => window.removeEventListener("keydown", handler); }, []);
   const page = active === "Overview" ? <Overview onNavigate={navigate} /> : active === "Projects" ? <Projects onNavigate={navigate} /> : active === "Deployments" ? <Deployments onNavigate={navigate} /> : active === "Domains" ? <Domains /> : active === "Data" ? <Data /> : active === "Security" ? <Security /> : active === "Observability" ? <Observability /> : active === "Developer" ? <Developer /> : active === "Team" ? <Team onNavigate={navigate} /> : active === "Billing" ? <Billing /> : <Settings />;
   return <div className="app-shell">
-    <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "sidebar-mobile-open" : ""}`}><div className="brand"><div className="brand-mark"><span /></div>{!collapsed && <div className="brand-wordmark"><strong>USCS</strong><small>Unified cloud platform</small></div>}<button className="mobile-close icon-button" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={18} /></button></div><div className="workspace-switcher"><div className="workspace-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</div>{!collapsed && <div className="workspace-copy"><strong>{user?.name || "Your workspace"}</strong><small>Personal workspace</small></div>} {!collapsed && <ChevronDown size={14} />}</div><nav className="sidebar-nav">{navGroups.map(group => <div className="nav-group" key={group.label}><div className="nav-group-label">{!collapsed && group.label}</div>{group.items.map(({ label, icon: Icon, detail }) => <button className={`nav-item ${active === label ? "nav-active" : ""}`} key={label} onClick={() => navigate(label)} title={collapsed ? label : undefined}><Icon size={17} /><span className="nav-label">{label}</span>{!collapsed && detail && <span className="nav-detail">{detail}</span>}</button>)}</div>)}</nav><div className="sidebar-bottom"><button className="help-link" onClick={() => toast.info("Support center is available once the workspace is connected.")}><LifeBuoy size={17} /><span className="nav-label">Support</span></button><button className="collapse-button" onClick={() => setCollapsed(v => !v)}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span className="nav-label">{collapsed ? "Expand" : "Collapse"}</span></button></div></aside>
-    <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{active}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button><button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button></div></header><div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div></main><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
+    <CloudNavigation activeSection={active} onNavigate={navigate} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} workspaceName={user?.name || "Your workspace"} />
+    <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="mobile-menu icon-button" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div className="breadcrumbs"><span>Workspace</span><ChevronRight size={14} /><strong>{getNavigationLabel(active)}</strong></div></div><div className="topbar-actions"><button className="global-search" onClick={() => setCommandOpen(true)}><Search size={16} /><span>Search</span><kbd>⌘ K</kbd></button><button className="icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={17} /><span className="notification-dot" /></button><button className="user-menu" onClick={() => logout()} title="Sign out"><span className="user-avatar">{(user?.name || "U").slice(0, 1).toUpperCase()}</span><span className="user-name">{user?.name || "Account"}</span><ChevronDown size={14} /></button></div></header><div className="page-content">{page}<footer className="page-footer"><span>USCS control plane</span><span>Secure by default · Provider-agnostic architecture</span><button onClick={() => toast.info("Version details are available in the project documentation.")}><CircleHelp size={14} /> Help</button></footer></div></main><CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onNavigate={navigate} />
   </div>;
 }
 
