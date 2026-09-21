@@ -534,3 +534,9 @@ h3 { font-size: 14px; }
   .context-strip { align-items: flex-start; flex-wrap: wrap; gap: 13px 22px; }
   .context-strip > .status-pill { margin-left: 0; }
 }
+
+.subsection-surface { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin: -2px 0 22px; padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+.subsection-copy h2 { margin-top: 4px; font-size: 18px; letter-spacing: -.035em; }
+.subsection-copy p { max-width: 680px; margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.subsection-actions { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+@media (max-width: 760px) { .subsection-surface { align-items: flex-start; flex-direction: column; } .subsection-actions { width: 100%; justify-content: space-between; } }

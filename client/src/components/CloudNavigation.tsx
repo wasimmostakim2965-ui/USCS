@@ -49,6 +49,7 @@ type NavigationItem = {
   icon?: typeof Activity;
   available?: boolean;
   detail?: string;
+  subItems?: string[];
 };
 
 type NavigationGroup = {
@@ -62,73 +63,73 @@ export const navigationGroups: NavigationGroup[] = [
     label: "Build",
     icon: Wrench,
     items: [
-      { label: "Projects", section: "Projects", icon: Box, available: true },
-      { label: "Deployments", section: "Deployments", icon: Layers3, available: true },
-      { label: "Domains", section: "Domains", icon: Globe2, available: true },
-      { label: "Environment configuration", section: "Developer", available: true },
+      { label: "Projects", section: "Projects", icon: Box, available: true, subItems: ["All projects", "Create project", "Project settings"] },
+      { label: "Deployments", section: "Deployments", icon: Layers3, available: true, subItems: ["All deployments", "Production", "Preview"] },
+      { label: "Domains", section: "Domains", icon: Globe2, available: true, subItems: ["Overview", "Market", "My domains", "DNS & nameservers"] },
+      { label: "Environment configuration", section: "Developer", available: true, subItems: ["Variables", "Secrets", "Runtime configuration"] },
     ],
   },
   {
     label: "Data",
     icon: Database,
     items: [
-      { label: "Databases", section: "Data", icon: Database, available: true },
-      { label: "Storage", section: "Data", icon: HardDrive, available: true },
-      { label: "Cache", section: "Data", available: false },
-      { label: "Queues", section: "Data", available: false },
-      { label: "Backups", section: "Data", available: false },
-      { label: "Data transfers", section: "Data", available: false },
+      { label: "Databases", section: "Data", icon: Database, available: true, subItems: ["Overview", "Tables", "SQL editor", "Backups & recovery"] },
+      { label: "Storage", section: "Data", icon: HardDrive, available: true, subItems: ["Buckets", "Files", "CDN & delivery"] },
+      { label: "Cache", section: "Data", available: true, subItems: ["Overview", "Rules", "Purge"] },
+      { label: "Queues", section: "Data", available: true, subItems: ["Overview", "Queues", "Consumers"] },
+      { label: "Backups", section: "Data", available: true, subItems: ["Overview", "Schedules", "Restore"] },
+      { label: "Data transfers", section: "Data", available: true, subItems: ["Imports", "Exports", "Migration history"] },
     ],
   },
   {
     label: "Security",
     icon: ShieldCheck,
     items: [
-      { label: "Security overview", section: "Security", icon: ShieldCheck, available: true },
-      { label: "Security center", section: "Security", available: true },
-      { label: "Firewall", section: "Security", available: false },
-      { label: "WAF", section: "Security", available: false },
-      { label: "DDoS protection", section: "Security", available: false },
-      { label: "Bot protection", section: "Security", available: false },
-      { label: "Rate limiting", section: "Security", available: false },
-      { label: "Access control", section: "Security", available: false },
-      { label: "Authentication & MFA", section: "Security", available: false },
-      { label: "Secrets", section: "Developer", available: true },
-      { label: "Security audit", section: "Security", available: true },
+      { label: "Security overview", section: "Security", icon: ShieldCheck, available: true, subItems: ["Posture", "Findings", "Remediation"] },
+      { label: "Security center", section: "Security", available: true, subItems: ["Assets", "Advisor", "Policies"] },
+      { label: "Firewall", section: "Security", available: true, subItems: ["Rules", "Events", "Settings"] },
+      { label: "WAF", section: "Security", available: true, subItems: ["Managed rules", "Custom rules", "Events"] },
+      { label: "DDoS protection", section: "Security", available: true, subItems: ["Overview", "Protection rules", "Events"] },
+      { label: "Bot protection", section: "Security", available: true, subItems: ["Overview", "Detection", "Challenges"] },
+      { label: "Rate limiting", section: "Security", available: true, subItems: ["Rules", "Analytics", "Events"] },
+      { label: "Access control", section: "Security", available: true, subItems: ["Policies", "Members", "Service access"] },
+      { label: "Authentication & MFA", section: "Security", available: true, subItems: ["Providers", "MFA", "Sessions"] },
+      { label: "Secrets", section: "Developer", available: true, subItems: ["Project secrets", "Environment scope", "Rotation"] },
+      { label: "Security audit", section: "Security", available: true, subItems: ["Events", "Exports", "Retention"] },
     ],
   },
   {
     label: "Observe",
     icon: BarChart3,
     items: [
-      { label: "Logs", section: "Observability", icon: ScrollText, available: true },
-      { label: "Metrics", section: "Observability", available: false },
-      { label: "Errors", section: "Observability", available: false },
-      { label: "Requests", section: "Observability", available: false },
-      { label: "Performance", section: "Observability", available: true },
-      { label: "Uptime", section: "Observability", available: false },
-      { label: "Alerts", section: "Observability", available: true },
+      { label: "Logs", section: "Observability", icon: ScrollText, available: true, subItems: ["Live logs", "Search", "Saved views"] },
+      { label: "Metrics", section: "Observability", available: true, subItems: ["Overview", "Requests", "Resources"] },
+      { label: "Errors", section: "Observability", available: true, subItems: ["Error groups", "Traces", "Releases"] },
+      { label: "Requests", section: "Observability", available: true, subItems: ["Traffic", "Latency", "Status codes"] },
+      { label: "Performance", section: "Observability", available: true, subItems: ["Web vitals", "Speed", "Regions"] },
+      { label: "Uptime", section: "Observability", available: true, subItems: ["Monitors", "Incidents", "Maintenance"] },
+      { label: "Alerts", section: "Observability", available: true, subItems: ["Active", "Rules", "Destinations"] },
     ],
   },
   {
     label: "Developer",
     icon: Code2,
     items: [
-      { label: "GitHub", section: "Developer", icon: Code2, available: true },
-      { label: "API keys", section: "Developer", available: false },
-      { label: "Webhooks", section: "Developer", available: false },
-      { label: "CLI & API", section: "Developer", available: false },
-      { label: "Documentation", section: "Developer", available: true },
+      { label: "GitHub", section: "Developer", icon: Code2, available: true, subItems: ["Repositories", "Branches", "Webhooks"] },
+      { label: "API keys", section: "Developer", available: true, subItems: ["Project keys", "Personal keys", "Revoked"] },
+      { label: "Webhooks", section: "Developer", available: true, subItems: ["Endpoints", "Deliveries", "Signing secrets"] },
+      { label: "CLI & API", section: "Developer", available: true, subItems: ["CLI setup", "REST API", "MCP"] },
+      { label: "Documentation", section: "Developer", available: true, subItems: ["Getting started", "API reference", "Security"] },
     ],
   },
   {
     label: "Workspace",
     icon: BriefcaseBusiness,
     items: [
-      { label: "Team", section: "Team", icon: Users, available: true },
-      { label: "Billing", section: "Billing", icon: CircleDollarSign, available: true },
-      { label: "Admin console", section: "Admin", icon: ShieldCheck, available: true },
-      { label: "Settings", section: "Settings", icon: Settings2, available: true },
+      { label: "Team", section: "Team", icon: Users, available: true, subItems: ["Members", "Roles & permissions", "Invitations"] },
+      { label: "Billing", section: "Billing", icon: CircleDollarSign, available: true, subItems: ["Overview", "Usage", "Invoices", "Payment methods"] },
+      { label: "Admin console", section: "Admin", icon: ShieldCheck, available: true, subItems: ["Governance", "Providers", "Audit center"] },
+      { label: "Settings", section: "Settings", icon: Settings2, available: true, subItems: ["General", "Security", "Notifications", "Connected accounts"] },
     ],
   },
 ];
@@ -154,6 +155,7 @@ export function CloudNavigation({
   workspaceName,
   domainView,
   onDomainView,
+  onSubNavigate,
 }: {
   activeSection: Section;
   onNavigate: (section: Section) => void;
@@ -164,6 +166,7 @@ export function CloudNavigation({
   workspaceName: string;
   domainView: DomainView;
   onDomainView: (view: DomainView) => void;
+  onSubNavigate: (label: string) => void;
 }) {
   const activeGroup = getNavigationGroupForSection(activeSection)?.label;
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -183,12 +186,7 @@ export function CloudNavigation({
     localStorage.setItem(STORAGE_KEY, JSON.stringify(expanded));
   }, [expanded]);
 
-  const visibleGroups = useMemo(
-    () => navigationGroups
-      .map((group) => ({ ...group, items: group.items.filter((item) => item.available) }))
-      .filter((group) => group.items.length > 0),
-    [],
-  );
+  const visibleGroups = useMemo(() => navigationGroups, []);
   const initials = workspaceName.slice(0, 1).toUpperCase() || "U";
 
   const toggleGroup = (label: string) => {
@@ -244,9 +242,8 @@ export function CloudNavigation({
                     <button className={`nav-child ${isActive ? "nav-child-active" : ""} ${item.available ? "" : "nav-child-planned"}`} onClick={() => activate(item)} title={item.available ? item.label : `${item.label} — planned`}>
                       <span className="nav-child-marker" />{ItemIcon ? <ItemIcon size={14} /> : null}<span className="nav-label">{item.label}</span>{!item.available && <span className="nav-detail">Soon</span>}
                     </button>
-                    {domainItem && isActive && <div className="nav-subchildren">
-                      <button className={domainView === "market" ? "nav-subchild-active" : ""} onClick={() => { onDomainView("market"); onCloseMobile(); }}><span />Market</button>
-                      <button className={domainView === "my-domains" ? "nav-subchild-active" : ""} onClick={() => { onDomainView("my-domains"); onCloseMobile(); }}><span />My domains</button>
+                    {isActive && Boolean(item.subItems?.length) && <div className="nav-subchildren">
+                      {item.subItems?.map((subItem) => <button key={subItem} className={(domainItem && ((domainView === "market" && subItem === "Market") || (domainView === "my-domains" && subItem === "My domains"))) ? "nav-subchild-active" : ""} onClick={() => { if (domainItem && subItem === "Market") onDomainView("market"); if (domainItem && subItem === "My domains") onDomainView("my-domains"); onSubNavigate(subItem); onCloseMobile(); }}><span />{subItem}</button>)}
                     </div>}
                   </div>;
                 })}
