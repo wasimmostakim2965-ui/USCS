@@ -224,7 +224,11 @@ function CommandPalette({ open, onClose, onNavigate }: { open: boolean; onClose:
 
 function LandingPage() {
   const [authOpen, setAuthOpen] = useState(false);
-  const openAuth = () => setAuthOpen(true);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const openAuth = (mode: "signin" | "signup") => {
+    setAuthMode(mode);
+    setAuthOpen(true);
+  };
   return <div className="landing-page">
     <header className="landing-nav">
       <a className="landing-brand" href="#top" aria-label="USCS home"><span className="brand-mark"><span /></span><span><strong>USCS</strong><small>Unified cloud platform</small></span></a>
