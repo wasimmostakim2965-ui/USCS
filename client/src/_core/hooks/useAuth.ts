@@ -10,16 +10,17 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
   const utils = trpc.useUtils();
   const [browserUser, setBrowserUser] = useState<Awaited<ReturnType<typeof getBrowserAuthUser>>>(null);
   const [browserLoading, setBrowserLoading] = useState(true);
 
+  // The browser Supabase session is the source of truth for this client.
+  // Do not call the legacy server auth endpoint until a Supabase user exists:
+  // otherwise an anonymous page load produces UNAUTHORIZED and can trigger a
+  // legacy login redirect before the user has a chance to use Supabase OAuth.
   const meQuery = trpc.auth.me.useQuery(undefined, {
+    enabled: Boolean(browserUser),
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -44,9 +45,6 @@ export function useAuth(options?: UseAuthOptions) {
     } finally {
       await supabase?.auth.signOut();
       setBrowserUser(null);
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
       try {
         sessionStorage.removeItem("manus-cookie");
       } catch {}
@@ -58,8 +56,8 @@ export function useAuth(options?: UseAuthOptions) {
   useEffect(() => {
     let mounted = true;
 
-    // Register the auth listener before resolving the current session so an
-    // OAuth callback cannot be missed during the initial page load.
+    // Subscribe before resolving the stored session so an OAuth callback cannot
+    // be missed during the initial page load.
     const { data } = subscribeToSupabaseAuth((_event, session) => {
       if (!mounted) return;
       if (!session) {
@@ -75,8 +73,6 @@ export function useAuth(options?: UseAuthOptions) {
       void utils.auth.me.invalidate();
     });
 
-    // Explicitly resolve the persisted browser session as well. Supabase's
-    // browser client persists sessions and detects OAuth grants in the URL.
     void getSupabaseSession().then(({ data: { session } }) => {
       if (!mounted) return;
       if (!session) {
@@ -122,7 +118,6 @@ export function useAuth(options?: UseAuthOptions) {
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
     if (redirectPath) {
       window.location.href = redirectPath;
     } else {
