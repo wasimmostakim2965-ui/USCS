@@ -132,7 +132,7 @@ h3 { font-size: 14px; }
 .panel-kicker { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .muted-icon { color: #96a2b2; }
 .step-list { border-top: 1px solid var(--line); }
-.step-row { width: 100%; display: grid; grid-template-columns: 28px 34px 1fr 18px; align-items: center; gap: 8px; padding: 13px 2px; color: var(--ink-2); background: transparent; border-bottom: 1px solid var(--line); text-align: left; }
+.step-row { width: 100%; display: grid; grid-template-columns: 28px 1fr 18px; align-items: center; gap: 8px; padding: 13px 2px; color: var(--ink-2); background: transparent; border-bottom: 1px solid var(--line); text-align: left; }
 .step-row:hover { color: var(--accent-deep); }
 .step-number { color: #a2adbc; font-family: 'IBM Plex Mono', monospace; font-size: 10px; }
 .step-icon, .quick-icon, .provider-icon, .info-icon, .resource-icon, .integration-icon, .check-icon { display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); border-radius: 7px; }
@@ -144,7 +144,7 @@ h3 { font-size: 14px; }
 .quick-list { display: grid; gap: 6px; }
 .quick-row { min-height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 4px; color: var(--ink-2); background: transparent; border-bottom: 1px solid var(--line); text-align: left; }
 .quick-row:hover { color: var(--accent-deep); }
-.quick-row > span:nth-child(2) { flex: 1; font-size: 12px; font-weight: 600; }
+.quick-row > span:first-child { flex: 1; font-size: 12px; font-weight: 600; }
 .quick-row > svg { color: #98a4b4; }
 .quick-icon { width: 27px; height: 27px; }
 .tip-box { display: flex; align-items: center; gap: 8px; margin-top: 17px; padding: 10px; color: var(--muted); background: var(--surface-2); border-radius: 6px; font-size: 10px; }
@@ -182,7 +182,6 @@ h3 { font-size: 14px; }
 .project-hero p { max-width: 680px; color: var(--muted); line-height: 1.55; }
 .inline-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 19px; }
 .info-card { position: relative; min-height: 150px; padding: 18px; }
-.info-icon { width: 31px; height: 31px; margin-bottom: 15px; }
 .info-card h3 { margin-bottom: 7px; }
 .info-card p { color: var(--muted); font-size: 11px; line-height: 1.55; }
 .info-arrow { position: absolute; top: 19px; right: 18px; color: #a0aaba; }

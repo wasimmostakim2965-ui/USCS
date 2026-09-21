@@ -171,10 +171,10 @@ function Overview({ onNavigate }: { onNavigate: (section: Section) => void }) {
       </div>
 
       <div className="metric-grid">
-        <MetricCard label="Projects" value="Not connected" detail="No deployment provider" icon={Box} onClick={() => onNavigate("Projects")} />
-        <MetricCard label="Domains" value="Not connected" detail="Registrar required" icon={Globe2} onClick={() => onNavigate("Domains")} />
-        <MetricCard label="Data resources" value="Not connected" detail="Database or storage required" icon={Database} onClick={() => onNavigate("Data")} />
-        <MetricCard label="Security posture" value="Unknown" detail="Run checks after setup" icon={ShieldCheck} onClick={() => onNavigate("Security")} />
+        <MetricCard label="Projects" value="Not connected" detail="No deployment provider" onClick={() => onNavigate("Projects")} />
+        <MetricCard label="Domains" value="Not connected" detail="Registrar required" onClick={() => onNavigate("Domains")} />
+        <MetricCard label="Data resources" value="Not connected" detail="Database or storage required" onClick={() => onNavigate("Data")} />
+        <MetricCard label="Security posture" value="Unknown" detail="Run checks after setup" onClick={() => onNavigate("Security")} />
       </div>
 
       <div className="content-grid two-thirds">
@@ -188,14 +188,14 @@ function Overview({ onNavigate }: { onNavigate: (section: Section) => void }) {
               ["04", "Review protection", "Confirm WAF, secrets, access, and audit settings.", "Security" as Section, ShieldCheck],
             ].map(([index, title, body, target, Icon]) => (
               <button className="step-row" key={index as string} onClick={() => onNavigate(target as Section)}>
-                <span className="step-number">{index as string}</span><span className="step-icon"><Icon size={17} /></span><span className="step-copy"><strong>{title as string}</strong><small>{body as string}</small></span><ChevronRight size={16} className="step-arrow" />
+                <span className="step-number">{index as string}</span><span className="step-copy"><strong>{title as string}</strong><small>{body as string}</small></span><ChevronRight size={16} className="step-arrow" />
               </button>
             ))}
           </div>
         </div>
         <div className="panel quick-panel">
           <div className="panel-heading"><div><div className="eyebrow">Shortcuts</div><h2>Quick actions</h2></div><Command size={17} className="muted-icon" /></div>
-          <div className="quick-list">{quickActions.map(({ label, section, icon: Icon }) => <button className="quick-row" key={label} onClick={() => onNavigate(section)}><span className="quick-icon"><Icon size={16} /></span><span>{label}</span><ArrowUpRight size={14} /></button>)}</div>
+          <div className="quick-list">{quickActions.map(({ label, section }) => <button className="quick-row" key={label} onClick={() => onNavigate(section)}><span>{label}</span><ArrowUpRight size={14} /></button>)}</div>
           <div className="tip-box"><Sparkles size={15} /><span>Press <kbd>⌘ K</kbd> to jump anywhere.</span></div>
         </div>
       </div>
@@ -220,8 +220,8 @@ function Overview({ onNavigate }: { onNavigate: (section: Section) => void }) {
   );
 }
 
-function MetricCard({ label, value, detail, icon: Icon, onClick }: { label: string; value: string; detail: string; icon: typeof Activity; onClick: () => void }) {
-  return <button className="metric-card" onClick={onClick}><div className="metric-top"><span>{label}</span><Icon size={17} /></div><strong>{value}</strong><small>{detail}</small><span className="metric-link">Open {label.toLowerCase()} <ArrowUpRight size={13} /></span></button>;
+function MetricCard({ label, value, detail, onClick }: { label: string; value: string; detail: string; onClick: () => void }) {
+  return <button className="metric-card" onClick={onClick}><div className="metric-top"><span>{label}</span></div><strong>{value}</strong><small>{detail}</small><span className="metric-link">Open {label.toLowerCase()} <ArrowUpRight size={13} /></span></button>;
 }
 
 function Projects({ onNavigate }: { onNavigate: (section: Section) => void }) {
@@ -262,7 +262,7 @@ function Team({ onNavigate }: { onNavigate: (section: Section) => void }) { retu
 function Billing() { return <><SectionHeader eyebrow="Workspace / Billing" title="Billing" description="Subscriptions, usage, domain charges, invoices, and payment methods." action={<button className="button button-secondary" onClick={() => toast.info("Billing requires a real payment provider connection.")}><Settings2 size={15} /> Billing setup</button>} /><div className="panel"><EmptyState icon={Layers3} title="Billing provider not connected" body="No balances, invoices, payment methods, or charges are shown until a real payment provider is configured." action="Configure billing" onAction={() => toast.info("Payment provider configuration is required.")} /></div></>; }
 function Settings() { return <><SectionHeader eyebrow="Workspace / Settings" title="Settings" description="Account, organization, security, notifications, privacy, and connected accounts." /><div className="settings-grid">{[[UserRound, "Account", "Profile and session preferences"], [LockKeyhole, "Security", "MFA, recovery, devices, and access"], [Bell, "Notifications", "Alerts and delivery channels"], [Github, "Connected accounts", "OAuth connections and revocation"], [CircleHelp, "Privacy", "Data access and retention"], [AlertTriangle, "Danger zone", "Destructive actions with explicit confirmation"]].map(([Icon, title, body]) => <button className="settings-tile" key={title as string} onClick={() => toast.info(`${title} settings are ready for configuration.`)}><span className="settings-icon"><Icon size={18} /></span><span><strong>{title as string}</strong><small>{body as string}</small></span><ChevronRight size={16} /></button>)}</div><div className="notice-banner notice-subtle"><div className="notice-icon"><LockKeyhole size={17} /></div><div className="notice-copy"><strong>Secure defaults</strong><span>HTTPS, secure cookies, rate limiting, private storage, and audit logging should be enabled where the underlying provider supports them.</span></div></div></>; }
 
-function InfoCard({ icon: Icon, title, text }: { icon: typeof Activity; title: string; text: string }) { return <div className="panel info-card"><span className="info-icon"><Icon size={18} /></span><h3>{title}</h3><p>{text}</p><span className="info-arrow"><ArrowUpRight size={15} /></span></div>; }
+function InfoCard({ title, text }: { icon?: typeof Activity; title: string; text: string }) { return <div className="panel info-card"><h3>{title}</h3><p>{text}</p><span className="info-arrow"><ArrowUpRight size={15} /></span></div>; }
 
 function CommandPalette({ open, onClose, onNavigate }: { open: boolean; onClose: () => void; onNavigate: (section: Section) => void }) {
   const [query, setQuery] = useState("");
