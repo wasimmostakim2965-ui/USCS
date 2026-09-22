@@ -6,7 +6,7 @@ import { createClient, type AuthChangeEvent, type Session, type SupabaseClient }
 const CANONICAL_SUPABASE_URL = "https://lqaocykcxwnulirtykqy.supabase.co";
 const configuredSupabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 
-// USCS currently has one authoritative Supabase project. Never allow a stale
+// Cloud Wai currently has one authoritative Supabase project. Never allow a stale
 // deployment environment variable to silently redirect OAuth to another host.
 const supabaseUrl = configuredSupabaseUrl === CANONICAL_SUPABASE_URL
   ? configuredSupabaseUrl
