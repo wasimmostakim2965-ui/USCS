@@ -1,72 +1,123 @@
+import { Database, HardDrive, Plus, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { Archive, Database, HardDrive, KeyRound, Plus, Server, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Empty, Header, Stat, Status } from "./shared";
+import { Button, Card, CardBody, CardHead, EmptyState, ErrorState, Field, Input, LoadingBlock, PageHeader, Select, StatusBadge, Tabs } from "@/components/ui-kit";
+import { formatDate, toneForStatus, useOrganizationId } from "./shared";
 
-type DataTab = "databases" | "storage-buckets" | "backups" | "connection-details";
-const tabs: DataTab[] = ["databases", "storage-buckets", "backups", "connection-details"];
+type DataTab = "databases" | "storage-buckets" | "backups";
+const tabs: DataTab[] = ["databases", "storage-buckets", "backups"];
+
+type QueryLike = { data?: Array<Record<string, unknown>>; isLoading: boolean; error?: { message: string } | null; refetch: () => unknown };
 
 export default function Data({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
-  const tab = tabs.includes(routeParts?.[1] as DataTab) ? routeParts?.[1] as DataTab : "databases";
-  const databases = trpc.data.databaseInstances.list.useQuery(undefined, { retry: false });
-  const buckets = trpc.data.storageBuckets.list.useQuery(undefined, { retry: false });
-  const backups = trpc.data.backups.list.useQuery(undefined, { retry: false });
-  const organizations = trpc.workspace.organizations.useQuery(undefined, { retry: false });
-  const [selectedDatabaseId, setSelectedDatabaseId] = useState<string>();
-  const [selectedBucketId, setSelectedBucketId] = useState<string>();
-  const selectedDatabase = (databases.data ?? []).find(item => item.id === selectedDatabaseId) ?? databases.data?.[0];
-  const selectedBucket = (buckets.data ?? []).find(item => item.id === selectedBucketId) ?? buckets.data?.[0];
-  const go = (next: DataTab) => onNavigate?.(`/dashboard/data/${next}`);
-  return <><Header title="Data" action={<button className="vc-btn primary" onClick={() => go("databases")}><Plus size={14} /> Add resource</button>} />
-    <div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>
-    <div className="vc-grid-3"><Stat label="Databases" value={databases.isLoading ? "—" : String(databases.data?.length ?? 0)} /><Stat label="Buckets" value={buckets.isLoading ? "—" : String(buckets.data?.length ?? 0)} /><Stat label="Backups" value={backups.isLoading ? "—" : String(backups.data?.length ?? 0)} /></div>
-    {tab === "databases" && <DatabasePanel data={databases.data ?? []} organizationId={organizations.data?.[0]?.id} onRefresh={() => void databases.refetch()} onSelect={setSelectedDatabaseId} />}
-    {tab === "storage-buckets" && <BucketPanel data={buckets.data ?? []} organizationId={organizations.data?.[0]?.id} onRefresh={() => void buckets.refetch()} onSelect={setSelectedBucketId} />}
-    {tab === "backups" && <><BackupPanel data={backups.data ?? []} databases={databases.data ?? []} buckets={buckets.data ?? []} organizationId={organizations.data?.[0]?.id} onRefresh={() => void backups.refetch()} /><BackupSchedulePanel databases={databases.data ?? []} buckets={buckets.data ?? []} organizationId={organizations.data?.[0]?.id} /></>}
-    {tab === "connection-details" && <ConnectionDetails database={selectedDatabase} bucket={selectedBucket} />}
+  const tab = tabs.includes(routeParts?.[1] as DataTab) ? routeParts![1] as DataTab : "databases";
+  const { organizationId, organization } = useOrganizationId();
+
+  const databaseInstances = trpc.data.databaseInstances.list.useQuery(organizationId ? { organizationId } : undefined, { enabled: Boolean(organizationId), retry: false });
+  const storageBuckets = trpc.data.storageBuckets.list.useQuery(organizationId ? { organizationId } : undefined, { enabled: Boolean(organizationId), retry: false });
+  const backups = trpc.data.backups.list.useQuery(organizationId ? { organizationId } : undefined, { enabled: Boolean(organizationId), retry: false });
+
+  return <>
+    <PageHeader
+      title="Data"
+      crumb="Workspace / Data"
+      description={organization?.name ? `Databases, storage and backups scoped to ${organization.name}.` : "Databases, storage buckets and backups."}
+    />
+    <Tabs items={tabs.map(value => ({ label: value.replaceAll("-", " ").replace(/\b\w/g, character => character.toUpperCase()), value }))} active={tab} onChange={value => onNavigate?.(`/dashboard/data/${value}`)} />
+    {tab === "databases" ? <DatabasesPanel organizationId={organizationId} query={databaseInstances} /> : null}
+    {tab === "storage-buckets" ? <BucketsPanel organizationId={organizationId} query={storageBuckets} /> : null}
+    {tab === "backups" ? <BackupsPanel organizationId={organizationId} query={backups} /> : null}
   </>;
 }
 
-function DatabasePanel({ data, organizationId, onRefresh, onSelect }: { data: Array<{ id: string; name: string; engine: string; status: string; tenant_identifier?: string | null; adapter_ref?: string | null; error_message?: string | null }>; organizationId?: string; onRefresh: () => void; onSelect: (id: string) => void }) {
+function DatabasesPanel({ organizationId, query }: { organizationId?: string; query: QueryLike }) {
   const [name, setName] = useState("");
-  const provision = trpc.data.databaseInstances.provision.useMutation({ onSuccess: result => { toast.info(result.configured ? "Database provisioned" : result.reason); setName(""); onRefresh(); }, onError: error => toast.error(error.message) });
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">PostgreSQL</span><h3>Create database instance</h3><div className="vc-form-grid"><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="app-primary" /></label></div><button className="vc-btn primary" disabled={!organizationId || !name || provision.isPending} onClick={() => organizationId && provision.mutate({ organizationId, name })}><Database size={14} /> {provision.isPending ? "Provisioning…" : "Provision database"}</button></div><div className="vc-card">{data.length ? data.map(item => <button className="vc-list-row" key={item.id} onClick={() => onSelect(item.id)}><Database size={16} /><span><strong>{item.name}</strong><small>{item.engine} · {item.tenant_identifier || item.error_message || "Tenant not assigned"}</small></span><Status good={item.status === "ready"}>{item.status}</Status></button>) : <Empty title="No database instances" body="Create a database record to persist the intent. A real Postgres adapter is required before provisioning can succeed." />}</div></>;
+  const provision = trpc.data.databaseInstances.provision.useMutation({
+    onSuccess: result => { void query.refetch(); setName(""); toast[result.configured ? "success" : "warning"](result.configured ? "Database provisioned" : result.reason); },
+    onError: error => toast.error(error.message),
+  });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="Provision" title="New database instance" description="Provisioning is delegated to the data adapter. The record is saved honestly even when no adapter is configured." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Instance name"><Input value={name} onChange={event => setName(event.target.value)} placeholder="primary-postgres" /></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!organizationId || !name || provision.isPending} onClick={() => organizationId && provision.mutate({ organizationId, projectId: null, name })}><Plus size={14} /> Provision database</Button></div>
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Instances" title="Database instances" />
+      {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+        <div className="ds-list">{query.data.map(instance => (
+          <div className="ds-row" key={String(instance.id)}>
+            <span className="ds-row-icon"><Database size={15} /></span>
+            <span className="ds-row-main"><strong>{String(instance.name)}</strong><small>{String(instance.engine ?? "Engine not configured")} · {String(instance.error_message ?? instance.tenant_identifier ?? "Provider reference not assigned")}</small></span>
+            <StatusBadge tone={toneForStatus(String(instance.status))}>{String(instance.status)}</StatusBadge>
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No databases yet" body="Provision a database to store a control-plane record. Live provisioning stays not configured until the data adapter is connected." />}
+    </Card>
+  </>;
 }
 
-function BucketPanel({ data, organizationId, onRefresh, onSelect }: { data: Array<{ id: string; name: string; visibility: string; status: string; region?: string | null; error_message?: string | null }>; organizationId?: string; onRefresh: () => void; onSelect: (id: string) => void }) {
+function BucketsPanel({ organizationId, query }: { organizationId?: string; query: QueryLike }) {
   const [name, setName] = useState("");
   const [visibility, setVisibility] = useState<"private" | "public">("private");
-  const [selectedId, setSelectedId] = useState<string>();
-  const provision = trpc.data.storageBuckets.provision.useMutation({ onSuccess: result => { toast.info(result.configured ? "Bucket provisioned" : result.reason); setName(""); onRefresh(); }, onError: error => toast.error(error.message) });
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Object storage</span><h3>Create storage bucket</h3><div className="vc-form-grid"><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="uploads" /></label><label>Visibility<select value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="private">Private</option><option value="public">Public</option></select></label></div><button className="vc-btn primary" disabled={!organizationId || !name || provision.isPending} onClick={() => organizationId && provision.mutate({ organizationId, name, visibility })}><HardDrive size={14} /> {provision.isPending ? "Provisioning…" : "Provision bucket"}</button></div><div className="vc-card">{data.length ? data.map(item => <button className="vc-list-row" key={item.id} onClick={() => { onSelect(item.id); setSelectedId(item.id); }}><HardDrive size={16} /><span><strong>{item.name}</strong><small>{item.visibility} · {item.region || item.error_message || "Region not assigned"}</small></span><Status good={item.status === "ready"}>{item.status}</Status></button>) : <Empty title="No storage resources" body="Create a bucket record to persist the intent. A real MinIO adapter is required before provisioning can succeed." />}</div><BucketFiles bucketId={selectedId} organizationId={organizationId} /></>;
+  const provision = trpc.data.storageBuckets.provision.useMutation({
+    onSuccess: result => { void query.refetch(); setName(""); toast[result.configured ? "success" : "warning"](result.configured ? "Bucket provisioned" : result.reason); },
+    onError: error => toast.error(error.message),
+  });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="Provision" title="New storage bucket" description="Buckets are private by default and remain behind an explicit access boundary." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Bucket name"><Input value={name} onChange={event => setName(event.target.value)} placeholder="assets" /></Field>
+          <Field label="Visibility"><Select value={visibility} onChange={event => setVisibility(event.target.value as typeof visibility)}><option value="private">Private</option><option value="public">Public</option></Select></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!organizationId || !name || provision.isPending} onClick={() => organizationId && provision.mutate({ organizationId, projectId: null, name, visibility })}><Plus size={14} /> Provision bucket</Button></div>
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Buckets" title="Storage buckets" />
+      {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+        <div className="ds-list">{query.data.map(bucket => (
+          <div className="ds-row" key={String(bucket.id)}>
+            <span className="ds-row-icon"><HardDrive size={15} /></span>
+            <span className="ds-row-main"><strong>{String(bucket.name)}</strong><small>{String(bucket.visibility)} · {String(bucket.region ?? "Region not configured")} · {String(bucket.error_message ?? "Provider reference not assigned")}</small></span>
+            <StatusBadge tone={toneForStatus(String(bucket.status))}>{String(bucket.status)}</StatusBadge>
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No buckets yet" body="Provision a bucket to store objects. Uploads are delegated to the storage adapter." />}
+    </Card>
+  </>;
 }
 
-function BucketFiles({ bucketId, organizationId }: { bucketId?: string; organizationId?: string }) {
-  const files = trpc.data.storageFiles.files.list.useQuery({ bucketId: bucketId ?? "00000000-0000-0000-0000-000000000000" }, { enabled: Boolean(bucketId), retry: false });
-  const [objectKey, setObjectKey] = useState("");
-  const upload = trpc.data.storageFiles.files.upload.useMutation({ onSuccess: result => { toast.info(result.reason); setObjectKey(""); void files.refetch(); }, onError: error => toast.error(error.message) });
-  return <div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Bucket file browser</span><h3>{bucketId ? "Objects" : "Select a bucket"}</h3>{bucketId ? <><div className="vc-form-grid"><label>Object key<input value={objectKey} onChange={event => setObjectKey(event.target.value)} placeholder="assets/logo.svg" /></label></div><button className="vc-btn" disabled={!organizationId || !objectKey || upload.isPending} onClick={() => organizationId && bucketId && upload.mutate({ organizationId, bucketId, objectKey })}>Upload intent</button>{files.data?.length ? files.data.map(file => <div className="vc-list-row" key={file.id}><HardDrive size={16} /><span><strong>{file.object_key}</strong><small>{file.content_type || "unknown"} · {file.size_bytes} bytes · {file.error_message || "provider pending"}</small></span><Status good={file.status === "ready"}>{file.status}</Status></div>) : <Empty title="No objects" body="Files remain empty until a real storage adapter accepts an upload." />}</> : <Empty title="No bucket selected" body="Select a bucket above to inspect provider-safe file metadata." />}</div>;
-}
-
-function BackupPanel({ data, databases, buckets, organizationId, onRefresh }: { data: Array<{ id: string; resource_type: string; status: string; size_bytes?: number | null; error_message?: string | null; created_at: string }>; databases: Array<{ id: string; name: string }>; buckets: Array<{ id: string; name: string }>; organizationId?: string; onRefresh: () => void }) {
+function BackupsPanel({ organizationId, query }: { organizationId?: string; query: QueryLike }) {
+  const restore = trpc.data.backups.restore.useMutation({ onSuccess: result => { void query.refetch(); toast[result.configured ? "success" : "warning"](result.reason); }, onError: error => toast.error(error.message) });
+  const createBackup = trpc.data.backups.create.useMutation({ onSuccess: result => { void query.refetch(); toast[result.configured ? "success" : "warning"](result.configured ? "Backup created" : result.reason); }, onError: error => toast.error(error.message) });
   const [resourceType, setResourceType] = useState<"database" | "storage">("database");
   const [resourceId, setResourceId] = useState("");
-  const create = trpc.data.backups.create.useMutation({ onSuccess: result => { toast.info(result.configured ? "Backup started" : result.reason); onRefresh(); }, onError: error => toast.error(error.message) });
-  const resources = resourceType === "database" ? databases : buckets;
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Recovery</span><h3>Create backup</h3><div className="vc-form-grid"><label>Resource type<select value={resourceType} onChange={event => { setResourceType(event.target.value as typeof resourceType); setResourceId(""); }}><option value="database">Database</option><option value="storage">Storage bucket</option></select></label><label>Resource<select value={resourceId} onChange={event => setResourceId(event.target.value)}><option value="">Select a resource</option>{resources.map(resource => <option key={resource.id} value={resource.id}>{resource.name}</option>)}</select></label></div><button className="vc-btn primary" disabled={!organizationId || !resourceId || create.isPending} onClick={() => organizationId && create.mutate({ organizationId, resourceType, resourceId })}><Archive size={14} /> {create.isPending ? "Starting…" : "Create backup"}</button></div><div className="vc-card">{data.length ? data.map(item => <div className="vc-list-row" key={item.id}><Archive size={16} /><span><strong>{item.resource_type} backup</strong><small>{item.size_bytes ? `${item.size_bytes} bytes` : item.error_message || new Date(item.created_at).toLocaleString()}</small></span><Status good={item.status === "completed"}>{item.status}</Status></div>) : <Empty title="No backups" body="Backups are created against a specific database or bucket and remain failed honestly until the corresponding adapter is configured." />}</div></>;
-}
-
-function ConnectionDetails({ database, bucket }: { database?: { name: string; engine: string; status: string; tenant_identifier?: string | null; adapter_ref?: string | null }; bucket?: { name: string; visibility: string; status: string; region?: string | null; adapter_ref?: string | null } }) {
-  return <div className="vc-card"><span className="vc-eyebrow">Connection details</span><h3>Provider-safe metadata</h3><p>Secrets and raw connection strings are never stored in resource metadata. This view exposes only tenant identifiers and adapter references returned by a configured provider.</p>{database ? <div className="vc-list-row"><KeyRound size={16} /><span><strong>{database.name}</strong><small>{database.engine} · tenant: {database.tenant_identifier || "not assigned"}</small></span><Status good={database.status === "ready"}>{database.status}</Status></div> : null}{bucket ? <div className="vc-list-row"><Server size={16} /><span><strong>{bucket.name}</strong><small>{bucket.visibility} · region: {bucket.region || "not assigned"} · adapter: {bucket.adapter_ref || "not configured"}</small></span><Status good={bucket.status === "ready"}>{bucket.status}</Status></div> : null}{!database && !bucket && <Empty title="No resource selected" body="Open a database or bucket from its tab to inspect provider-safe connection metadata." />}</div>;
-}
-
-function BackupSchedulePanel({ databases, buckets, organizationId }: { databases: Array<{ id: string; name: string }>; buckets: Array<{ id: string; name: string }>; organizationId?: string }) {
-  const schedules = trpc.data.backups.schedules.list.useQuery(undefined, { retry: false });
-  const [resourceType, setResourceType] = useState<"database" | "storage">("database");
-  const [resourceId, setResourceId] = useState("");
-  const [frequency, setFrequency] = useState<"hourly" | "daily" | "weekly">("daily");
-  const create = trpc.data.backups.schedules.create.useMutation({ onSuccess: () => { toast.success("Backup schedule saved"); setResourceId(""); void schedules.refetch(); }, onError: error => toast.error(error.message) });
-  const resources = resourceType === "database" ? databases : buckets;
-  return <div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Recovery automation</span><h3>Backup schedule</h3><p>Schedules persist the desired cadence. Execution remains not configured until the backup adapter is available.</p><div className="vc-form-grid"><label>Resource<select value={resourceId} onChange={event => setResourceId(event.target.value)}><option value="">Select resource</option>{resources.map(resource => <option key={resource.id} value={resource.id}>{resource.name}</option>)}</select></label><label>Type<select value={resourceType} onChange={event => { setResourceType(event.target.value as typeof resourceType); setResourceId(""); }}><option value="database">Database</option><option value="storage">Bucket</option></select></label><label>Frequency<select value={frequency} onChange={event => setFrequency(event.target.value as typeof frequency)}><option value="hourly">Hourly</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label></div><button className="vc-btn" disabled={!organizationId || !resourceId || create.isPending} onClick={() => organizationId && create.mutate({ organizationId, resourceType, resourceId, frequency })}>Save schedule</button>{schedules.data?.map(schedule => <div className="vc-list-row" key={schedule.id}><Archive size={16} /><span><strong>{schedule.frequency} schedule</strong><small>{schedule.next_run_at || "Next run not assigned"}</small></span><Status>{schedule.enabled ? "Enabled" : "Disabled"}</Status></div>)}</div>;
+  return <Card>
+    <CardHead eyebrow="Recovery" title="Backups" description="Backup and restore operations are delegated to the data adapter and recorded in the audit log." />
+    <CardBody>
+      <div className="ds-form-grid">
+        <Field label="Resource type"><Select value={resourceType} onChange={event => setResourceType(event.target.value as typeof resourceType)}><option value="database">Database</option><option value="storage">Storage</option></Select></Field>
+        <Field label="Resource ID"><Input value={resourceId} onChange={event => setResourceId(event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /></Field>
+      </div>
+      <div style={{ marginTop: 12 }}><Button size="sm" disabled={!organizationId || !resourceId || createBackup.isPending} onClick={() => organizationId && createBackup.mutate({ organizationId, resourceType, resourceId })}>Create backup</Button></div>
+    </CardBody>
+    {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+      <div className="ds-list">{query.data.map(backup => (
+        <div className="ds-row" key={String(backup.id)}>
+          <span className="ds-row-icon"><RotateCcw size={15} /></span>
+          <span className="ds-row-main"><strong>{String(backup.resource_type)} backup</strong><small>{String(backup.error_message ?? backup.adapter_ref ?? "Provider reference not assigned")} · {formatDate(backup.created_at as string, true)}</small></span>
+          <StatusBadge tone={toneForStatus(String(backup.status))}>{String(backup.status)}</StatusBadge>
+          <Button size="sm" disabled={restore.isPending} onClick={() => restore.mutate({ id: String(backup.id) })}>Restore</Button>
+        </div>
+      ))}</div>
+    ) : <EmptyState title="No backups yet" body="Create database or storage backups to see them here with the adapter result and size." />}
+  </Card>;
 }

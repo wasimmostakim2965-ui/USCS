@@ -1,73 +1,102 @@
-import { useState } from "react";
-import { Plus, ShieldCheck, TriangleAlert, Zap } from "lucide-react";
+import { Activity, Bot, Flame, Gauge, LockKeyhole, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Empty, Header, Stat, Status } from "./shared";
+import { Button, Card, CardBody, CardHead, EmptyState, ErrorState, LoadingBlock, PageHeader, StatusBadge, Tabs } from "@/components/ui-kit";
+import { formatDate, toneForStatus, useOrganizationId } from "./shared";
 
-type SecurityTab = "overview" | "security-level" | "waf" | "custom-firewall" | "rate-limiting" | "bot-protection" | "ddos-events" | "ssl-tls" | "security-events";
-const tabs: SecurityTab[] = ["overview", "security-level", "waf", "custom-firewall", "rate-limiting", "bot-protection", "ddos-events", "ssl-tls", "security-events"];
-const zeroUuid = "00000000-0000-0000-0000-000000000000";
-type PolicyConfig = { level?: "none" | "normal" | "high" | "ultimate"; firewall?: { enabled?: boolean; denyPrivateNetworks?: boolean; rules?: Array<{ field: "ip" | "country" | "path"; operator: "equals" | "contains" | "in"; value: string; action: "allow" | "deny" }> }; waf?: { enabled?: boolean; owaspCoreRules?: boolean; sensitivity?: string }; rateLimit?: { enabled?: boolean; requestsPerMinute?: number; rules?: Array<{ path: string; method: "ANY" | "GET" | "POST" | "PUT" | "DELETE"; threshold: number; windowSeconds: number; action: "throttle" | "block" }> }; botProtection?: { enabled?: boolean; challengeThreshold?: string }; tls?: { minimumVersion?: string; hsts?: boolean; securityHeaders?: boolean } };
+type SecurityTab = "posture" | "firewall" | "waf" | "rate-limiting" | "bot-protection" | "events";
+const tabs: SecurityTab[] = ["posture", "firewall", "waf", "rate-limiting", "bot-protection", "events"];
+const levels = ["none", "normal", "high", "ultimate"] as const;
+type Level = typeof levels[number];
+
+const levelCopy: Record<Level, string> = {
+  none: "No edge enforcement. Traffic is passed through unchanged.",
+  normal: "Baseline firewall, balanced WAF and standard rate limiting.",
+  high: "Strict WAF sensitivity, tighter rate limits and bot challenges.",
+  ultimate: "Maximum enforcement, aggressive bot challenges and strict TLS.",
+};
 
 export default function Security({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
-  const tab = tabs.includes(routeParts?.[1] as SecurityTab) ? routeParts?.[1] as SecurityTab : "overview";
-  const organizations = trpc.workspace.organizations.useQuery(undefined, { retry: false });
-  const organizationId = organizations.data?.[0]?.id ?? zeroUuid;
-  const policy = trpc.security.getPolicy.useQuery({ organizationId }, { enabled: Boolean(organizations.data?.[0]), retry: false });
-  const setLevel = trpc.security.setLevel.useMutation({ onSuccess: () => { void policy.refetch(); toast.success("Security level saved"); }, onError: error => toast.error(error.message) });
-  const updateConfig = trpc.security.updateConfig.useMutation({ onSuccess: () => { void policy.refetch(); toast.success("Security controls saved"); }, onError: error => toast.error(error.message) });
-  const apply = trpc.security.applyPolicy.useMutation({ onSuccess: result => { void policy.refetch(); toast.info(result.message); }, onError: error => toast.error(error.message) });
-  const preview = trpc.security.previewPolicy.useQuery({ level: policy.data?.policy?.security_level ?? "normal" }, { enabled: tab === "overview" || tab === "security-level", retry: false });
-  const navigate = (next: SecurityTab) => onNavigate?.(`/dashboard/security/${next}`);
-  const currentLevel = policy.data?.policy?.security_level ?? "normal";
-  const config = (policy.data?.policy?.desired_config ?? {}) as PolicyConfig;
-  return <><Header title="Security" action={<button className="vc-btn primary" disabled={!policy.data?.policy || apply.isPending} onClick={() => apply.mutate({ organizationId })}><Zap size={14} /> {apply.isPending ? "Applying…" : "Apply policy"}</button>} />
-    <div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => navigate(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>
-    {!organizations.data?.length ? <Empty title="Workspace required" body="Sign in to a workspace to inspect security policy state." /> : policy.isLoading ? <div className="vc-loading-row">Loading policy…</div> : policy.error ? <Empty title="Unable to load security policy" body={policy.error.message} /> : <>
-      {tab === "overview" && <Overview level={currentLevel} status={policy.data?.policy?.last_apply_status ?? "not_applied"} config={config} events={policy.data?.events ?? []} preview={preview.data?.config} />}
-      {tab === "security-level" && <LevelPanel organizationId={organizationId} level={currentLevel} pending={setLevel.isPending} onChange={level => setLevel.mutate({ organizationId, level, autoSetup: true })} preview={preview.data?.config} />}
-      {(["waf", "custom-firewall", "rate-limiting", "bot-protection", "ssl-tls"] as SecurityTab[]).includes(tab) && <ConfigPanel tab={tab} config={config} onSave={next => updateConfig.mutate({ organizationId, config: next as never })} />}
-      {tab === "ddos-events" && <EdgeEvents organizationId={organizationId} eventType="ddos" title="DDoS events" />}
-      {tab === "security-events" && <><Events events={policy.data?.events ?? []} /><EdgeEvents organizationId={organizationId} title="Edge security events" /></>}
-    </>}
+  const tab = tabs.includes(routeParts?.[1] as SecurityTab) ? routeParts![1] as SecurityTab : "posture";
+  const { organizationId, organization } = useOrganizationId();
+  const [level, setLevel] = useState<Level>("normal");
+
+  const policy = trpc.security.getPolicy.useQuery({ organizationId: organizationId ?? "00000000-0000-0000-0000-000000000000", projectId: null }, { enabled: Boolean(organizationId), retry: false });
+  const preview = trpc.security.previewPolicy.useQuery({ level }, { retry: false });
+  const edgeEvents = trpc.security.edgeEvents.useQuery({ organizationId: organizationId ?? "00000000-0000-0000-0000-000000000000", projectId: null }, { enabled: Boolean(organizationId), retry: false });
+
+  const setLevelMutation = trpc.security.setLevel.useMutation({
+    onSuccess: () => { void policy.refetch(); toast.success("Security level saved"); },
+    onError: error => toast.error(error.message),
+  });
+  const applyPolicy = trpc.security.applyPolicy.useMutation({
+    onSuccess: result => { void policy.refetch(); toast[result.status === "applied" ? "success" : "warning"](result.message); },
+    onError: error => toast.error(error.message),
+  });
+
+  const currentLevel = (policy.data?.policy?.security_level as Level | undefined) ?? "none";
+
+  return <>
+    <PageHeader
+      title="Security"
+      crumb="Workspace / Security"
+      description={organization?.name ? `Edge protection policy for ${organization.name}. Nothing is called protected without evidence.` : "Edge protection policy and enforcement history."}
+      action={<Button variant="primary" disabled={!organizationId || applyPolicy.isPending} onClick={() => organizationId && applyPolicy.mutate({ organizationId, projectId: null })}><Zap size={14} /> {applyPolicy.isPending ? "Applying…" : "Apply policy"}</Button>}
+    />
+    <Tabs items={tabs.map(value => ({ label: value.replaceAll("-", " ").replace(/\b\w/g, character => character.toUpperCase()), value }))} active={tab} onChange={value => onNavigate?.(`/dashboard/security/${value}`)} />
+
+    {tab === "posture" ? <>
+      <Card style={{ marginBottom: 16 }}>
+        <CardHead eyebrow="Enforcement level" title="Protection posture" description="Choose a level to generate a policy preview. Edge enforcement stays off until a real edge adapter is connected." action={<StatusBadge tone={policy.data?.policy?.last_apply_status === "applied" ? "ready" : "neutral"}>{policy.data?.policy?.last_apply_status ?? "Not applied"}</StatusBadge>} />
+        <CardBody>
+          <div className="ds-security-levels">
+            {levels.map(value => (
+              <button key={value} className={`ds-level ${currentLevel === value || level === value ? "is-active" : ""}`} onClick={() => setLevel(value)}>
+                <span className="ds-level-icon">{value === "none" ? <LockKeyhole size={16} /> : value === "normal" ? <ShieldCheck size={16} /> : value === "high" ? <Flame size={16} /> : <Sparkles size={16} />}</span>
+                <strong>{value[0].toUpperCase() + value.slice(1)}</strong>
+                <small>{levelCopy[value]}</small>
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+            <Button variant="primary" disabled={!organizationId || setLevelMutation.isPending} onClick={() => organizationId && setLevelMutation.mutate({ organizationId, projectId: null, level, autoSetup: true })}>Save level</Button>
+            <Button disabled={!organizationId || applyPolicy.isPending} onClick={() => organizationId && applyPolicy.mutate({ organizationId, projectId: null })}>Apply to edge</Button>
+          </div>
+          {preview.data?.config ? <pre className="ds-code">{JSON.stringify(preview.data.config, null, 2)}</pre> : null}
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHead eyebrow="History" title="Enforcement events" description="Policy changes are append-only and organization-scoped." />
+        {policy.isLoading ? <LoadingBlock rows={3} /> : policy.data?.events?.length ? (
+          <div className="ds-list">{policy.data.events.map((event: { id: string; event_type: string; error_message?: string; created_at?: string }) => (
+            <div className="ds-row" key={event.id}><span className="ds-row-icon"><Activity size={15} /></span><span className="ds-row-main"><strong>{event.event_type}</strong><small>{event.error_message ?? "No enforcement error"} · {formatDate(event.created_at, true)}</small></span></div>
+          ))}</div>
+        ) : <EmptyState title="No policy events yet" body="Saving or applying a security level records an event here." />}
+      </Card>
+    </> : null}
+
+    {tab === "firewall" ? <ConfigPanel title="Firewall" icon={<Flame size={15} />} body={preview.data?.config?.firewall} note="Deny rules and private-network blocks persist in the policy document and are pushed to the edge adapter on apply." /> : null}
+    {tab === "waf" ? <ConfigPanel title="WAF" icon={<ShieldCheck size={15} />} body={preview.data?.config?.waf} note="OWASP core rules and sensitivity are stored per level and enforced once the edge adapter is connected." /> : null}
+    {tab === "rate-limiting" ? <ConfigPanel title="Rate limiting" icon={<Gauge size={15} />} body={preview.data?.config?.rateLimit} note="Requests per minute and per-path rules are part of the enforcement document." /> : null}
+    {tab === "bot-protection" ? <ConfigPanel title="Bot protection" icon={<Bot size={15} />} body={preview.data?.config?.botProtection} note="Challenge thresholds scale with the selected security level." /> : null}
+
+    {tab === "events" ? <Card>
+      <CardHead eyebrow="Edge" title="Security edge events" description="Blocked, challenged and allowed requests recorded by the edge adapter." />
+      {edgeEvents.isLoading ? <LoadingBlock rows={3} /> : edgeEvents.error ? <ErrorState message={edgeEvents.error.message} /> : edgeEvents.data?.length ? (
+        <div className="ds-list">{edgeEvents.data.map((event: { id: string; event_type: string; action?: string; source?: string; path?: string; created_at?: string }) => (
+          <div className="ds-row" key={event.id}><span className="ds-row-icon"><Activity size={15} /></span><span className="ds-row-main"><strong>{event.event_type} · {event.action}</strong><small>{event.source ?? "source unknown"} · {event.path ?? "/"} · {formatDate(event.created_at, true)}</small></span><StatusBadge tone={toneForStatus(event.action)}>{event.action}</StatusBadge></div>
+        ))}</div>
+      ) : <EmptyState title="No edge events" body="Edge events appear once a real security edge adapter emits them. Nothing is fabricated." />}
+    </Card> : null}
   </>;
 }
 
-function Overview({ level, status, config, events, preview }: { level: string; status: string; config: PolicyConfig; events: Array<{ id: string; event_type: string; error_message?: string | null; created_at: string }>; preview?: unknown }) {
-  return <><div className="vc-grid-3"><Stat label="Security level" value={level} /><Stat label="Enforcement" value={status} /><Stat label="Policy events" value={String(events.length)} /></div><div className="vc-card"><div className="vc-card-heading"><div><span className="vc-eyebrow">Policy posture</span><h3>Concrete edge controls</h3></div><Status good={status === "applied"}>{status}</Status></div><div className="vc-list-row"><ShieldCheck size={16} /><span><strong>WAF</strong><small>{config.waf?.sensitivity ?? "not configured"} sensitivity · OWASP CRS {config.waf?.owaspCoreRules ? "enabled" : "disabled"}</small></span><Status good={Boolean(config.waf?.enabled)}>{config.waf?.enabled ? "Enabled" : "Off"}</Status></div><div className="vc-list-row"><ShieldCheck size={16} /><span><strong>Rate limiting</strong><small>{config.rateLimit?.requestsPerMinute ?? "—"} requests/minute ceiling</small></span><Status good={Boolean(config.rateLimit?.enabled)}>{config.rateLimit?.enabled ? "Enabled" : "Off"}</Status></div><div className="vc-list-row"><ShieldCheck size={16} /><span><strong>TLS</strong><small>{config.tls?.minimumVersion ?? "—"} · HSTS {config.tls?.hsts ? "on" : "off"}</small></span><Status good={Boolean(config.tls?.securityHeaders)}>{config.tls?.securityHeaders ? "Hardened" : "Review"}</Status></div></div><div className="vc-card"><span className="vc-eyebrow">Preview contract</span><p>Preview renders OpenResty, Coraza, CrowdSec, nftables, rate-limit and mTLS tunnel artifacts before remote mutation.</p><small>{preview ? "Artifacts generated for the current policy." : "Preview unavailable until a workspace policy exists."}</small></div></>;
-}
-
-function LevelPanel({ organizationId, level, pending, onChange, preview }: { organizationId: string; level: string; pending: boolean; onChange: (level: "none" | "normal" | "high" | "ultimate") => void; preview?: unknown }) {
-  const [autoSetup, setAutoSetup] = useState(true);
-  const levels = [
-    { value: "none", title: "None", detail: "No edge enforcement", tone: "neutral" },
-    { value: "normal", title: "Normal", detail: "Baseline firewall and TLS", tone: "normal" },
-    { value: "high", title: "High", detail: "WAF, rate limits and bot challenge", tone: "high" },
-    { value: "ultimate", title: "Ultimate", detail: "Maximum edge hardening", tone: "ultimate" },
-  ] as const;
-  return <div className="vc-card vc-settings-editor security-level-panel"><span className="vc-eyebrow">Security posture</span><h3>Choose enforcement level</h3><p>Changing the level updates desired configuration. It does not claim remote enforcement until Apply policy succeeds.</p><div className="security-level-grid">{levels.map(item => <button key={item.value} className={`security-level-card ${level === item.value ? "active" : ""}`} disabled={pending || organizationId === zeroUuid} onClick={() => onChange(item.value)}><span className={`security-level-icon ${item.tone}`}><ShieldCheck size={18} /></span><strong>{item.title}</strong><small>{item.detail}</small><Status good={level === item.value}>{level === item.value ? "Selected" : "Select"}</Status></button>)}</div><label className="security-toggle"><input type="checkbox" checked={autoSetup} onChange={event => setAutoSetup(event.target.checked)} /> Auto-setup compatible controls</label><div className="vc-list-row"><TriangleAlert size={16} /><span><strong>{preview ? "Preview ready" : "No preview"}</strong><small>Generated artifacts remain a dry-run until policy application is confirmed. Apply is available from the page header.</small></span></div><div className="security-preview-json"><small>Preview contract</small><code>{preview ? JSON.stringify(preview).slice(0, 500) : "Preview unavailable until a workspace policy exists."}</code></div></div>;
-}
-
-function ConfigPanel({ tab, config, onSave }: { tab: SecurityTab; config: PolicyConfig; onSave: (config: PolicyConfig) => void }) {
-  const key = tab === "custom-firewall" ? "firewall" : tab === "rate-limiting" ? "rateLimit" : tab === "bot-protection" ? "botProtection" : tab === "ssl-tls" ? "tls" : "waf";
-  const value = (key === "firewall" ? config.firewall : key === "rateLimit" ? config.rateLimit : key === "botProtection" ? config.botProtection : key === "tls" ? config.tls : config.waf) as Record<string, unknown> | undefined;
-  const toggle = (name: string) => value && onSave({ ...config, [key]: { ...value, [name]: !value[name] } });
-  const [ruleValue, setRuleValue] = useState("");
-  const addRule = () => {
-    if (!ruleValue) return;
-    if (key === "firewall") onSave({ ...config, firewall: { ...config.firewall, rules: [...(config.firewall?.rules ?? []), { field: "path", operator: "contains", value: ruleValue, action: "deny" }] } });
-    if (key === "rateLimit") onSave({ ...config, rateLimit: { ...config.rateLimit, rules: [...(config.rateLimit?.rules ?? []), { path: ruleValue, method: "ANY", threshold: config.rateLimit?.requestsPerMinute ?? 60, windowSeconds: 60, action: "throttle" }] } });
-    setRuleValue("");
-  };
-  const rules = key === "firewall" ? config.firewall?.rules ?? [] : config.rateLimit?.rules ?? [];
-  return <div className="vc-card"><span className="vc-eyebrow">Desired configuration</span><h3>{tab.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</h3><p>Controls update the persisted desired policy. Enforcement remains separate until the edge adapter confirms apply.</p>{value ? Object.entries(value).filter(([name]) => name !== "rules").map(([name, setting]) => <div className="vc-list-row" key={name}><span><strong>{name.replaceAll(/([A-Z])/g, " $1")}</strong></span><button className="vc-btn" onClick={() => toggle(name)}><Status good={setting === true || typeof setting === "number"}>{String(setting)}</Status></button></div>) : <Empty title="Not configured" body="Choose a security level to generate this policy section." />}{(key === "firewall" || key === "rateLimit") && <><div className="vc-form-grid"><label>{key === "firewall" ? "Path match" : "Rate-limit path"}<input value={ruleValue} onChange={event => setRuleValue(event.target.value)} placeholder={key === "firewall" ? "/admin" : "/api/login"} /></label></div><button className="vc-btn" disabled={!ruleValue} onClick={addRule}><Plus size={14} /> Add rule</button>{rules.map((rule, index) => <div className="vc-list-row" key={index}><ShieldCheck size={16} /><span><strong>{key === "firewall" ? (rule as { value: string }).value : (rule as { path: string }).path}</strong><small>{key === "firewall" ? `${(rule as { action: string }).action} · ${(rule as { operator: string }).operator}` : `${(rule as { method: string }).method} · ${(rule as { threshold: number }).threshold}/${(rule as { windowSeconds: number }).windowSeconds}s`}</small></span><Status>{key === "firewall" ? "Custom rule" : "Limiter"}</Status></div>)}</>}</div>;
-}
-
-function EdgeEvents({ organizationId, projectId, eventType, title }: { organizationId: string; projectId?: string; eventType?: "waf" | "firewall" | "rate_limit" | "bot" | "ddos" | "tls"; title: string }) {
-  const query = trpc.security.edgeEvents.useQuery({ organizationId, projectId, eventType }, { retry: false });
-  return <div className="vc-card"><span className="vc-eyebrow">Telemetry</span><h3>{title}</h3>{query.data?.length ? query.data.map(event => <div className="vc-list-row" key={event.id}><ShieldCheck size={16} /><span><strong>{event.event_type} · {event.action}</strong><small>{event.path || "No path"} · {new Date(event.created_at).toLocaleString()}</small></span><Status>{event.source}</Status></div>) : <Empty title={`No ${eventType ?? "edge"} events`} body="The connected edge adapter has not emitted telemetry for this scope." />}</div>;
-}
-
-function Events({ events }: { events: Array<{ id: string; event_type: string; error_message?: string | null; created_at: string }> }) {
-  return <div className="vc-card">{events.length ? events.map(event => <div className="vc-list-row" key={event.id}><ShieldCheck size={16} /><span><strong>{event.event_type}</strong><small>{event.error_message || "Policy event recorded"} · {new Date(event.created_at).toLocaleString()}</small></span><Status good={event.event_type === "applied"}>{event.event_type}</Status></div>) : <Empty title="No security events" body="Policy previews and applies will appear here with desired/applied configuration metadata." />}</div>;
+function ConfigPanel({ title, icon, body, note }: { title: string; icon: ReactNode; body?: unknown; note: string }) {
+  return <Card>
+    <CardHead eyebrow="Policy document" title={title} description={note} action={icon} />
+    <CardBody>
+      {body ? <pre className="ds-code">{JSON.stringify(body, null, 2)}</pre> : <EmptyState title={`${title} preview unavailable`} body="Select a security level on the posture tab to generate a policy preview." />}
+    </CardBody>
+  </Card>;
 }

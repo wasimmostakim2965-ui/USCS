@@ -1,48 +1,148 @@
 import { useState } from "react";
-import { BookOpen, GitBranch, KeyRound, Link2, Plus, Webhook } from "lucide-react";
+import { GitBranch, KeyRound, Link2, Plus, Trash2, Webhook } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { ComingSoon, Empty, Header, Status } from "./shared";
+import { Button, Card, CardBody, CardHead, EmptyState, ErrorState, Field, Input, LoadingBlock, PageHeader, Select, StatusBadge, Tabs } from "@/components/ui-kit";
+import { formatDate, toneForStatus, useOrganizationId } from "./shared";
 
-type DeveloperTab = "connections" | "repositories" | "webhooks" | "api-keys" | "api-docs";
-const tabs: DeveloperTab[] = ["connections", "repositories", "webhooks", "api-keys", "api-docs"];
+type DeveloperTab = "git-connections" | "repositories" | "webhooks" | "api-keys";
+const tabs: DeveloperTab[] = ["git-connections", "repositories", "webhooks", "api-keys"];
 
 export default function Developer({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
-  const tab = tabs.includes(routeParts?.[1] as DeveloperTab) ? routeParts?.[1] as DeveloperTab : "connections";
-  const connections = trpc.developer.connections.useQuery(undefined, { retry: false });
-  const repositories = trpc.developer.repositories.useQuery(undefined, { retry: false });
-  const go = (next: DeveloperTab) => onNavigate?.(`/dashboard/developer/${next}`);
-  return <><Header title="Developer" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>{tab === "connections" ? <ConnectionPanel data={connections.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void connections.refetch()} /> : tab === "repositories" ? <RepositoryPanel connections={connections.data ?? []} data={repositories.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void repositories.refetch()} /> : tab === "api-keys" ? <ApiKeysPanel /> : tab === "webhooks" ? <ComingSoon title="Webhooks" body="Webhook delivery remains not configured until a provider signing and delivery adapter is connected." /> : <ApiDocs />}</>;
+  const tab = tabs.includes(routeParts?.[1] as DeveloperTab) ? routeParts![1] as DeveloperTab : "git-connections";
+  const { organizationId, organization } = useOrganizationId();
+
+  const connections = trpc.developer.connections.useQuery(undefined, { enabled: Boolean(organizationId), retry: false });
+  const repositories = trpc.developer.repositories.useQuery(undefined, { enabled: Boolean(organizationId), retry: false });
+  const apiKeys = trpc.account.apiKeys.list.useQuery(undefined, { enabled: tab === "api-keys", retry: false });
+
+  return <>
+    <PageHeader
+      title="Developer"
+      crumb="Workspace / Developer"
+      description={organization?.name ? `Git connections, repositories, webhooks and API keys for ${organization.name}.` : "Git connections, repositories, webhooks and API keys."}
+    />
+    <Tabs items={tabs.map(value => ({ label: value.replaceAll("-", " ").replace(/\b\w/g, character => character.toUpperCase()), value }))} active={tab} onChange={value => onNavigate?.(`/dashboard/developer/${value}`)} />
+
+    {tab === "git-connections" ? <ConnectionsPanel organizationId={organizationId} query={connections} /> : null}
+    {tab === "repositories" ? <RepositoriesPanel organizationId={organizationId} connections={connections.data ?? []} query={repositories} /> : null}
+    {tab === "webhooks" ? <WebhooksPanel query={repositories} /> : null}
+    {tab === "api-keys" ? <ApiKeysPanel query={apiKeys} /> : null}
+  </>;
 }
 
-function ApiKeysPanel() {
-  const keys = trpc.account.apiKeys.list.useQuery(undefined, { retry: false });
-  const [name, setName] = useState("");
-  const [newKey, setNewKey] = useState<string | null>(null);
-  const create = trpc.account.apiKeys.create.useMutation({ onSuccess: result => { setNewKey(result.key); setName(""); void keys.refetch(); toast.success("API token created; copy it now because it is shown once"); }, onError: error => toast.error(error.message) });
-  const revoke = trpc.account.apiKeys.revoke.useMutation({ onSuccess: () => { void keys.refetch(); toast.success("API token revoked"); }, onError: error => toast.error(error.message) });
-  const copy = async () => { if (!newKey) return; await navigator.clipboard.writeText(newKey); toast.success("API token copied"); };
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">API access</span><h3>Create API token</h3><p>Tokens are hashed server-side and the raw value is shown only once.</p><div className="vc-form-grid"><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="CI deployment token" /></label></div><button className="vc-btn primary" disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name })}><KeyRound size={14} /> Create token</button>{newKey && <div className="vc-list-row"><span><strong>Copy this token now</strong><small>{newKey}</small></span><button className="vc-btn" onClick={() => void copy()}>Copy</button></div>}</div><div className="vc-card"><span className="vc-eyebrow">Your tokens</span><h3>API tokens</h3>{keys.data?.length ? keys.data.map(key => <div className="vc-list-row" key={key.id}><KeyRound size={16} /><span><strong>{key.name}</strong><small>{key.key_prefix} · {key.revoked_at ? "Revoked" : `Created ${new Date(key.created_at).toLocaleDateString()}`}</small></span><Status good={!key.revoked_at}>{key.revoked_at ? "Revoked" : "Active"}</Status>{!key.revoked_at && <button className="vc-btn" onClick={() => revoke.mutate({ id: key.id })}>Revoke</button>}</div>) : <Empty title="No API tokens" body="Create a token for authenticated CLI or CI access." />}</div></>;
-}
-
-function ConnectionPanel({ data, organizationId, onRefresh }: { data: Array<{ id: string; organization_id: string; provider: string; status: string; account_ref?: string | null; error_message?: string | null }>; organizationId?: string; onRefresh: () => void }) {
-  const organizations = trpc.workspace.organizations.useQuery(undefined, { retry: false });
-  const orgId = organizationId ?? organizations.data?.[0]?.id;
+function ConnectionsPanel({ organizationId, query }: { organizationId?: string; query: { data?: Array<Record<string, unknown>>; isLoading: boolean; error?: { message: string } | null; refetch: () => unknown } }) {
   const [provider, setProvider] = useState<"github" | "gitlab" | "bitbucket">("github");
   const [accountRef, setAccountRef] = useState("");
-  const connect = trpc.developer.connect.useMutation({ onSuccess: () => { toast.info("Connection intent saved"); setAccountRef(""); onRefresh(); }, onError: error => toast.error(error.message) });
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Source control</span><h3>Connect Git provider</h3><p>OAuth credentials are not fabricated. This saves a provider connection intent and remains not configured until the provider adapter is enabled.</p><div className="vc-form-grid"><label>Provider<select value={provider} onChange={event => setProvider(event.target.value as typeof provider)}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="bitbucket">Bitbucket</option></select></label><label>Account reference<input value={accountRef} onChange={event => setAccountRef(event.target.value)} placeholder="org or account slug" /></label></div><button className="vc-btn primary" disabled={!orgId || connect.isPending} onClick={() => orgId && connect.mutate({ organizationId: orgId, provider, accountRef: accountRef || null })}><Link2 size={14} /> Save connection</button></div><div className="vc-card">{data.length ? data.map(connection => <div className="vc-list-row" key={connection.id}><GitBranch size={16} /><span><strong>{connection.provider}</strong><small>{connection.account_ref || connection.error_message || "Account not configured"}</small></span><Status good={connection.status === "connected"}>{connection.status}</Status></div>) : <Empty title="No source connections" body="Connect a Git provider to make repository selection and deployment triggers available." />}</div></>;
+  const connect = trpc.developer.connect.useMutation({
+    onSuccess: () => { void query.refetch(); toast.info("Connection intent saved. OAuth adapter is not configured yet."); },
+    onError: error => toast.error(error.message),
+  });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="OAuth" title="Connect a Git provider" description="Connection intent is persisted and audited. Live OAuth stays not configured until the provider adapter is supplied." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Provider"><Select value={provider} onChange={event => setProvider(event.target.value as typeof provider)}><option value="github">GitHub</option><option value="gitlab">GitLab</option><option value="bitbucket">Bitbucket</option></Select></Field>
+          <Field label="Account reference"><Input value={accountRef} onChange={event => setAccountRef(event.target.value)} placeholder="wasimmostakim2965-ui" /></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!organizationId || connect.isPending} onClick={() => organizationId && connect.mutate({ organizationId, provider, accountRef: accountRef || null })}><Link2 size={14} /> Save connection</Button></div>
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Connections" title="Connected providers" />
+      {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+        <div className="ds-list">{query.data.map(connection => (
+          <div className="ds-row" key={String(connection.id)}>
+            <span className="ds-row-icon"><GitBranch size={15} /></span>
+            <span className="ds-row-main"><strong>{String(connection.provider)}</strong><small>{String(connection.account_ref ?? "Account reference not set")} · {String(connection.error_message ?? "OAuth adapter not configured")}</small></span>
+            <StatusBadge tone={toneForStatus(String(connection.status))}>{String(connection.status)}</StatusBadge>
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No connections yet" body="Connect GitHub, GitLab or Bitbucket to link repositories to projects." />}
+    </Card>
+  </>;
 }
 
-function RepositoryPanel({ connections, data, organizationId, onRefresh }: { connections: Array<{ id: string; provider: string }>; data: Array<{ id: string; full_name: string; default_branch: string; webhook_status: string }>; organizationId?: string; onRefresh: () => void }) {
+function RepositoriesPanel({ organizationId, connections, query }: { organizationId?: string; connections: Array<Record<string, unknown>>; query: { data?: Array<Record<string, unknown>>; isLoading: boolean; error?: { message: string } | null; refetch: () => unknown } }) {
   const [connectionId, setConnectionId] = useState("");
   const [fullName, setFullName] = useState("");
-  const [branch, setBranch] = useState("main");
-  const add = trpc.developer.addRepository.useMutation({ onSuccess: () => { toast.info("Repository intent saved"); setFullName(""); onRefresh(); }, onError: error => toast.error(error.message) });
-  const webhook = trpc.developer.webhook.useMutation({ onSuccess: result => toast.info(result.reason), onError: error => toast.error(error.message) });
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Repositories</span><h3>Add repository</h3><div className="vc-form-grid"><label>Connection<select value={connectionId} onChange={event => setConnectionId(event.target.value)}><option value="">Select connection</option>{connections.map(connection => <option key={connection.id} value={connection.id}>{connection.provider}</option>)}</select></label><label>Repository<input value={fullName} onChange={event => setFullName(event.target.value)} placeholder="org/repository" /></label><label>Default branch<input value={branch} onChange={event => setBranch(event.target.value)} /></label></div><button className="vc-btn primary" disabled={!organizationId || !connectionId || !fullName || add.isPending} onClick={() => organizationId && add.mutate({ organizationId, connectionId, fullName, defaultBranch: branch })}><Plus size={14} /> Add repository</button></div><div className="vc-card">{data.length ? data.map(repository => <div className="vc-list-row" key={repository.id}><GitBranch size={16} /><span><strong>{repository.full_name}</strong><small>Branch: {repository.default_branch}</small></span><Status>{repository.webhook_status}</Status><button className="vc-btn" onClick={() => webhook.mutate({ id: repository.id })}><Webhook size={14} /> Webhook</button></div>) : <Empty title="No repositories" body="Add a repository after saving a provider connection." />}</div></>;
+  const [defaultBranch, setDefaultBranch] = useState("main");
+  const add = trpc.developer.addRepository.useMutation({ onSuccess: () => { void query.refetch(); setFullName(""); toast.success("Repository linked"); }, onError: error => toast.error(error.message) });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="Repository" title="Link a repository" description="Repositories inherit the branch default and produce webhook status once the provider is connected." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Connection"><Select value={connectionId} onChange={event => setConnectionId(event.target.value)}><option value="">Select a connection</option>{connections.map(connection => <option key={String(connection.id)} value={String(connection.id)}>{String(connection.provider)} · {String(connection.account_ref ?? "account")}</option>)}</Select></Field>
+          <Field label="Repository"><Input value={fullName} onChange={event => setFullName(event.target.value)} placeholder="owner/repo" /></Field>
+          <Field label="Default branch"><Input value={defaultBranch} onChange={event => setDefaultBranch(event.target.value)} placeholder="main" /></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!organizationId || !connectionId || !fullName || add.isPending} onClick={() => organizationId && add.mutate({ organizationId, connectionId, fullName, defaultBranch })}><Plus size={14} /> Link repository</Button></div>
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Repositories" title="Linked repositories" />
+      {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+        <div className="ds-list">{query.data.map(repository => (
+          <div className="ds-row" key={String(repository.id)}>
+            <span className="ds-row-icon"><GitBranch size={15} /></span>
+            <span className="ds-row-main"><strong>{String(repository.full_name)}</strong><small>{String(repository.default_branch)} · webhook {String(repository.webhook_status ?? "not configured")}</small></span>
+            <StatusBadge tone={toneForStatus(String(repository.webhook_status))}>{String(repository.webhook_status ?? "unknown")}</StatusBadge>
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No repositories linked" body="Link a repository to enable source deployments and preview builds." />}
+    </Card>
+  </>;
 }
 
-function ApiDocs() {
-  return <div className="vc-card"><span className="vc-eyebrow">API & CLI</span><h3>Developer API contracts</h3><p>All control-plane mutations are exposed through authenticated tRPC procedures. API keys are managed in the account area and secret values are shown only once at creation.</p><div className="vc-list-row"><BookOpen size={16} /><span><strong>Deployments</strong><small>deployments.list · deployments.create · deployments.rollback</small></span><Status>Documented</Status></div><div className="vc-list-row"><KeyRound size={16} /><span><strong>API keys</strong><small>account.apiKeys.list · account.apiKeys.create · account.apiKeys.revoke</small></span><Status>Available</Status></div><ComingSoon title="OpenAPI export" body="A generated OpenAPI document will be enabled when the external API gateway contract is provisioned." /></div>;
+function WebhooksPanel({ query }: { query: { data?: Array<Record<string, unknown>>; isLoading: boolean; error?: { message: string } | null; refetch: () => unknown } }) {
+  const configure = trpc.developer.webhook.useMutation({ onSuccess: result => { void query.refetch(); toast.info(result.reason); }, onError: error => toast.error(error.message) });
+  return <Card>
+    <CardHead eyebrow="Delivery" title="Webhooks" description="Webhook registration is delegated to the Git provider once OAuth is configured." />
+    {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+      <div className="ds-list">{query.data.map(repository => (
+        <div className="ds-row" key={String(repository.id)}>
+          <span className="ds-row-icon"><Webhook size={15} /></span>
+          <span className="ds-row-main"><strong>{String(repository.full_name)}</strong><small>{String(repository.webhook_ref ?? "No webhook reference assigned")}</small></span>
+          <StatusBadge tone={toneForStatus(String(repository.webhook_status))}>{String(repository.webhook_status ?? "unknown")}</StatusBadge>
+          <Button size="sm" disabled={configure.isPending} onClick={() => configure.mutate({ id: String(repository.id) })}>Configure</Button>
+        </div>
+      ))}</div>
+    ) : <EmptyState title="No repositories for webhooks" body="Link a repository before configuring a webhook." />}
+  </Card>;
+}
+
+function ApiKeysPanel({ query }: { query: { data?: Array<Record<string, unknown>>; isLoading: boolean; error?: { message: string } | null; refetch: () => unknown } }) {
+  const [name, setName] = useState("");
+  const [created, setCreated] = useState<string | null>(null);
+  const create = trpc.account.apiKeys.create.useMutation({
+    onSuccess: result => { void query.refetch(); setName(""); setCreated(result.key); toast.success("API key created"); },
+    onError: error => toast.error(error.message),
+  });
+  const revoke = trpc.account.apiKeys.revoke.useMutation({ onSuccess: () => { void query.refetch(); toast.success("API key revoked"); }, onError: error => toast.error(error.message) });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="Credentials" title="Create an API key" description="Keys are shown once. Only a hash and prefix are stored server-side." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Key name"><Input value={name} onChange={event => setName(event.target.value)} placeholder="ci-deploy" /></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!name || create.isPending} onClick={() => create.mutate({ name })}><KeyRound size={14} /> Create key</Button></div>
+        {created ? <div className="ds-callout" style={{ marginTop: 14 }}><div style={{ minWidth: 0 }}><strong>Copy this key now</strong><p className="ds-mono" style={{ wordBreak: "break-all" }}>{created}</p></div></div> : null}
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Keys" title="Active API keys" />
+      {query.isLoading ? <LoadingBlock rows={3} /> : query.error ? <ErrorState message={query.error.message} /> : query.data?.length ? (
+        <div className="ds-list">{query.data.map(key => (
+          <div className="ds-row" key={String(key.id)}>
+            <span className="ds-row-icon"><KeyRound size={15} /></span>
+            <span className="ds-row-main"><strong>{String(key.name)}</strong><small className="ds-mono">{String(key.key_prefix)}••• · last used {formatDate(key.last_used_at as string | null, true)}</small></span>
+            {key.revoked_at ? <StatusBadge tone="error">Revoked</StatusBadge> : <Button variant="danger" size="sm" disabled={revoke.isPending} onClick={() => revoke.mutate({ id: String(key.id) })}><Trash2 size={13} /> Revoke</Button>}
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No API keys" body="Create a key to authenticate CLI and automation requests." />}
+    </Card>
+  </>;
 }
