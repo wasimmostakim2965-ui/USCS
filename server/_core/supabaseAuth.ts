@@ -65,3 +65,16 @@ export async function authenticateSupabaseRequest(req: Request): Promise<Supabas
         role: "user",
       };
 }
+
+
+export function getSupabaseUserClient(req: Request) {
+  if (!supabase) return null;
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const accessToken = authorization.slice("Bearer ".length).trim();
+  if (!accessToken) return null;
+  return createClient(supabaseUrl!, supabasePublishableKey!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+}
