@@ -45,7 +45,8 @@ export const projectNav: NavItem<ProjectPage>[] = [
   { label: "Settings", path: "settings", icon: Settings2 },
 ];
 
-export const dashboardRoutes = workspaceNav.flatMap(item => [`/dashboard/${item.path}`, ...(item.children ?? []).map(route => `/dashboard/${item.path}/${route.path}`)]) as readonly string[];
+export const projectRoutes = ["/dashboard/projects/:id", ...projectNav.filter(item => item.path).map(item => `/dashboard/projects/:id/${item.path}`)] as const;
+export const dashboardRoutes = [...workspaceNav.flatMap(item => [`/dashboard/${item.path}`, ...(item.children ?? []).map(route => `/dashboard/${item.path}/${route.path}`)]), ...projectRoutes] as readonly string[];
 export const workspaceItem = (path?: string) => workspaceNav.find(item => item.path === path) ?? workspaceNav[0];
 export const projectItem = (path?: string) => projectNav.find(item => item.path === path) ?? projectNav[0];
 export const hrefFor = (item: { path: string }, childItem?: { path: string }, prefix = "/dashboard") => `${prefix}/${item.path}${childItem?.path ? `/${childItem.path}` : ""}`;

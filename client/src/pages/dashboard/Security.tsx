@@ -38,7 +38,14 @@ function Overview({ level, status, config, events, preview }: { level: string; s
 }
 
 function LevelPanel({ organizationId, level, pending, onChange, preview }: { organizationId: string; level: string; pending: boolean; onChange: (level: "none" | "normal" | "high" | "ultimate") => void; preview?: unknown }) {
-  return <div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Security posture</span><h3>Choose enforcement level</h3><p>Changing the level updates desired configuration. It does not claim remote enforcement until Apply policy succeeds.</p><label>Level<select value={level} disabled={pending || organizationId === zeroUuid} onChange={event => onChange(event.target.value as "none" | "normal" | "high" | "ultimate")}><option value="none">None</option><option value="normal">Normal</option><option value="high">High</option><option value="ultimate">Ultimate</option></select></label><div className="vc-list-row"><TriangleAlert size={16} /><span><strong>{preview ? "Preview ready" : "No preview"}</strong><small>Generated artifacts remain a dry-run until policy application is confirmed.</small></span></div></div>;
+  const [autoSetup, setAutoSetup] = useState(true);
+  const levels = [
+    { value: "none", title: "None", detail: "No edge enforcement", tone: "neutral" },
+    { value: "normal", title: "Normal", detail: "Baseline firewall and TLS", tone: "normal" },
+    { value: "high", title: "High", detail: "WAF, rate limits and bot challenge", tone: "high" },
+    { value: "ultimate", title: "Ultimate", detail: "Maximum edge hardening", tone: "ultimate" },
+  ] as const;
+  return <div className="vc-card vc-settings-editor security-level-panel"><span className="vc-eyebrow">Security posture</span><h3>Choose enforcement level</h3><p>Changing the level updates desired configuration. It does not claim remote enforcement until Apply policy succeeds.</p><div className="security-level-grid">{levels.map(item => <button key={item.value} className={`security-level-card ${level === item.value ? "active" : ""}`} disabled={pending || organizationId === zeroUuid} onClick={() => onChange(item.value)}><span className={`security-level-icon ${item.tone}`}><ShieldCheck size={18} /></span><strong>{item.title}</strong><small>{item.detail}</small><Status good={level === item.value}>{level === item.value ? "Selected" : "Select"}</Status></button>)}</div><label className="security-toggle"><input type="checkbox" checked={autoSetup} onChange={event => setAutoSetup(event.target.checked)} /> Auto-setup compatible controls</label><div className="vc-list-row"><TriangleAlert size={16} /><span><strong>{preview ? "Preview ready" : "No preview"}</strong><small>Generated artifacts remain a dry-run until policy application is confirmed. Apply is available from the page header.</small></span></div><div className="security-preview-json"><small>Preview contract</small><code>{preview ? JSON.stringify(preview).slice(0, 500) : "Preview unavailable until a workspace policy exists."}</code></div></div>;
 }
 
 function ConfigPanel({ tab, config, onSave }: { tab: SecurityTab; config: PolicyConfig; onSave: (config: PolicyConfig) => void }) {

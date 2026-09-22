@@ -5,11 +5,12 @@ import {
   dashboardNav,
   dashboardRoutes,
   dashboardChildFromSlug,
+  projectRoutes,
 } from "./navigation";
 
 describe("dashboard navigation", () => {
   it("registers a deep-link route for every section and child", () => {
-    const expectedRouteCount = dashboardNav.reduce((count, item) => count + 1 + item.children.length, 0);
+    const expectedRouteCount = dashboardNav.reduce((count, item) => count + 1 + item.children.length, 0) + projectRoutes.length;
     expect(dashboardRoutes).toHaveLength(expectedRouteCount);
     for (const item of dashboardNav) {
       expect(dashboardRoutes).toContain(`/dashboard/${item.path}`);
