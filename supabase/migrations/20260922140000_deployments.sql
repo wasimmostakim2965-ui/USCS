@@ -1,24 +1,5 @@
 -- Deployment control-plane records. Runtime execution is delegated to a
 -- self-operated HostingAdapter; this schema never fabricates provider state.
-create schema if not exists private;
-
-create or replace function private.is_organization_member(target_organization_id uuid, target_user_id uuid default auth.uid())
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.organization_members
-    where organization_id = target_organization_id
-      and user_id = target_user_id
-  );
-$$;
-
-revoke all on function private.is_organization_member(uuid, uuid) from public;
-grant execute on function private.is_organization_member(uuid, uuid) to authenticated;
 
 do $$ begin
   create type public.deployment_environment as enum ('production', 'preview', 'development');
