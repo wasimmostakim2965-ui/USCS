@@ -26,7 +26,7 @@ function DeploymentList({ selectedEnvironment, onOpen, onNavigate }: { selectedE
 }
 
 function DeploymentDetail({ id, tab, onNavigate }: { id: string; tab: DeploymentTab; onNavigate?: (href: string) => void }) {
-  const query = trpc.deployments.get.useQuery({ id, includeLogs: true }, { retry: false });
+  const query = trpc.deployments.get.useQuery({ id, includeLogs: true }, { retry: false, refetchInterval: tab === "build-logs" ? 3000 : false });
   const protectionQuery = trpc.deployments.protection.get.useQuery({ organizationId: query.data?.deployment.organization_id ?? "00000000-0000-0000-0000-000000000000", projectId: query.data?.deployment.project_id ?? "00000000-0000-0000-0000-000000000000" }, { enabled: Boolean(query.data?.deployment), retry: false });
   const historyQuery = trpc.deployments.rollbackHistory.useQuery({ deploymentId: id }, { enabled: tab === "rollback-history", retry: false });
   const rollback = trpc.deployments.rollback.useMutation({ onSuccess: result => result.configured ? toast.success("Rollback completed") : toast.info(result.reason), onError: error => toast.error(error.message) });
