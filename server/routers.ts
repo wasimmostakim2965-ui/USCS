@@ -5,6 +5,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { getSupabaseUserClient } from "./_core/supabaseAuth";
+import { getHostingAdapter, type DeploymentEnvironment } from "./adapters/hosting";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -105,6 +106,150 @@ export const appRouter = router({
       if (error) throw new Error(error.message);
       return data ?? [];
     }),
+  }),
+
+  deployments: router({
+    list: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid().optional(), projectId: z.string().uuid().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client
+          .from("organization_members")
+          .select("organization_id")
+          .eq("user_id", ctx.identity.supabaseId)
+          .limit(100);
+        if (membershipError) throw new Error(membershipError.message);
+        const organizationIds = (memberships ?? []).map(row => row.organization_id)
+          .filter(id => !input?.organizationId || id === input.organizationId);
+        if (!organizationIds.length) return [];
+        let query = client
+          .from("deployments")
+          .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+          .in("organization_id", organizationIds)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (input?.projectId) query = query.eq("project_id", input.projectId);
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+
+    get: protectedProcedure
+      .input(z.object({ id: z.string().uuid(), includeLogs: z.boolean().optional() }))
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: deployment, error } = await client
+          .from("deployments")
+          .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+          .eq("id", input.id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!deployment) throw new Error("Deployment not found");
+        if (!input.includeLogs) return { deployment, logs: [] };
+        const { data: logs, error: logsError } = await client
+          .from("deployment_logs")
+          .select("id,deployment_id,organization_id,level,message,source,created_at")
+          .eq("deployment_id", input.id)
+          .order("created_at", { ascending: true })
+          .limit(500);
+        if (logsError) throw new Error(logsError.message);
+        return { deployment, logs: logs ?? [] };
+      }),
+
+    create: protectedProcedure
+      .input(z.object({
+        organizationId: z.string().uuid(),
+        projectId: z.string().uuid(),
+        environment: z.enum(["production", "preview", "development"]),
+        sourceBranch: z.string().trim().min(1).max(255).nullable().optional(),
+        commitSha: z.string().trim().min(1).max(128).nullable().optional(),
+        sourceRepository: z.string().trim().min(1).max(500).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: deployment, error } = await client
+          .from("deployments")
+          .insert({
+            organization_id: input.organizationId,
+            project_id: input.projectId,
+            environment: input.environment satisfies DeploymentEnvironment,
+            status: "pending",
+            source_branch: input.sourceBranch ?? null,
+            commit_sha: input.commitSha ?? null,
+            source_repository: input.sourceRepository ?? null,
+            created_by: ctx.identity.supabaseId,
+          })
+          .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+          .single();
+        if (error) throw new Error(error.message);
+
+        const adapter = getHostingAdapter();
+        const result = await adapter.createDeployment({
+          deploymentId: deployment.id,
+          projectId: deployment.project_id,
+          environment: input.environment,
+          sourceBranch: input.sourceBranch,
+          commitSha: input.commitSha,
+          sourceRepository: input.sourceRepository,
+        });
+        if (!result.configured) {
+          const now = new Date().toISOString();
+          const { data: updated, error: updateError } = await client
+            .from("deployments")
+            .update({ status: "failed", error_message: result.reason, completed_at: now, updated_at: now })
+            .eq("id", deployment.id)
+            .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+            .single();
+          if (updateError) throw new Error(updateError.message);
+          await client.from("deployment_logs").insert({ deployment_id: deployment.id, organization_id: input.organizationId, level: "warn", message: result.reason, source: adapter.name });
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.create", resource_type: "deployment", resource_id: deployment.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason } });
+          return { configured: false as const, reason: result.reason, deployment: updated };
+        }
+
+        const { data: updated, error: updateError } = await client
+          .from("deployments")
+          .update({ status: result.status, provider_ref: result.providerRef, deployment_url: result.deploymentUrl ?? null, updated_at: new Date().toISOString() })
+          .eq("id", deployment.id)
+          .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+          .single();
+        if (updateError) throw new Error(updateError.message);
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.create", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name, providerRef: result.providerRef } });
+        return { configured: true as const, deployment: updated };
+      }),
+
+    rollback: protectedProcedure
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: deployment, error } = await client
+          .from("deployments")
+          .select("id,organization_id,project_id,status")
+          .eq("id", input.id)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!deployment) throw new Error("Deployment not found");
+        if (deployment.status !== "ready") throw new Error("Only a ready deployment can be rolled back");
+        const adapter = getHostingAdapter();
+        const result = await adapter.rollbackDeployment(deployment.id);
+        if (!result.configured) {
+          await client.from("deployment_logs").insert({ deployment_id: deployment.id, organization_id: deployment.organization_id, level: "warn", message: result.reason, source: adapter.name });
+          await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason } });
+          return { configured: false as const, reason: result.reason };
+        }
+        const { data: updated, error: updateError } = await client
+          .from("deployments")
+          .update({ status: "rolled_back", updated_at: new Date().toISOString() })
+          .eq("id", deployment.id)
+          .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
+          .single();
+        if (updateError) throw new Error(updateError.message);
+        await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name } });
+        return { configured: true as const, deployment: updated };
+      }),
   }),
 
   account: router({
