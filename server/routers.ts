@@ -31,6 +31,85 @@ export const appRouter = router({
     search: protectedProcedure
       .input(z.object({ query: z.string().trim().min(1).max(253) }))
       .query(async ({ input }) => getDomainResellerAdapter().search(input.query)),
+
+    list: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid().optional(), projectId: z.string().uuid().optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+        if (membershipError) throw new Error(membershipError.message);
+        const ids = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+        if (!ids.length) return [];
+        let query = client.from("domains").select("id,organization_id,project_id,hostname,status,registrar_ref,nameservers,ssl_status,dnssec_enabled,created_by,created_at,updated_at").in("organization_id", ids).order("created_at", { ascending: false }).limit(100);
+        if (input?.projectId) query = query.eq("project_id", input.projectId);
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+
+    create: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), hostname: z.string().trim().toLowerCase().regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/) }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data, error } = await client.from("domains").insert({ organization_id: input.organizationId, project_id: input.projectId ?? null, hostname: input.hostname, status: "not_configured", created_by: ctx.identity.supabaseId }).select("id,organization_id,project_id,hostname,status,registrar_ref,nameservers,ssl_status,dnssec_enabled,created_by,created_at,updated_at").single();
+        if (error) throw new Error(error.message);
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "domain.create", resource_type: "domain", resource_id: data.id, result: "success", metadata: { hostname: data.hostname, status: data.status } });
+        return { configured: false as const, reason: "DNS provider is not configured. The domain record was saved without claiming that live DNS is active.", domain: data };
+      }),
+
+    updateDnssec: protectedProcedure
+      .input(z.object({ id: z.string().uuid(), enabled: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: domain, error: domainError } = await client.from("domains").select("id,organization_id").eq("id", input.id).maybeSingle();
+        if (domainError) throw new Error(domainError.message);
+        if (!domain) throw new Error("Domain not found");
+        const { data, error } = await client.from("domains").update({ dnssec_enabled: input.enabled, updated_at: new Date().toISOString() }).eq("id", input.id).select("id,organization_id,project_id,hostname,status,registrar_ref,nameservers,ssl_status,dnssec_enabled,created_by,created_at,updated_at").single();
+        if (error) throw new Error(error.message);
+        await client.from("audit_logs").insert({ organization_id: domain.organization_id, actor_id: ctx.identity.supabaseId, action: "domain.dnssec.update", resource_type: "domain", resource_id: input.id, metadata: { enabled: input.enabled } });
+        return { configured: false as const, reason: "DNSSEC metadata was saved. A live DNS provider is required to publish the DS record.", domain: data };
+      }),
+
+    records: router({
+      list: protectedProcedure
+        .input(z.object({ domainId: z.string().uuid() }))
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client.from("dns_records").select("id,organization_id,domain_id,record_type,name,value,ttl,priority,created_by,created_at,updated_at").eq("domain_id", input.domainId).order("record_type").order("name").limit(500);
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      create: protectedProcedure
+        .input(z.object({ domainId: z.string().uuid(), recordType: z.enum(["A", "AAAA", "CNAME", "TXT", "MX", "NS"]), name: z.string().trim().min(1).max(253), value: z.string().trim().min(1).max(2048), ttl: z.number().int().min(60).max(86400).default(3600), priority: z.number().int().min(0).max(65535).nullable().optional() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: domain, error: domainError } = await client.from("domains").select("organization_id").eq("id", input.domainId).maybeSingle();
+          if (domainError) throw new Error(domainError.message);
+          if (!domain) throw new Error("Domain not found");
+          const { data, error } = await client.from("dns_records").insert({ organization_id: domain.organization_id, domain_id: input.domainId, record_type: input.recordType, name: input.name, value: input.value, ttl: input.ttl, priority: input.priority ?? null, created_by: ctx.identity.supabaseId }).select("id,organization_id,domain_id,record_type,name,value,ttl,priority,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: domain.organization_id, actor_id: ctx.identity.supabaseId, action: "dns_record.create", resource_type: "dns_record", resource_id: data.id, metadata: { domainId: input.domainId, recordType: input.recordType, name: input.name } });
+          return { configured: false as const, reason: "DNS record saved locally. A DNS adapter is required to publish it.", record: data };
+        }),
+      delete: protectedProcedure
+        .input(z.object({ id: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: record, error: recordError } = await client.from("dns_records").select("id,organization_id,domain_id").eq("id", input.id).maybeSingle();
+          if (recordError) throw new Error(recordError.message);
+          if (!record) throw new Error("DNS record not found");
+          const { error } = await client.from("dns_records").delete().eq("id", input.id);
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: record.organization_id, actor_id: ctx.identity.supabaseId, action: "dns_record.delete", resource_type: "dns_record", resource_id: input.id, metadata: { domainId: record.domain_id } });
+          return { configured: false as const, reason: "DNS record removed from the local control plane. Provider synchronization is not configured." };
+        }),
+    }),
   }),
 
   security: router({
