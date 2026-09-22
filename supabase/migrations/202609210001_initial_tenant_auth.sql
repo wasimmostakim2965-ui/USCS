@@ -1,4 +1,4 @@
--- USCS tenant/auth foundation
+-- Cloud Wai tenant/auth foundation
 -- Apply through Supabase migrations. No service-role key or database password belongs here.
 
 create extension if not exists pgcrypto;
