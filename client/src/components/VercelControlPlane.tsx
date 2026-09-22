@@ -14,31 +14,35 @@ type Page =
   | "Observability" | "Firewall" | "CDN" | "Environment Variables" | "Domains"
   | "Connect" | "Integrations" | "Storage" | "Flags" | "Agent" | "AI Gateway"
   | "Sandboxes" | "Workflows" | "Images" | "Usage" | "Support" | "Settings";
-
 type Icon = typeof LayoutDashboard;
+type ProjectTab = "Overview" | "Deployments" | "Domains" | "Logs" | "Observability" | "Firewall" | "Settings";
+type DeploymentTab = "Deployment" | "Logs" | "Resources" | "Source" | "Open Graph";
 
-const items: {label: Page; icon: Icon; chevron?: boolean}[] = [
+const nav: {label: Page; icon: Icon; children?: {label: string; page: Page}[]}[] = [
   {label:"Overview",icon:LayoutDashboard},
   {label:"Projects",icon:Box},
   {label:"Deployments",icon:Rocket},
-  {label:"Logs",icon:FileCode2,chevron:true},
+  {label:"Logs",icon:FileCode2,children:[{label:"Runtime Logs",page:"Logs"}]},
   {label:"Analytics",icon:BarChart3},
   {label:"Speed Insights",icon:Activity},
-  {label:"Observability",icon:Eye,chevron:true},
-  {label:"Firewall",icon:ShieldCheck,chevron:true},
-  {label:"CDN",icon:Network,chevron:true},
+  {label:"Observability",icon:Eye,children:[{label:"Overview",page:"Observability"},{label:"Logs",page:"Logs"},{label:"Metrics",page:"Observability"},{label:"Errors",page:"Observability"},{label:"Requests",page:"Observability"}]},
+  {label:"Firewall",icon:ShieldCheck,children:[{label:"Overview",page:"Firewall"},{label:"Rules",page:"Firewall"},{label:"Rate Limiting",page:"Firewall"},{label:"Bot Protection",page:"Firewall"},{label:"DDoS Protection",page:"Firewall"}]},
+  {label:"CDN",icon:Network,children:[{label:"Overview",page:"CDN"},{label:"Caches",page:"CDN"},{label:"Routing",page:"CDN"}]},
   {label:"Environment Variables",icon:KeyRound},
   {label:"Domains",icon:Globe2},
-  {label:"Connect",icon:Link2,chevron:true},
+  {label:"Connect",icon:Link2,children:[{label:"GitHub",page:"Connect"},{label:"GitLab",page:"Connect"},{label:"Repositories",page:"Connect"}]},
   {label:"Integrations",icon:Store},
   {label:"Storage",icon:HardDrive},
-  {label:"Flags",icon:Flag,chevron:true},
-  {label:"Agent",icon:Sparkles,chevron:true},
+  {label:"Flags",icon:Flag,children:[{label:"All Flags",page:"Flags"},{label:"Environments",page:"Flags"}]},
+  {label:"Agent",icon:Sparkles,children:[{label:"Chat",page:"Agent"},{label:"Investigations",page:"Agent"},{label:"Tasks",page:"Agent"}]},
   {label:"AI Gateway",icon:Bot},
   {label:"Sandboxes",icon:TerminalSquare},
   {label:"Workflows",icon:Workflow},
   {label:"Images",icon:Images},
+  {label:"Usage",icon:BarChart3},
 ];
+
+const projectSettings = ["General","Build & Deployment","Environment Variables","Git","Integrations","Deployment Protection","Functions","Cron Jobs","Members","Webhooks","Drains","Security","Advanced"];
 
 function Status({children,good=false}:{children:ReactNode;good?:boolean}) {
   return <span className={`vc-status ${good?"good":""}`}><i/>{children}</span>;
@@ -46,133 +50,160 @@ function Status({children,good=false}:{children:ReactNode;good?:boolean}) {
 function Header({title,crumb,action}:{title:string;crumb?:string;action?:ReactNode}) {
   return <div className="vc-page-head"><div><div className="vc-crumb">{crumb||title}</div><h1>{title}</h1></div>{action}</div>;
 }
-function Empty({title,body,action}:{title:string;body:string;action?:string}) {
-  return <div className="vc-empty"><div className="vc-empty-mark"><Box size={20}/></div><h3>{title}</h3><p>{body}</p>{action&&<button className="vc-btn primary" onClick={()=>toast.info(action+" is ready for provider integration.")}>{action}<ChevronRight size={14}/></button>}</div>;
+function Empty({title,body,action,onAction}:{title:string;body:string;action?:string;onAction?:()=>void}) {
+  return <div className="vc-empty"><div className="vc-empty-mark"><Box size={20}/></div><h3>{title}</h3><p>{body}</p>{action&&<button className="vc-btn primary" onClick={onAction||(()=>toast.info(action))}>{action}<ChevronRight size={14}/></button>}</div>;
 }
 function Row({icon:Icon,title,detail,onClick}:{icon:Icon;title:string;detail?:string;onClick?:()=>void}) {
-  return <button className="vc-list-row" onClick={onClick}><Icon size={16}/><span><strong>{title}</strong>{detail&&<small>{detail}</small>}</span><ChevronRight size={14}/></button>;
+  return <button className="vc-list-row" onClick={onClick||(()=>toast.info(title))}><Icon size={16}/><span><strong>{title}</strong>{detail&&<small>{detail}</small>}</span><ChevronRight size={14}/></button>;
 }
+function Stat({label,value}:{label:string;value:string}) { return <div className="vc-stat"><small>{label}</small><strong>{value}</strong></div>; }
+function Meta({k,v,good}:{k:string;v:string;good?:boolean}) { return <div className="vc-meta"><small>{k}</small><strong className={good?"green":""}>{v}</strong></div>; }
 
 export default function VercelControlPlane({user,logout}:{user:{name?:string|null}|null;logout:()=>void}) {
   const [page,setPage]=useState<Page>("Overview");
-  const [project,setProject]=useState<string|null>(null);
+  const [project,setProject]=useState(false);
+  const [projectTab,setProjectTab]=useState<ProjectTab>("Overview");
+  const [deploymentTab,setDeploymentTab]=useState<DeploymentTab>("Deployment");
+  const [deploymentOpen,setDeploymentOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(false);
   const [mobile,setMobile]=useState(false);
   const [search,setSearch]=useState("");
-  const [projectTab,setProjectTab]=useState<"Overview"|"Deployments"|"Domains"|"Settings">("Overview");
-  const [deploymentTab,setDeploymentTab]=useState<"Deployment"|"Logs"|"Resources"|"Source"|"Open Graph">("Deployment");
-  const [globalDeployment,setGlobalDeployment]=useState(false);
-
-  const go=(p:Page)=>{setPage(p);setProject(null);setGlobalDeployment(false);setMobile(false);window.scrollTo({top:0})};
-  const openProject=(name:string)=>{setProject(name);setProjectTab("Overview");setGlobalDeployment(false);setPage("Projects");setMobile(false)};
+  const [openGroups,setOpenGroups]=useState<string[]>([]);
+  const [accountOpen,setAccountOpen]=useState(false);
   const initials=(user?.name||"U").trim().slice(0,1).toUpperCase();
 
+  const go=(p:Page)=>{setPage(p);setProject(false);setDeploymentOpen(false);setMobile(false);window.scrollTo({top:0});};
+  const openProject=()=>{setProject(true);setProjectTab("Overview");setDeploymentOpen(false);setMobile(false);};
+  const toggleGroup=(label:string)=>setOpenGroups(v=>v.includes(label)?v.filter(x=>x!==label):[...v,label]);
+
   const content = project
-    ? <ProjectView project={project} tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>
-    : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onDeployments={()=>go("Deployments")}/>
+    ? <ProjectView tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} deploymentOpen={deploymentOpen} setDeploymentOpen={setDeploymentOpen}/>
+    : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onOpenProject={openProject}/>
     : page==="Projects" ? <Projects onOpen={openProject}/>
-    : page==="Deployments" ? (globalDeployment ? <GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>setGlobalDeployment(false)}/> : <Deployments onOpen={()=>{setDeploymentTab("Deployment");setGlobalDeployment(true)}}/>)
+    : page==="Deployments" ? (deploymentOpen?<GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>setDeploymentOpen(false)}/>:<Deployments onOpen={()=>{setDeploymentTab("Deployment");setDeploymentOpen(true)}}/>)
     : page==="Logs" ? <Logs/>
     : page==="Analytics" ? <Analytics title="Analytics"/>
     : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
     : page==="Observability" ? <Observability/>
     : page==="Firewall" ? <Firewall/>
-    : page==="CDN" ? <Simple title="CDN" icon={Network} text="Edge delivery, cache behavior and traffic routing."/>
+    : page==="CDN" ? <CDN/>
     : page==="Environment Variables" ? <EnvVars/>
     : page==="Domains" ? <Domains/>
-    : page==="Connect" ? <Simple title="Connect" icon={Link2} text="Git providers, deployment sources and connected repositories."/>
-    : page==="Integrations" ? <Simple title="Integrations" icon={Store} text="Marketplace and third-party integrations."/>
-    : page==="Storage" ? <Simple title="Storage" icon={HardDrive} text="Persistent storage and provider-backed resources."/>
-    : page==="Flags" ? <Simple title="Flags" icon={Flag} text="Feature flags and controlled rollouts."/>
+    : page==="Connect" ? <Connect/>
+    : page==="Integrations" ? <Integrations/>
+    : page==="Storage" ? <Storage/>
+    : page==="Flags" ? <Flags/>
     : page==="Agent" ? <Agent/>
-    : page==="AI Gateway" ? <Simple title="AI Gateway" icon={Bot} text="Model routing, usage and AI infrastructure."/>
-    : page==="Sandboxes" ? <Simple title="Sandboxes" icon={TerminalSquare} text="Isolated execution environments."/>
-    : page==="Workflows" ? <Simple title="Workflows" icon={Workflow} text="Background workflows and scheduled automation."/>
-    : page==="Images" ? <Simple title="Images" icon={Images} text="Image optimization and delivery."/>
+    : page==="AI Gateway" ? <AIGateway/>
+    : page==="Sandboxes" ? <Simple title="Sandboxes" icon={TerminalSquare} text="Isolated execution environments for builds, tests and agent workloads."/>
+    : page==="Workflows" ? <Workflows/>
+    : page==="Images" ? <Simple title="Images" icon={Images} text="Image optimization, transformations, cache and delivery."/>
     : page==="Usage" ? <Usage/>
-    : page==="Support" ? <Simple title="Support" icon={CircleHelp} text="Documentation, support and incident communication."/>
-    : <Settings/>;
+    : page==="Support" ? <Support/>
+    : <WorkspaceSettings/>;
 
   return <div className={`vc-shell ${collapsed?"collapsed":""}`}>
     <aside className={`vc-sidebar ${mobile?"mobile":""}`}>
-      <div className="vc-brand"><div className="vc-brand-dot">U</div><button className="vc-team"><strong>USCS</strong><span>Workspace</span><ChevronDown size={11}/></button><button className="vc-collapse" onClick={()=>setCollapsed(v=>!v)} aria-label="Toggle sidebar"><ChevronRight size={15}/></button><button className="vc-close" onClick={()=>setMobile(false)}><X size={18}/></button></div>
-      <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>⌘ K</kbd></div>
+      <div className="vc-brand">
+        <div className="vc-brand-dot">U</div>
+        <button className="vc-team" onClick={()=>toast.info("Workspace switcher will list connected workspaces.")}><strong>USCS</strong><span>Workspace</span><ChevronDown size={11}/></button>
+        <button className="vc-collapse" onClick={()=>setCollapsed(v=>!v)} aria-label="Toggle sidebar"><ChevronRight size={15}/></button>
+        <button className="vc-close" onClick={()=>setMobile(false)}><X size={18}/></button>
+      </div>
+      <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>Ctrl K</kbd></div>
       <div className="vc-nav">
-        {items.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,chevron})=><button key={label} className={`vc-nav-item ${page===label&&!project?"active":""}`} onClick={()=>go(label)}><Icon size={15}/><span>{label}</span>{chevron&&<ChevronRight className="vc-nav-chevron" size={13}/>}</button>)}
+        {nav.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,children})=><div key={label}>
+          <button className={`vc-nav-item ${page===label&&!project?"active":""}`} onClick={()=>children?toggleGroup(label):go(label)}>
+            <Icon size={15}/><span>{label}</span>{children&&<ChevronRight className="vc-nav-chevron" size={13} style={{transform:openGroups.includes(label)?"rotate(90deg)":undefined}}/>}
+          </button>
+          {children&&openGroups.includes(label)&&<div className="vc-subnav">{children.map(c=><button key={c.label} onClick={()=>go(c.page)}>{c.label}<ChevronRight size={11}/></button>)}</div>}
+        </div>)}
       </div>
       <div className="vc-nav-bottom">
-        <button className={`vc-nav-item ${page==="Usage"&&!project?"active":""}`} onClick={()=>go("Usage")}><BarChart3 size={15}/><span>Usage</span></button>
         <button className={`vc-nav-item ${page==="Support"&&!project?"active":""}`} onClick={()=>go("Support")}><CircleHelp size={15}/><span>Support</span></button>
         <button className={`vc-nav-item ${page==="Settings"&&!project?"active":""}`} onClick={()=>go("Settings")}><Settings2 size={15}/><span>Settings</span><ChevronRight className="vc-nav-chevron" size={13}/></button>
       </div>
-      <button className="vc-account" onClick={logout}><span>{initials}</span><div><strong>{user?.name||"Account"}</strong><small>Sign out</small></div><MoreHorizontal size={15}/></button>
+      <div className="vc-account-wrap">
+        <button className="vc-account" onClick={()=>setAccountOpen(v=>!v)}><span>{initials}</span><div><strong>{user?.name||"Account"}</strong><small>Account menu</small></div><MoreHorizontal size={15}/></button>
+        {accountOpen&&<div className="vc-account-menu">
+          <button onClick={()=>toast.info("Account profile")}>Account</button>
+          <button onClick={()=>toast.info("API token management")}>API Tokens</button>
+          <button onClick={()=>toast.info("Account settings")}>Account Settings</button>
+          <button onClick={logout}>Sign out</button>
+        </div>}
+      </div>
     </aside>
     <main className="vc-main">
-      <header className="vc-topbar"><button className="vc-mobile-menu" onClick={()=>setMobile(true)}><Menu size={19}/></button><div className="vc-top-crumb"><button onClick={()=>go("Overview")}>wasimmostakim2965-ui</button>{project&&<><ChevronRight size={13}/><strong>{project}</strong></>}</div><div className="vc-top-actions"><button className="vc-top-icon"><Bell size={16}/></button><button className="vc-top-icon"><CircleHelp size={16}/></button><button className="vc-avatar" onClick={logout}>{initials}</button></div></header>
+      <header className="vc-topbar">
+        <button className="vc-mobile-menu" onClick={()=>setMobile(true)}><Menu size={19}/></button>
+        <div className="vc-top-crumb"><button onClick={()=>go("Overview")}>USCS</button>{project&&<><ChevronRight size={13}/><strong>USCS</strong></>}</div>
+        <div className="vc-top-actions"><button className="vc-top-icon" onClick={()=>toast.info("Notifications")}><Bell size={16}/></button><button className="vc-top-icon" onClick={()=>go("Support")}><CircleHelp size={16}/></button><button className="vc-avatar" onClick={()=>setAccountOpen(v=>!v)}>{initials}</button></div>
+      </header>
       <div className="vc-content">{content}</div>
     </main>
   </div>;
 }
 
-function Overview({onProjects,onDeployments}:{onProjects:()=>void;onDeployments:()=>void}) {
+function Overview({onProjects,onOpenProject}:{onProjects:()=>void;onOpenProject:()=>void}) {
   return <><Header title="Overview" action={<button className="vc-btn primary" onClick={onProjects}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
-    <div className="vc-card vc-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div>
-      <Row icon={ShieldCheck} title="Stop tracking .env (contains DB password)" detail="Preview · #17 · just now"/>
-      <Row icon={Rocket} title="feat: replace categories (48 new) + clean job detail layout" detail="Preview · #4 · recently"/>
-    </div>
+    <div className="vc-card vc-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Empty title="No recent activity" body="Deployments, project changes and alerts will appear here when USCS has activity." action="Open Projects" onAction={onProjects}/></div>
     <div className="vc-section-title">Projects</div>
-    <div className="vc-project-card" onClick={()=>onProjects()}><div className="vc-project-logo">V</div><div><strong>uscs</strong><small>uscs-ashy.vercel.app</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good/></div>
-    <div className="vc-project-card"><div className="vc-project-logo">V</div><div><strong>workergigbd-site</strong><small>workergigbd.site</small><p><GitHubMark/> wasimmostakim2965-ui/workergigbd.site · Sep 15</p></div><Status/></div>
+    <div className="vc-project-card" onClick={onOpenProject}><div className="vc-project-logo">U</div><div><strong>uscs</strong><small>USCS workspace project</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good>Connected</Status></div>
   </>;
 }
 
-function Projects({onOpen}:{onOpen:(name:string)=>void}) {
-  return <><Header title="Projects" crumb="All Projects" action={<button className="vc-btn primary"><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/><div className="vc-project-toolbar"><div className="vc-search-input"><Search size={15}/><input placeholder="Search Projects"/></div><button className="vc-icon-btn"><ListFilter size={15}/></button></div>
-    <div className="vc-card vc-project-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Row icon={ShieldCheck} title="Stop tracking .env (contains DB password)" detail="Preview · #17"/><Row icon={Rocket} title="feat: replace categories (48 new) + clean job detail layout" detail="Preview · #4"/></div>
+function Projects({onOpen}:{onOpen:()=>void}) {
+  return <><Header title="Projects" crumb="All Projects" action={<button className="vc-btn primary" onClick={()=>toast.info("Add New: import Git repository or create from template.")}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
+    <div className="vc-project-toolbar"><div className="vc-search-input"><Search size={15}/><input placeholder="Search Projects"/></div><button className="vc-icon-btn" onClick={()=>toast.info("Project filters: framework, status, updated time")}><ListFilter size={15}/></button></div>
+    <div className="vc-card vc-project-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Empty title="No recent project activity" body="Activity appears here after deployments, configuration changes or alerts."/></div>
     <div className="vc-section-title">Projects</div>
-    <div className="vc-project-card" onClick={()=>onOpen("uscs")}><div className="vc-project-logo">V</div><div><strong>uscs</strong><small>uscs-ashy.vercel.app</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good/></div>
-    <div className="vc-project-card"><div className="vc-project-logo">V</div><div><strong>workergigbd-site</strong><small>workergigbd.site</small><p><GitHubMark/> wasimmostakim2965-ui/workergigbd.site · Sep 15</p></div><Status/></div>
+    <div className="vc-project-card" onClick={onOpen}><div className="vc-project-logo">U</div><div><strong>uscs</strong><small>USCS workspace project</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good>Connected</Status></div>
   </>;
 }
 
-function ProjectView({project,tab,setTab,deploymentTab,setDeploymentTab}:{project:string;tab:"Overview"|"Deployments"|"Domains"|"Settings";setTab:(x:any)=>void;deploymentTab:any;setDeploymentTab:(x:any)=>void}) {
-  return <><Header title={project} crumb={`Projects / ${project}`} action={<div className="vc-actions"><button className="vc-btn">Share</button><button className="vc-btn primary" onClick={()=>toast.info("Deploy action will connect to the deployment provider.")}>Deploy</button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div>}/>
-    <div className="vc-project-tabs">{(["Overview","Deployments","Domains","Settings"] as const).map(t=><button key={t} className={tab===t?"active":""} onClick={()=>setTab(t)}>{t}</button>)}</div>
-    {tab==="Overview"&&<><div className="vc-card vc-deploy-hero"><div><span className="vc-eyebrow">Production</span><h2>No production deployment</h2><p>Connect GitHub or deploy with the CLI/API to create a release.</p></div><button className="vc-btn primary">Deploy</button></div><div className="vc-grid-3"><Stat label="Deployments" value="0"/><Stat label="Domains" value="0"/><Stat label="Requests" value="—"/></div><div className="vc-grid-2"><div className="vc-card"><h3>Latest deployment</h3><Empty title="No deployments yet" body="Your deployment history will appear here with commit, build logs, resources and rollback actions." action="Create deployment"/></div><div className="vc-card"><h3>Project configuration</h3><Row icon={KeyRound} title="Environment Variables" detail="Per environment"/><Row icon={ShieldCheck} title="Deployment Protection" detail="Access controls"/><Row icon={Globe2} title="Domains" detail="Custom domains"/></div></div></>}
-    {tab==="Deployments"&&<DeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>}
-    {tab==="Domains"&&<Domains project={project}/>}
+function ProjectView({tab,setTab,deploymentTab,setDeploymentTab,deploymentOpen,setDeploymentOpen}:{tab:ProjectTab;setTab:(x:ProjectTab)=>void;deploymentTab:DeploymentTab;setDeploymentTab:(x:DeploymentTab)=>void;deploymentOpen:boolean;setDeploymentOpen:(x:boolean)=>void}) {
+  return <><Header title="uscs" crumb="Projects / uscs" action={<div className="vc-actions"><button className="vc-btn" onClick={()=>toast.info("Share project")}>Share</button><button className="vc-btn primary" onClick={()=>toast.info("Deploy: connect Git or choose a commit")}>Deploy</button><button className="vc-icon-btn" onClick={()=>toast.info("Project actions")}><MoreHorizontal size={15}/></button></div>}/>
+    <div className="vc-project-tabs">{(["Overview","Deployments","Domains","Logs","Observability","Firewall","Settings"] as const).map(t=><button key={t} className={tab===t?"active":""} onClick={()=>setTab(t)}>{t}</button>)}</div>
+    {tab==="Overview"&&<><div className="vc-card vc-deploy-hero"><div><span className="vc-eyebrow">Production</span><h2>No production deployment</h2><p>Connect GitHub or deploy with the CLI/API to create a release.</p></div><button className="vc-btn primary" onClick={()=>setTab("Deployments")}>Deploy</button></div><div className="vc-grid-3"><Stat label="Deployments" value="0"/><Stat label="Domains" value="0"/><Stat label="Requests" value="—"/></div><div className="vc-grid-2"><div className="vc-card"><h3>Latest deployment</h3><Empty title="No deployments yet" body="Deployment history will appear with commit, build logs, resources and rollback actions." action="Open Deployments" onAction={()=>setTab("Deployments")}/></div><div className="vc-card"><h3>Project configuration</h3><Row icon={KeyRound} title="Environment Variables" detail="Per environment" onClick={()=>toast.info("Open Settings → Environment Variables")}/><Row icon={ShieldCheck} title="Deployment Protection" detail="Access controls" onClick={()=>toast.info("Open Settings → Deployment Protection")}/><Row icon={Globe2} title="Domains" detail="Custom domains" onClick={()=>setTab("Domains")}/></div></div></>}
+    {tab==="Deployments"&&(deploymentOpen?<DeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>:<Deployments onOpen={()=>{setDeploymentTab("Deployment");setDeploymentOpen(true)}}/>)}
+    {tab==="Domains"&&<Domains project/>}
+    {tab==="Logs"&&<Logs/>}
+    {tab==="Observability"&&<Observability/>}
+    {tab==="Firewall"&&<Firewall/>}
     {tab==="Settings"&&<ProjectSettings/>}
   </>;
 }
 
-function DeploymentDetail({deploymentTab,setDeploymentTab}:{deploymentTab:any;setDeploymentTab:(x:any)=>void}) {
+function DeploymentDetail({deploymentTab,setDeploymentTab}:{deploymentTab:DeploymentTab;setDeploymentTab:(x:DeploymentTab)=>void}) {
   return <div className="vc-card vc-deployment-detail"><div className="vc-subtabs">{(["Deployment","Logs","Resources","Source","Open Graph"] as const).map(t=><button className={deploymentTab===t?"active":""} key={t} onClick={()=>setDeploymentTab(t)}>{t}</button>)}</div>
-    {deploymentTab==="Deployment"&&<><div className="vc-detail-actions"><span>Deployment Details</span><div><button className="vc-btn">Share</button><button className="vc-btn">Logs</button><button className="vc-btn">Visit <ChevronDown size={12}/></button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div></div><div className="vc-preview">Deployment preview</div><div className="vc-meta-grid"><Meta k="Created" v="Not available"/><Meta k="Status" v="Ready · Latest" good/><Meta k="Duration" v="—"/><Meta k="Environment" v="Production"/><Meta k="Domains" v="None"/><Meta k="Source" v="main · GitHub"/></div>{["Deployment Settings","Build Logs","Deployment Summary","Deployment Checks","Assigning Custom Domains"].map((x,i)=><button className="vc-accordion" key={x}><ChevronRight size={15}/><span>{x}</span><small>{i===1?"No logs yet":i===4?"0 domains":"View details"}</small></button>)}<div className="vc-detail-cards"><Row icon={FileCode2} title="Runtime Logs" detail="View build and runtime logs & errors"/><Row icon={Eye} title="Observability" detail="Monitor app health & performance"/><Row icon={Activity} title="Speed Insights" detail="Performance metrics from real users"/><Row icon={BarChart3} title="Web Analytics" detail="Analyze visitors and traffic"/></div></>}
+    {deploymentTab==="Deployment"&&<><div className="vc-detail-actions"><span>Deployment Details</span><div><button className="vc-btn" onClick={()=>toast.info("Share deployment")}>Share</button><button className="vc-btn" onClick={()=>setDeploymentTab("Logs")}>Logs</button><button className="vc-btn" onClick={()=>toast.info("Visit deployment")}>Visit <ChevronDown size={12}/></button><button className="vc-icon-btn" onClick={()=>toast.info("Redeploy · Promote · Rollback · Delete")}><MoreHorizontal size={15}/></button></div></div><div className="vc-preview"><div><strong>USCS deployment preview</strong><small>Production / Preview rendering surface</small></div></div><div className="vc-meta-grid"><Meta k="Created" v="No deployment connected"/><Meta k="Status" v="Not assessed"/><Meta k="Duration" v="—"/><Meta k="Environment" v="Production"/><Meta k="Domains" v="None"/><Meta k="Source" v="GitHub / main"/></div>{["Deployment Settings","Build Logs","Deployment Summary","Deployment Checks","Assigning Custom Domains"].map(x=><button className="vc-accordion" key={x} onClick={()=>toast.info(x+" details")}><ChevronRight size={15}/><span>{x}</span><small>View details</small></button>)}<div className="vc-detail-cards"><Row icon={FileCode2} title="Runtime Logs" detail="View build and runtime logs & errors" onClick={()=>setDeploymentTab("Logs")}/><Row icon={Eye} title="Observability" detail="Monitor app health & performance"/><Row icon={Activity} title="Speed Insights" detail="Performance metrics from real users"/><Row icon={BarChart3} title="Web Analytics" detail="Analyze visitors and traffic"/></div></>}
     {deploymentTab==="Logs"&&<Logs/>}{deploymentTab==="Resources"&&<Resources/>}{deploymentTab==="Source"&&<Simple title="Source" icon={FolderGit2} text="Repository, branch, commit and deployment source metadata."/>}{deploymentTab==="Open Graph"&&<Simple title="Open Graph" icon={Images} text="Social preview metadata and generated image."/>}
   </div>;
 }
-function Resources(){return <div><Header title="Resources" crumb="Deployment / Resources"/><div className="vc-card"><Row icon={Code2} title="Functions" detail="Runtime, size, region and invocation details"/><Row icon={FileCode2} title="Middleware" detail="Request middleware resources"/><Row icon={HardDrive} title="Static Assets" detail="Generated assets and sizes"/></div></div>}
-function Deployments({onOpen}:{onOpen:()=>void}){return <><Header title="Deployments" action={<button className="vc-btn primary"><Plus size={14}/> New Deployment</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Failed</button></div><div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div><button className="vc-deployment-row" onClick={onOpen}><Rocket size={16}/><span><strong>uscs-git-main</strong><small>main · GitHub</small></span><span>Production</span><Status good>Ready</Status><span>—</span></button><Empty title="No additional deployments" body="Deployment history, preview URLs, resources and rollback actions appear here." action="Connect GitHub"/></div></>}
-function GlobalDeploymentDetail({deploymentTab,setDeploymentTab,onBack}:{deploymentTab:any;setDeploymentTab:(x:any)=>void;onBack:()=>void}) {
-  return <><Header title="Deployment" crumb="Deployments / uscs-git-main" action={<div className="vc-actions"><button className="vc-btn" onClick={onBack}>Back</button><button className="vc-btn">Share</button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div>}/>
-    <div className="vc-deployment-detail vc-card"><div className="vc-subtabs">{(["Deployment","Logs","Resources","Source","Open Graph"] as const).map(t=><button className={deploymentTab===t?"active":""} key={t} onClick={()=>setDeploymentTab(t)}>{t}</button>)}</div>
-      {deploymentTab==="Deployment"&&<><div className="vc-detail-actions"><span>Deployment Details</span><div><button className="vc-btn">Share</button><button className="vc-btn" onClick={()=>setDeploymentTab("Logs")}>Logs</button><button className="vc-btn">Visit <ChevronDown size={12}/></button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div></div><div className="vc-preview"><div><strong>USCS deployment preview</strong><small>Production deployment preview</small></div></div><div className="vc-meta-grid"><Meta k="Created" v="Latest deployment"/><Meta k="Status" v="Ready · Latest" good/><Meta k="Duration" v="—"/><Meta k="Environment" v="Production"/><Meta k="Domains" v="uscs-ashy.vercel.app"/><Meta k="Source" v="main · GitHub"/></div>{["Deployment Settings","Build Logs","Deployment Summary","Deployment Checks","Assigning Custom Domains"].map((x,i)=><button className="vc-accordion" key={x}><ChevronRight size={15}/><span>{x}</span><small>{i===1?"View logs":i===4?"Assign domain":"View details"}</small></button>)}<div className="vc-detail-cards"><Row icon={FileCode2} title="Runtime Logs" detail="View build and runtime logs & errors" onClick={()=>setDeploymentTab("Logs")}/><Row icon={Eye} title="Observability" detail="Monitor app health & performance"/><Row icon={Activity} title="Speed Insights" detail="Performance metrics from real users"/><Row icon={BarChart3} title="Web Analytics" detail="Analyze visitors and traffic"/></div></>}
-      {deploymentTab==="Logs"&&<Logs/>}{deploymentTab==="Resources"&&<Resources/>}{deploymentTab==="Source"&&<Simple title="Source" icon={FolderGit2} text="Repository, branch, commit and deployment source metadata."/>}{deploymentTab==="Open Graph"&&<Simple title="Open Graph" icon={Images} text="Social preview metadata and generated image."/>}
-    </div></>;
+function Deployments({onOpen}:{onOpen:()=>void}) {
+  return <><Header title="Deployments" action={<button className="vc-btn primary" onClick={()=>toast.info("New Deployment: select project, source and environment.")}><Plus size={14}/> New Deployment</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Failed</button></div><div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div><Empty title="No deployments yet" body="Connect a Git repository or use the API/CLI. Each deployment will expose logs, resources, source and rollback actions." action="Connect GitHub" onAction={()=>toast.info("Connect → GitHub")}/></div></>;
 }
-
-
-function Logs(){return <><Header title="Logs" action={<button className="vc-btn">Live <span className="vc-live-dot"/></button>}/><div className="vc-filterbar"><button className="active">All</button><button>Errors</button><button>Warnings</button><button>Info</button><button>Search</button></div><div className="vc-card vc-log-empty"><Empty title="No logs yet" body="Logs will stream here when a deployment or runtime produces events." action="Connect a deployment"/></div></>}
-function Analytics({title}:{title:string}){return <><Header title={title}/><div className="vc-grid-3"><Stat label="Visitors" value="—"/><Stat label="Requests" value="—"/><Stat label="Performance" value="—"/></div><div className="vc-card vc-chart"><div className="vc-chart-line"/><span>No data for selected range</span></div></>}
-function Observability(){return <><Header title="Observability" action={<button className="vc-btn">Refresh</button>}/><div className="vc-filterbar"><button className="active">Overview</button><button>Logs</button><button>Metrics</button><button>Errors</button><button>Requests</button><button>Uptime</button></div><div className="vc-grid-3"><Stat label="Requests" value="—"/><Stat label="Errors" value="—"/><Stat label="Latency" value="—"/></div><div className="vc-card"><h3>Event stream</h3><Empty title="No runtime data" body="Connect a deployment to populate searchable logs, metrics and request traces."/></div></>}
-function Firewall(){return <><Header title="Firewall" action={<button className="vc-btn primary"><Plus size={14}/> Add Rule</button>}/><div className="vc-card"><div className="vc-callout"><ShieldCheck size={18}/><div><strong>Protection boundary</strong><p>Rules are ordered, scoped and auditable. No simulated security state is shown.</p></div></div><div className="vc-table-head"><span>Rule</span><span>Scope</span><span>Action</span><span>Status</span></div><Empty title="No firewall rules" body="Create provider-backed custom rules, rate limits or managed protections."/></div></>}
-function EnvVars(){return <><Header title="Environment Variables" action={<button className="vc-btn primary"><Plus size={14}/> Add Variable</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Development</button></div><div className="vc-card"><Empty title="No environment variables" body="Secrets and configuration are scoped by environment and should remain server-side." action="Add Variable"/></div></>}
-function Domains({project}:{project?:string}){return <><Header title="Domains" action={<button className="vc-btn primary"><Plus size={14}/> Add Domain</button>}/><div className="vc-card"><div className="vc-domain-row"><Globe2 size={16}/><span><strong>{project?project+".example.com":"No domains connected"}</strong><small>{project?"Production domain":"Connect a domain to begin"}</small></span><Status>Not configured</Status></div><div className="vc-grid-3"><Stat label="DNS" value="—"/><Stat label="TLS" value="—"/><Stat label="Renewal" value="—"/></div></div></>}
-function Agent(){return <><Header title="Agent" action={<button className="vc-btn primary"><Sparkles size={14}/> New task</button>}/><div className="vc-card vc-agent"><Sparkles size={24}/><h2>Vercel-style operational agent</h2><p>Investigate deployments, logs, configuration and usage. Read-only by default; mutations require explicit approval.</p><button className="vc-btn primary">Start investigation</button></div></>}
-function Usage(){return <><Header title="Usage"/><div className="vc-grid-3"><Stat label="Current usage" value="—"/><Stat label="This period" value="$0"/><Stat label="Plan" value="Hobby"/></div><div className="vc-card"><h3>Usage breakdown</h3><Empty title="No billable activity" body="Usage and projected cost will appear once provider resources are connected."/></div></>}
-function Settings(){return <><Header title="Settings"/><div className="vc-settings"><button className="active"><strong>General</strong><small>Workspace identity and defaults</small></button><button><strong>Security</strong><small>MFA, sessions and security policy</small></button><button><strong>Authentication</strong><small>OAuth and sign-in policy</small></button><button><strong>Members</strong><small>Roles and access</small></button><button><strong>API Keys</strong><small>Programmatic access</small></button><button><strong>Connected Accounts</strong><small>Git and provider connections</small></button><button><strong>Danger Zone</strong><small>Destructive workspace actions</small></button></div></>}
-function ProjectSettings(){return <><div className="vc-settings-project"><nav>{["General","Build & Deployment","Environment Variables","Git","Integrations","Deployment Protection","Functions","Cron Jobs","Members","Webhooks","Drains","Security","Advanced"].map(x=><button key={x}>{x}<ChevronRight size={13}/></button>)}</nav><div className="vc-card"><h2>General</h2><p>Project identity, runtime defaults and deployment configuration.</p><Row icon={Box} title="Project name" detail="uscs"/><Row icon={Code2} title="Framework & build" detail="Configured from project settings"/><Row icon={KeyRound} title="Environment Variables" detail="Scoped by environment"/></div></div></>}
-function Simple({title,icon:Icon,text}:{title:string;icon:Icon;text:string}){return <><Header title={title}/><div className="vc-card"><Empty title={title+" is not configured"} body={text+" USCS will expose verified provider-backed state here."} action="Configure"/></div></>}
-function Stat({label,value}:{label:string;value:string}){return <div className="vc-stat"><small>{label}</small><strong>{value}</strong></div>}
-function Meta({k,v,good}:{k:string;v:string;good?:boolean}){return <div className="vc-meta"><small>{k}</small><strong className={good?"green":""}>{v}</strong></div>}
-function GitHubMark(){return <span className="vc-gh">◉</span>}
+function GlobalDeploymentDetail({deploymentTab,setDeploymentTab,onBack}:{deploymentTab:DeploymentTab;setDeploymentTab:(x:DeploymentTab)=>void;onBack:()=>void}) {
+  return <><Header title="Deployment" crumb="Deployments / deployment" action={<div className="vc-actions"><button className="vc-btn" onClick={onBack}>Back</button><button className="vc-btn" onClick={()=>toast.info("Share deployment")}>Share</button><button className="vc-icon-btn" onClick={()=>toast.info("Redeploy · Promote · Rollback · Delete")}><MoreHorizontal size={15}/></button></div>}/><DeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/></>;
+}
+function Resources(){return <><Header title="Resources" crumb="Deployment / Resources"/><div className="vc-card"><Row icon={Code2} title="Functions" detail="Runtime, size, region and invocation details"/><Row icon={FileCode2} title="Middleware" detail="Configured request matchers"/><Row icon={HardDrive} title="Static Assets" detail="Generated assets and sizes"/></div></>;}
+function Logs(){const [filter,setFilter]=useState("All");return <><Header title="Logs" action={<button className="vc-btn" onClick={()=>toast.info("Live log stream requires a connected runtime")}>Live <span className="vc-live-dot"/></button>}/><div className="vc-filterbar">{["All","Errors","Warnings","Info"].map(x=><button key={x} className={filter===x?"active":""} onClick={()=>setFilter(x)}>{x}</button>)}<button onClick={()=>toast.info("Search supports structured filters such as level:error and status:500")}>Search</button></div><div className="vc-card vc-log-empty"><Empty title="No logs yet" body="Runtime logs will appear here with timestamps, levels, source and request IDs when a deployment/runtime is connected."/></div></>;}
+function Analytics({title}:{title:string}){const [range,setRange]=useState("30d");return <><Header title={title} action={<button className="vc-btn" onClick={()=>toast.info("Export analytics")}>Export</button>}/><div className="vc-filterbar">{["24h","7d","30d","90d"].map(x=><button key={x} className={range===x?"active":""} onClick={()=>setRange(x)}>{x}</button>)}</div><div className="vc-grid-3"><Stat label="Visitors" value="—"/><Stat label="Requests" value="—"/><Stat label="Performance" value="—"/></div><div className="vc-card vc-chart"><div className="vc-chart-line"/><span>No data for selected range</span></div></>;}
+function Observability(){const [tab,setTab]=useState("Overview");return <><Header title="Observability" action={<button className="vc-btn" onClick={()=>toast.info("Refreshing provider telemetry")}>Refresh</button>}/><div className="vc-filterbar">{["Overview","Logs","Metrics","Errors","Requests","Uptime"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-grid-3"><Stat label="Requests" value="—"/><Stat label="Errors" value="—"/><Stat label="Latency" value="—"/></div><div className="vc-card"><h3>{tab}</h3><Empty title="No runtime data" body="Connect a deployment/runtime to populate searchable telemetry and operational metrics."/></div></>;}
+function Firewall(){const [tab,setTab]=useState("Overview");return <><Header title="Firewall" action={<button className="vc-btn primary" onClick={()=>toast.info("Rule builder: condition → action → scope → review → activate")}><Plus size={14}/> Add Rule</button>}/><div className="vc-filterbar">{["Overview","Rules","Rate Limiting","Bot Protection","DDoS Protection"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-card"><div className="vc-callout"><ShieldCheck size={18}/><div><strong>Protection boundary</strong><p>Rules are ordered, scoped and auditable. No simulated security state is shown.</p></div></div><div className="vc-table-head"><span>Name</span><span>Scope</span><span>Action</span><span>Status</span></div><Empty title={`No ${tab.toLowerCase()} configured`} body="Provider-backed configuration will appear here after a security provider is connected."/></div></>;}
+function CDN(){const [tab,setTab]=useState("Overview");return <><Header title="CDN" action={<button className="vc-btn" onClick={()=>toast.info("Purge cache requires connected CDN")}>Purge Cache</button>}/><div className="vc-filterbar">{["Overview","Caches","Routing"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-grid-3"><Stat label="Requests" value="—"/><Stat label="Cache hit rate" value="—"/><Stat label="Regions" value="—"/></div><div className="vc-card"><Empty title={`No CDN data`} body="USCS will show global traffic, cache performance and routing state from the connected edge provider."/></div></>;}
+function EnvVars(){const [env,setEnv]=useState("All");return <><Header title="Environment Variables" action={<button className="vc-btn primary" onClick={()=>toast.info("Add Variable form") }><Plus size={14}/> Add Variable</button>}/><div className="vc-filterbar">{["All","Production","Preview","Development"].map(x=><button key={x} className={env===x?"active":""} onClick={()=>setEnv(x)}>{x}</button>)}</div><div className="vc-card"><div className="vc-table-head"><span>Name</span><span>Environment</span><span>Value</span><span>Updated</span></div><Empty title="No environment variables" body="Secrets and configuration are scoped by environment and remain masked. No secret values are simulated."/></div></>;}
+function Domains({project}:{project?:boolean}){const [tab,setTab]=useState("Domains");return <><Header title="Domains" action={<button className="vc-btn primary" onClick={()=>toast.info("Add Domain form") }><Plus size={14}/> Add Domain</button>}/><div className="vc-filterbar">{["Domains","DNS","Nameservers","DNSSEC","TLS","Renewals"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-card"><div className="vc-domain-row"><Globe2 size={16}/><span><strong>{project?"uscs — no domain connected":"No domains connected"}</strong><small>{tab==="Domains"?"Production and preview domain assignments":tab+" management"}</small></span><Status>Not configured</Status></div><Empty title={`No ${tab.toLowerCase()} configured`} body="Domain state will be shown only after a registrar/DNS provider is connected."/></div></>;}
+function Connect(){return <><Header title="Connect" action={<button className="vc-btn primary" onClick={()=>toast.info("Connect a provider") }><Plus size={14}/> Connect</button>}/><div className="vc-settings"><button onClick={()=>toast.info("GitHub OAuth flow")}><strong>GitHub</strong><small>Repositories, branches and deployment events</small></button><button onClick={()=>toast.info("GitLab OAuth flow")}><strong>GitLab</strong><small>Repositories and deployment events</small></button><button onClick={()=>toast.info("Repository picker")}><strong>Repositories</strong><small>Manage connected project sources</small></button></div></>;}
+function Integrations(){return <><Header title="Integrations" action={<button className="vc-btn primary" onClick={()=>toast.info("Integration marketplace")}>Browse Marketplace</button>}/><div className="vc-card"><Empty title="No integrations installed" body="Installations, permissions and project scopes will appear here."/></div></>;}
+function Storage(){return <><Header title="Storage" action={<button className="vc-btn primary" onClick={()=>toast.info("Create storage bucket") }><Plus size={14}/> Create</button>}/><div className="vc-grid-3"><Stat label="Buckets" value="0"/><Stat label="Files" value="—"/><Stat label="Usage" value="—"/></div><div className="vc-card"><Empty title="No storage resources" body="Create a provider-backed bucket to manage files, access policies and usage."/></div></>;}
+function Flags(){const [tab,setTab]=useState("All Flags");return <><Header title="Flags" action={<button className="vc-btn primary" onClick={()=>toast.info("Create feature flag") }><Plus size={14}/> Create Flag</button>}/><div className="vc-filterbar">{["All Flags","Environments"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-card"><Empty title="No feature flags" body="Controlled rollouts and targeting rules will appear here."/></div></>;}
+function Agent(){const [tab,setTab]=useState("Chat");return <><Header title="Agent" action={<button className="vc-btn primary" onClick={()=>toast.info("Start an approved investigation")}><Sparkles size={14}/> New task</button>}/><div className="vc-filterbar">{["Chat","Investigations","Tasks"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-card vc-agent"><Sparkles size={24}/><h2>USCS Agent</h2><p>Investigate deployments, logs, configuration and usage. Read-only by default; mutations require an explicit approval step and are audit logged.</p><button className="vc-btn primary" onClick={()=>toast.info("Agent is ready for connected project data")}>Start investigation</button></div></>;}
+function AIGateway(){return <><Header title="AI Gateway" action={<button className="vc-btn primary" onClick={()=>toast.info("Add AI provider") }><Plus size={14}/> Add Provider</button>}/><div className="vc-grid-3"><Stat label="Providers" value="0"/><Stat label="Requests" value="—"/><Stat label="Cost" value="—"/></div><div className="vc-card"><Empty title="No AI providers connected" body="Connect providers to configure routing, limits, usage and failover."/></div></>;}
+function Workflows(){return <><Header title="Workflows" action={<button className="vc-btn primary" onClick={()=>toast.info("Create workflow") }><Plus size={14}/> Create Workflow</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Runs</button><button>Schedules</button><button>Failures</button></div><div className="vc-card"><Empty title="No workflows" body="Background jobs and scheduled automation will appear here."/></div></>;}
+function Usage(){const [tab,setTab]=useState("Overview");return <><Header title="Usage" action={<button className="vc-btn" onClick={()=>toast.info("Export usage report")}>Export</button>}/><div className="vc-filterbar">{["Overview","Projects","Resources","History"].map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-grid-3"><Stat label="Current usage" value="—"/><Stat label="This period" value="$0"/><Stat label="Plan" value="Not configured"/></div><div className="vc-card"><Empty title="No billable activity" body="Usage and projected cost will appear after provider resources are connected."/></div></>;}
+function Support(){return <><Header title="Support"/><div className="vc-settings"><button onClick={()=>toast.info("Documentation")}><strong>Documentation</strong><small>Product guides and API reference</small></button><button onClick={()=>toast.info("System status")}><strong>System Status</strong><small>Service health and incidents</small></button><button onClick={()=>toast.info("Contact support")}><strong>Contact Support</strong><small>Open a support request</small></button></div></>;}
+function WorkspaceSettings(){const [tab,setTab]=useState("General");const tabs=["General","Security","Authentication","Members","API Keys","Connected Accounts","Notifications","Danger Zone"];return <><Header title="Settings"/><div className="vc-settings-tabs">{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</div><div className="vc-card vc-settings-editor"><h2>{tab}</h2><p>{tab==="Security"?"MFA, sessions, security policy and audit controls.":tab==="Authentication"?"OAuth providers and authentication policy.":tab==="Members"?"Workspace members, roles and permissions.":tab==="API Keys"?"Create, rotate and revoke programmatic access tokens.":tab==="Danger Zone"?"Destructive workspace actions require confirmation.":"Workspace identity and operational defaults."}</p><button className="vc-btn primary" onClick={()=>toast.info(tab+" configuration")}>Configure</button></div></>;}
+function ProjectSettings(){const [tab,setTab]=useState("General");return <div className="vc-settings-project"><nav>{projectSettings.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}<ChevronRight size={13}/></button>)}</nav><div className="vc-card vc-settings-editor"><div className="vc-crumb">Project Settings</div><h2>{tab}</h2><p>{tab==="Build & Deployment"?"Framework, root directory, Node.js version and build behavior.":tab==="Environment Variables"?"Environment-scoped configuration and sensitive variables.":tab==="Git"?"Repository connection, deploy hooks and Git options.":tab==="Deployment Protection"?"Authentication, password protection and preview access.":tab==="Functions"?"Runtime, memory, timeout and region defaults.":tab==="Cron Jobs"?"Scheduled jobs and execution settings.":tab==="Members"?"Project-level access and roles.":tab==="Webhooks"?"Project event webhooks and delivery.":tab==="Drains"?"External observability destinations.":tab==="Security"?"Attack protection, source protection and retention.":tab==="Advanced"?"Advanced project behavior and compatibility controls.":"Project identity and foundational configuration."}</p><div className="vc-settings-fields"><label>Name<input value="uscs" readOnly/></label><label>Status<input value="Configured by USCS" readOnly/></label></div><button className="vc-btn primary" onClick={()=>toast.info(tab+" settings")}>Save changes</button></div></div>;}
+function Simple({title,icon:Icon,text}:{title:string;icon:Icon;text:string}){return <><Header title={title}/><div className="vc-card"><Empty title={title+" is not configured"} body={text+" USCS will expose verified provider-backed state here."} action="Configure" onAction={()=>toast.info("Provider configuration")}/></div></>;}
+function GitHubMark(){return <span className="vc-gh">●</span>;}
