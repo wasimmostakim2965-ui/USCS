@@ -181,6 +181,47 @@ export const appRouter = router({
       }),
   }),
 
+  observability: router({
+    events: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid().optional(), category: z.enum(["log", "metric", "error", "request"]).optional() }).optional())
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+        if (membershipError) throw new Error(membershipError.message);
+        const ids = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+        if (!ids.length) return [];
+        let query = client.from("observability_events").select("id,organization_id,project_id,deployment_id,category,severity,message,route,status_code,latency_ms,metadata,occurred_at,created_at").in("organization_id", ids).order("occurred_at", { ascending: false }).limit(200);
+        if (input?.category) query = query.eq("category", input.category);
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+    alerts: router({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+        if (membershipError) throw new Error(membershipError.message);
+        const ids = (memberships ?? []).map(row => row.organization_id);
+        if (!ids.length) return [];
+        const { data, error } = await client.from("observability_alerts").select("id,organization_id,project_id,name,metric,threshold,enabled,state,last_triggered_at,created_by,created_at,updated_at").in("organization_id", ids).order("updated_at", { ascending: false }).limit(100);
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+      create: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), name: z.string().trim().min(1).max(120), metric: z.enum(["error_rate", "latency_p95", "request_rate", "uptime"]), threshold: z.number().finite().min(0) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client.from("observability_alerts").insert({ organization_id: input.organizationId, project_id: input.projectId ?? null, name: input.name, metric: input.metric, threshold: input.threshold, created_by: ctx.identity.supabaseId }).select("id,organization_id,project_id,name,metric,threshold,enabled,state,last_triggered_at,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "observability.alert.create", resource_type: "observability_alert", resource_id: data.id, metadata: { metric: input.metric, threshold: input.threshold } });
+          return data;
+        }),
+    }),
+  }),
+
   billing: router({
     status: protectedProcedure.query(() => getBillingAdapter().status()),
   }),
