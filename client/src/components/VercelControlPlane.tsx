@@ -12,7 +12,7 @@ import { trpc } from "@/lib/trpc";
 
 type Page =
   | "Overview" | "Projects" | "Deployments" | "Logs" | "Analytics" | "Speed Insights"
-  | "Observability" | "Firewall" | "CDN" | "Environment Variables" | "Domains"
+  | "Observability" | "Security" | "Firewall" | "CDN" | "Environment Variables" | "Domains"
   | "Connect" | "Integrations" | "Storage" | "Flags" | "Agent" | "AI Gateway"
   | "Sandboxes" | "Workflows" | "Images" | "Usage" | "Support" | "Settings";
 type Icon = typeof LayoutDashboard;
@@ -27,6 +27,7 @@ const nav: {label: Page; icon: Icon; children?: {label: string; page: Page}[]}[]
   {label:"Analytics",icon:BarChart3},
   {label:"Speed Insights",icon:Activity},
   {label:"Observability",icon:Eye,children:[{label:"Overview",page:"Observability"},{label:"Logs",page:"Logs"},{label:"Metrics",page:"Observability"},{label:"Errors",page:"Observability"},{label:"Requests",page:"Observability"}]},
+  {label:"Security",icon:LockKeyhole,children:[{label:"Overview",page:"Security"},{label:"Security Analytics",page:"Security"},{label:"Web Assets",page:"Security"},{label:"Security Rules",page:"Security"},{label:"WAF / Managed Rules",page:"Security"},{label:"DDoS Protection",page:"Security"},{label:"Bot Traffic",page:"Security"},{label:"API Shield",page:"Security"},{label:"Client-side Security",page:"Security"},{label:"SSL / TLS",page:"Security"},{label:"DNSSEC",page:"Security"},{label:"Security Insights",page:"Security"}]},
   {label:"Firewall",icon:ShieldCheck,children:[{label:"Overview",page:"Firewall"},{label:"Rules",page:"Firewall"},{label:"Rate Limiting",page:"Firewall"},{label:"Bot Protection",page:"Firewall"},{label:"DDoS Protection",page:"Firewall"}]},
   {label:"CDN",icon:Network,children:[{label:"Overview",page:"CDN"},{label:"Caches",page:"CDN"},{label:"Routing",page:"CDN"}]},
   {label:"Environment Variables",icon:KeyRound},
@@ -87,6 +88,7 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
     : page==="Analytics" ? <Analytics title="Analytics"/>
     : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
     : page==="Observability" ? <Observability/>
+    : page==="Security" ? <SecurityCenter/>
     : page==="Firewall" ? <Firewall/>
     : page==="CDN" ? <CDN/>
     : page==="Environment Variables" ? <EnvVars/>
@@ -267,4 +269,46 @@ function AccountCenter({panel,onClose,user}:{panel:"account"|"api"|"settings";on
       </div>}
     </section>
   </div>;
+}
+
+function SecurityCenter() {
+  const sections = [
+    ["Overview","Security posture, action items and protection boundary."],
+    ["Security Analytics","Incoming requests, mitigated traffic and security events."],
+    ["Web Assets","Discover hostnames and API assets that need protection."],
+    ["Security Rules","Ordered custom rules, rate limits, API sequence rules and managed-rule exceptions."],
+    ["WAF / Managed Rules","OWASP and managed protections for web application exploits."],
+    ["DDoS Protection","HTTP and network-layer mitigation controls and overrides."],
+    ["Bot Traffic","Bot Fight, AI bot controls, automation detection and sequence analytics."],
+    ["API Shield","API discovery, schema validation, JWT validation, mTLS and abuse detection."],
+    ["Client-side Security","Script monitoring, email obfuscation and hotlink protection."],
+    ["SSL / TLS","Encryption mode, certificates, client certificates and transport security."],
+    ["DNSSEC","Signed DNS delegation and verification state."],
+    ["Security Insights","Configuration scans, exposed infrastructure and actionable findings."],
+  ];
+  const [active,setActive]=useState("Overview");
+  const activeDescription=sections.find(([name])=>name===active)?.[1] ?? "";
+  const cards = active==="Overview"
+    ? [["Protection boundary","Origin shielding, WAF, DDoS and access controls","Not connected"],["Traffic protection","Security events and mitigations","No provider data"],["Configuration posture","DNS, TLS and security configuration","Not assessed"],["Action items","Misconfiguration and suspicious-activity findings","No scan yet"]]
+    : active==="Security Rules"
+      ? [["Custom rules","Filter incoming requests and choose Allow, Block, Challenge or managed actions","Provider required"],["Rate limiting","Protect authentication and sensitive API endpoints","Provider required"],["API sequence rules","Detect abusive request sequences","Provider required"],["Managed-rule exceptions","Tune managed WAF protections without disabling the whole ruleset","Provider required"]]
+      : active==="API Shield"
+        ? [["API discovery","Inventory API endpoints and web assets","Provider required"],["Schema governance","Learn or upload OpenAPI schemas and validate requests","Provider required"],["Authentication posture","JWT validation, mTLS and token configuration","Provider required"],["Abuse detection","Volumetric abuse, BOLA and sequence protections","Provider required"]]
+        : active==="Bot Traffic"
+          ? [["Bot controls","Block or challenge automated traffic","Provider required"],["AI bots","Control AI crawler traffic and robots instructions","Provider required"],["Sequence detection","Detect suspicious request sequences by session","Provider required"],["Bot analytics","Inspect automation traffic and mitigation outcomes","No provider data"]]
+          : active==="SSL / TLS"
+            ? [["Encryption","TLS mode and origin encryption boundary","Provider required"],["Certificates","Managed certificates and lifecycle","Provider required"],["Client certificates","Mutual TLS trust configuration","Provider required"],["Transport controls","HSTS and related security headers","Provider required"]]
+            : active==="DNSSEC"
+              ? [["Signing status","Zone signing and delegation state","Not assessed"],["DS record","Registrar delegation data","Not available"],["Nameservers","Authoritative nameserver assignment","Not connected"],["Validation","DNSSEC verification and failure state","Not assessed"]]
+              : [["Configuration",active+" controls and current state","Provider required"],["Detection","Security signals and findings","No provider data"],["Mitigation","Actions, policies and enforcement","Provider required"],["Audit","Actor, timestamp, resource and change history","Ready for audit backend"]];
+  return <><Header title="Security" crumb={"Security / "+active} action={<div className="vc-actions"><Status>Provider not connected</Status><button className="vc-btn primary" onClick={()=>toast.info("Connect Cloudflare or another edge security provider to activate these controls.")}>Connect Provider</button></div>}/>
+    <div className="vc-security-layout">
+      <aside className="vc-security-nav">{sections.map(([name])=><button key={name} className={active===name?"active":""} onClick={()=>setActive(name)}>{name}<ChevronRight size={12}/></button>)}</aside>
+      <section>
+        <div className="vc-security-intro"><span className="vc-eyebrow">Protection control plane</span><h2>{active}</h2><p>{activeDescription}</p></div>
+        <div className="vc-security-grid">{cards.map(([title,desc,status])=><div className="vc-security-card" key={title}><div className="vc-security-card-icon"><ShieldCheck size={16}/></div><div><strong>{title}</strong><p>{desc}</p><Status>{status}</Status></div><ChevronRight size={14}/></div>)}</div>
+        <div className="vc-card vc-security-notice"><ShieldCheck size={17}/><div><strong>Evidence-based state</strong><p>USCS does not invent security scores or pretend a control is active. Once a provider is connected, this surface will show verified configuration, events and audit history.</p></div></div>
+      </section>
+    </div>
+  </>;
 }
