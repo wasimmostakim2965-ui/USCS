@@ -1,4 +1,4 @@
-import { startLogin } from "@/const";
+import { startLogin } from "@/lib/supabase";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo, useState } from "react";

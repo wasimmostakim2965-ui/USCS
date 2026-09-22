@@ -70,6 +70,10 @@ export async function signInWithProvider(provider: SupabaseProvider) {
   });
 }
 
+export function startLogin() {
+  void signInWithProvider("google");
+}
+
 export async function getSupabaseSession() {
   return supabase?.auth.getSession() ?? { data: { session: null }, error: null };
 }
