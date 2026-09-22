@@ -9,6 +9,7 @@ import { getHostingAdapter, type DeploymentEnvironment } from "./adapters/hostin
 import { getDatabaseAdapter, getStorageAdapter } from "./adapters/data";
 import { getDomainResellerAdapter } from "./adapters/domainReseller";
 import { resolveSecurityPolicy } from "./securityPolicy";
+import { getBillingAdapter } from "./adapters/billing";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -34,6 +35,10 @@ export const appRouter = router({
     previewPolicy: protectedProcedure
       .input(z.object({ level: z.enum(["none", "normal", "high", "ultimate"]) }))
       .query(({ input }) => ({ status: "ready" as const, config: resolveSecurityPolicy(input.level) })),
+  }),
+
+  billing: router({
+    status: protectedProcedure.query(() => getBillingAdapter().status()),
   }),
 
   workspace: router({
