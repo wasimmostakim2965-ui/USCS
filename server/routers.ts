@@ -11,6 +11,7 @@ import { getDomainResellerAdapter } from "./adapters/domainReseller";
 import { resolveSecurityPolicy } from "./securityPolicy";
 import { getBillingAdapter } from "./adapters/billing";
 import { getSecurityEdgeAdapter } from "./adapters/securityEdge";
+import { getPlatformAdapters } from "./adapters/platform";
 import type { SecurityLevel } from "./securityPolicy";
 
 export const appRouter = router({
@@ -93,8 +94,9 @@ export const appRouter = router({
           if (!domain) throw new Error("Domain not found");
           const { data, error } = await client.from("dns_records").insert({ organization_id: domain.organization_id, domain_id: input.domainId, record_type: input.recordType, name: input.name, value: input.value, ttl: input.ttl, priority: input.priority ?? null, created_by: ctx.identity.supabaseId }).select("id,organization_id,domain_id,record_type,name,value,ttl,priority,created_by,created_at,updated_at").single();
           if (error) throw new Error(error.message);
-          await client.from("audit_logs").insert({ organization_id: domain.organization_id, actor_id: ctx.identity.supabaseId, action: "dns_record.create", resource_type: "dns_record", resource_id: data.id, metadata: { domainId: input.domainId, recordType: input.recordType, name: input.name } });
-          return { configured: false as const, reason: "DNS record saved locally. A DNS adapter is required to publish it.", record: data };
+          const provider = await getPlatformAdapters().dns.applyRecords({ domainId: input.domainId, records: [{ type: input.recordType, name: input.name, value: input.value, ttl: input.ttl }] });
+          await client.from("audit_logs").insert({ organization_id: domain.organization_id, actor_id: ctx.identity.supabaseId, action: "dns_record.create", resource_type: "dns_record", resource_id: data.id, metadata: { domainId: input.domainId, recordType: input.recordType, name: input.name, adapterStatus: provider.status } });
+          return { configured: provider.status === "ready" as const, reason: provider.message, record: data };
         }),
       delete: protectedProcedure
         .input(z.object({ id: z.string().uuid() }))
