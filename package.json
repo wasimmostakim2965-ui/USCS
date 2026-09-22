@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify": "pnpm build && pnpm check && pnpm test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
