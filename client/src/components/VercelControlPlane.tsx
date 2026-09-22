@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useState, type ReactNode } from "react";
+import "@/styles/control-plane.css";
 import {
   Activity, AlertTriangle, BarChart3, Bell, Box, ChevronDown, ChevronRight, CircleHelp,
   Cloud, Code2, Database, ExternalLink, FileCode2, FolderGit2, Globe2, HardDrive,
@@ -30,7 +31,7 @@ const utilityNav = [
   { label: "Settings", icon: Settings2 },
 ];
 
-function Status({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "good" | "warn" }) {
+function Status({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "good" | "warn" }) {
   return <span className={`cp-status cp-status-${tone}`}><i />{children}</span>;
 }
 
@@ -144,7 +145,7 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
   </div>;
 }
 
-function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
+function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
   return <div className="cp-page-header"><div><div className="cp-eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
 }
 
