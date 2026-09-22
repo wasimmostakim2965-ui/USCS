@@ -1,4 +1,4 @@
-import { useAuth } from "@/../_core/hooks/useAuth";
+import { useAuth } from "@/_core/hooks/useAuth";
 import VercelControlPlane from "@/components/VercelControlPlane";
 
 export default function DashboardHome() {
