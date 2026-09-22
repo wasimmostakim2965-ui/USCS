@@ -8,6 +8,7 @@ import {
   Settings2, ShieldCheck, Sparkles, Store, TerminalSquare, Users, Workflow, X, Zap
 } from "lucide-react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 type Page =
   | "Overview" | "Projects" | "Deployments" | "Logs" | "Analytics" | "Speed Insights"
@@ -70,6 +71,7 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
   const [search,setSearch]=useState("");
   const [openGroups,setOpenGroups]=useState<string[]>([]);
   const [accountOpen,setAccountOpen]=useState(false);
+  const [accountPanel,setAccountPanel]=useState<"account"|"api"|"settings"|null>(null);
   const initials=(user?.name||"U").trim().slice(0,1).toUpperCase();
 
   const go=(p:Page)=>{setPage(p);setProject(false);setDeploymentOpen(false);setMobile(false);window.scrollTo({top:0});};
@@ -126,9 +128,9 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
       <div className="vc-account-wrap">
         <button className="vc-account" onClick={()=>setAccountOpen(v=>!v)}><span>{initials}</span><div><strong>{user?.name||"Account"}</strong><small>Account menu</small></div><MoreHorizontal size={15}/></button>
         {accountOpen&&<div className="vc-account-menu">
-          <button onClick={()=>toast.info("Account profile")}>Account</button>
-          <button onClick={()=>toast.info("API token management")}>API Tokens</button>
-          <button onClick={()=>toast.info("Account settings")}>Account Settings</button>
+          <button onClick={()=>{setAccountPanel("account");setAccountOpen(false)}}>Account</button>
+          <button onClick={()=>{setAccountPanel("api");setAccountOpen(false)}}>API Tokens</button>
+          <button onClick={()=>{setAccountPanel("settings");setAccountOpen(false)}}>Account Settings</button>
           <button onClick={logout}>Sign out</button>
         </div>}
       </div>
@@ -141,7 +143,7 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
       </header>
       <div className="vc-content">{content}</div>
     </main>
-  </div>;
+    {accountPanel&&<AccountCenter panel={accountPanel} onClose={()=>setAccountPanel(null)} user={user}/>}\n  </div>;
 }
 
 function Overview({onProjects,onOpenProject}:{onProjects:()=>void;onOpenProject:()=>void}) {
@@ -207,3 +209,62 @@ function WorkspaceSettings(){const [tab,setTab]=useState("General");const tabs=[
 function ProjectSettings(){const [tab,setTab]=useState("General");return <div className="vc-settings-project"><nav>{projectSettings.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}<ChevronRight size={13}/></button>)}</nav><div className="vc-card vc-settings-editor"><div className="vc-crumb">Project Settings</div><h2>{tab}</h2><p>{tab==="Build & Deployment"?"Framework, root directory, Node.js version and build behavior.":tab==="Environment Variables"?"Environment-scoped configuration and sensitive variables.":tab==="Git"?"Repository connection, deploy hooks and Git options.":tab==="Deployment Protection"?"Authentication, password protection and preview access.":tab==="Functions"?"Runtime, memory, timeout and region defaults.":tab==="Cron Jobs"?"Scheduled jobs and execution settings.":tab==="Members"?"Project-level access and roles.":tab==="Webhooks"?"Project event webhooks and delivery.":tab==="Drains"?"External observability destinations.":tab==="Security"?"Attack protection, source protection and retention.":tab==="Advanced"?"Advanced project behavior and compatibility controls.":"Project identity and foundational configuration."}</p><div className="vc-settings-fields"><label>Name<input value="uscs" readOnly/></label><label>Status<input value="Configured by USCS" readOnly/></label></div><button className="vc-btn primary" onClick={()=>toast.info(tab+" settings")}>Save changes</button></div></div>;}
 function Simple({title,icon:Icon,text}:{title:string;icon:Icon;text:string}){return <><Header title={title}/><div className="vc-card"><Empty title={title+" is not configured"} body={text+" USCS will expose verified provider-backed state here."} action="Configure" onAction={()=>toast.info("Provider configuration")}/></div></>;}
 function GitHubMark(){return <span className="vc-gh">●</span>;}
+
+
+function AccountCenter({panel,onClose,user}:{panel:"account"|"api"|"settings";onClose:()=>void;user:{id?:string|null;name?:string|null;email?:string|null;loginMethod?:string|null;role?:string|null}|null}) {
+  const accountQuery = trpc.account.me.useQuery(undefined, { retry: false });
+  const keysQuery = trpc.account.apiKeys.list.useQuery(undefined, { enabled: panel === "api", retry: false });
+  const createKey = trpc.account.apiKeys.create.useMutation({
+    onSuccess: ({ key }) => {
+      void keysQuery.refetch();
+      window.prompt("Copy this API key now. It will not be shown again.", key);
+      toast.success("API key created");
+    },
+    onError: e => toast.error(e.message),
+  });
+  const revokeKey = trpc.account.apiKeys.revoke.useMutation({
+    onSuccess: () => { void keysQuery.refetch(); toast.success("API key revoked"); },
+    onError: e => toast.error(e.message),
+  });
+  const [name,setName]=useState("");
+  const identity=accountQuery.data ?? user;
+  const title=panel==="account"?"Account":panel==="api"?"API keys":"Account settings";
+
+  return <div className="vc-account-overlay" onMouseDown={onClose}>
+    <section className="vc-account-center" onMouseDown={e=>e.stopPropagation()}>
+      <header className="vc-account-center-head">
+        <div><div className="vc-crumb">Workspace / Account</div><h2>{title}</h2></div>
+        <button className="vc-icon-btn" onClick={onClose}><X size={16}/></button>
+      </header>
+
+      {panel==="account"&&<div className="vc-account-center-body">
+        <div className="vc-account-hero"><span className="vc-account-large-avatar">{(identity?.name||"U").slice(0,1).toUpperCase()}</span><div><h3>{identity?.name||"Account"}</h3><p>{identity?.email||"Email unavailable"}</p></div></div>
+        <div className="vc-account-grid">
+          <div><small>Email</small><strong>{identity?.email||"—"}</strong></div>
+          <div><small>Authentication</small><strong>{identity?.loginMethod||"—"}</strong></div>
+          <div><small>Role</small><strong>{identity?.role||"user"}</strong></div>
+          <div><small>Account ID</small><strong className="vc-mono">{identity?.id||"—"}</strong></div>
+        </div>
+        <div className="vc-account-section"><span className="vc-eyebrow">Account security</span><h3>Authentication & sessions</h3><p>Identity is verified by Supabase Auth. Session enforcement and provider configuration stay in the security settings.</p><button className="vc-btn" onClick={()=>toast.info("Open Settings → Authentication")}>Open authentication settings</button></div>
+      </div>}
+
+      {panel==="api"&&<div className="vc-account-center-body">
+        <div className="vc-api-intro"><div><span className="vc-eyebrow">Developer access</span><h3>API keys</h3><p>Create scoped credentials for programmatic access. USCS stores only a SHA-256 hash, never the plaintext key.</p></div><div className="vc-api-create"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Key name, e.g. CI deploy"/><button className="vc-btn primary" disabled={createKey.isPending||!name.trim()} onClick={()=>createKey.mutate({name:name.trim()})}><Plus size={14}/> Create key</button></div></div>
+        <div className="vc-api-list">
+          {keysQuery.isLoading&&<div className="vc-api-empty">Loading API keys…</div>}
+          {!keysQuery.isLoading&&(!keysQuery.data||keysQuery.data.length===0)&&<div className="vc-api-empty"><KeyRound size={20}/><strong>No API keys</strong><span>Create one for CLI, CI/CD or server-to-server access.</span></div>}
+          {keysQuery.data?.map(k=><div className="vc-api-row" key={k.id}><KeyRound size={15}/><div><strong>{k.name}</strong><small>{k.key_prefix}•••• · created {new Date(k.created_at).toLocaleDateString()}</small></div><Status good={!k.revoked_at}>{k.revoked_at?"Revoked":"Active"}</Status><button className="vc-icon-btn" disabled={Boolean(k.revoked_at)||revokeKey.isPending} onClick={()=>revokeKey.mutate({id:k.id})}><MoreHorizontal size={15}/></button></div>)}
+        </div>
+      </div>}
+
+      {panel==="settings"&&<div className="vc-account-center-body">
+        <div className="vc-account-settings-list">
+          <button onClick={()=>toast.info("Profile editing is next in the account backend")}><span><strong>Profile</strong><small>Name, avatar and account identity</small></span><ChevronRight size={15}/></button>
+          <button onClick={()=>toast.info("Authentication settings") }><span><strong>Authentication</strong><small>OAuth providers, sessions and sign-in policy</small></span><ChevronRight size={15}/></button>
+          <button onClick={()=>toast.info("Security settings") }><span><strong>Security</strong><small>MFA, session protection and recovery</small></span><ChevronRight size={15}/></button>
+          <button onClick={()=>toast.info("Notifications settings") }><span><strong>Notifications</strong><small>Security, deployment and product alerts</small></span><ChevronRight size={15}/></button>
+        </div>
+      </div>}
+    </section>
+  </div>;
+}
