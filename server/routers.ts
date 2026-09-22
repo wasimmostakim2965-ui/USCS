@@ -20,6 +20,93 @@ export const appRouter = router({
     }),
   }),
 
+  workspace: router({
+    organizations: protectedProcedure.query(async ({ ctx }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client
+        .from("organization_members")
+        .select("organization_id,role")
+        .eq("user_id", ctx.identity.supabaseId);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(m => m.organization_id);
+      if (!ids.length) return [];
+      const { data, error } = await client
+        .from("organizations")
+        .select("id,name,slug,created_by,created_at,updated_at")
+        .in("id", ids)
+        .order("created_at", { ascending: true });
+      if (error) throw new Error(error.message);
+      return (data ?? []).map(org => ({
+        ...org,
+        role: memberships?.find(m => m.organization_id === org.id)?.role ?? "member",
+      }));
+    }),
+    projects: router({
+      list: protectedProcedure.query(async ({ ctx }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client
+          .from("organization_members")
+          .select("organization_id")
+          .eq("user_id", ctx.identity.supabaseId);
+        if (membershipError) throw new Error(membershipError.message);
+        const ids = (memberships ?? []).map(m => m.organization_id);
+        if (!ids.length) return [];
+        const { data, error } = await client
+          .from("projects")
+          .select("id,organization_id,name,slug,created_by,created_at,updated_at")
+          .in("organization_id", ids)
+          .order("updated_at", { ascending: false });
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+      create: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), name: z.string().trim().min(1).max(120) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const slugBase = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 55) || "project";
+          const slug = slugBase + "-" + randomBytes(3).toString("hex");
+          const { data, error } = await client
+            .from("projects")
+            .insert({ organization_id: input.organizationId, name: input.name, slug, created_by: ctx.identity.supabaseId })
+            .select("id,organization_id,name,slug,created_by,created_at,updated_at")
+            .single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({
+            organization_id: input.organizationId,
+            actor_id: ctx.identity.supabaseId,
+            action: "project.created",
+            resource_type: "project",
+            resource_id: data.id,
+            metadata: { name: data.name, slug: data.slug },
+          });
+          return data;
+        }),
+    }),
+    audit: protectedProcedure.query(async ({ ctx }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", ctx.identity.supabaseId)
+        .in("role", ["owner","admin","security"]);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(m => m.organization_id);
+      if (!ids.length) return [];
+      const { data, error } = await client
+        .from("audit_logs")
+        .select("id,organization_id,actor_id,action,resource_type,resource_id,result,metadata,created_at")
+        .in("organization_id", ids)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+  }),
+
   account: router({
     me: protectedProcedure.query(({ ctx }) => ({
       id: ctx.identity?.supabaseId ?? ctx.user?.openId ?? null,
