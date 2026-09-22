@@ -347,6 +347,43 @@ export const appRouter = router({
 
   billing: router({
     status: protectedProcedure.query(() => getBillingAdapter().status()),
+    usage: protectedProcedure.input(z.object({ organizationId: z.string().uuid().optional() }).optional()).query(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+      if (!ids.length) return [];
+      const { data, error } = await client.from("billing_usage").select("id,organization_id,period_start,period_end,deploy_minutes,storage_gb,bandwidth_gb,estimated_amount,source,created_at").in("organization_id", ids).order("period_end", { ascending: false }).limit(24);
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+    invoices: protectedProcedure.input(z.object({ organizationId: z.string().uuid().optional() }).optional()).query(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+      if (!ids.length) return [];
+      const { data, error } = await client.from("billing_invoices").select("id,organization_id,invoice_ref,status,amount,currency,issued_at,due_at,created_at").in("organization_id", ids).order("created_at", { ascending: false }).limit(50);
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+    paymentMethods: protectedProcedure.input(z.object({ organizationId: z.string().uuid() })).query(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data, error } = await client.from("billing_payment_methods").select("id,organization_id,provider,brand,last4,status,created_at").eq("organization_id", input.organizationId).order("created_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+    checkout: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), customerEmail: z.string().email(), successUrl: z.string().url(), cancelUrl: z.string().url() })).mutation(async ({ ctx, input }) => {
+      const result = await getBillingAdapter().createCheckoutSession(input);
+      if (!result.configured && ctx.identity?.supabaseId) {
+        const client = getSupabaseUserClient(ctx.req);
+        await client?.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "billing.checkout.request", resource_type: "billing", result: "failure", metadata: { reason: result.reason } });
+      }
+      return result;
+    }),
   }),
 
   workspace: router({
