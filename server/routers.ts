@@ -501,7 +501,7 @@ export const appRouter = router({
         return data;
       }),
     }),
-    audit: protectedProcedure.query(async ({ ctx }) => {
+    audit: protectedProcedure.input(z.object({ organizationId: z.string().uuid().optional(), action: z.string().trim().max(120).optional(), result: z.enum(["success", "failure"]).optional(), limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).default(0) }).optional()).query(async ({ ctx, input }) => {
       const client = getSupabaseUserClient(ctx.req);
       if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
       const { data: memberships, error: membershipError } = await client
@@ -510,14 +510,17 @@ export const appRouter = router({
         .eq("user_id", ctx.identity.supabaseId)
         .in("role", ["owner","admin","security"]);
       if (membershipError) throw new Error(membershipError.message);
-      const ids = (memberships ?? []).map(m => m.organization_id);
+      const ids = (memberships ?? []).map(m => m.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
       if (!ids.length) return [];
-      const { data, error } = await client
+      let query = client
         .from("audit_logs")
         .select("id,organization_id,actor_id,action,resource_type,resource_id,result,metadata,created_at")
         .in("organization_id", ids)
         .order("created_at", { ascending: false })
-        .limit(100);
+        .range(input?.offset ?? 0, (input?.offset ?? 0) + (input?.limit ?? 50) - 1);
+      if (input?.action) query = query.ilike("action", `%${input.action}%`);
+      if (input?.result) query = query.eq("result", input.result);
+      const { data, error } = await query;
       if (error) throw new Error(error.message);
       return data ?? [];
     }),

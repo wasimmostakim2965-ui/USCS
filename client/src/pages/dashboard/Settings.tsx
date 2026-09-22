@@ -42,6 +42,17 @@ function NotificationPanel({ organizationId }: { organizationId: string }) {
 }
 
 function AuditPanel() {
-  const audit = trpc.workspace.audit.useQuery(undefined, { retry: false });
-  return <div className="vc-card"><span className="vc-eyebrow">Governance</span><h3>Audit log</h3>{audit.data?.length ? audit.data.map(event => <div className="vc-list-row" key={event.id}><ClipboardList size={16} /><span><strong>{event.action}</strong><small>{event.resource_type || "workspace"} · {new Date(event.created_at).toLocaleString()}</small></span><Status good={event.result === "success"}>{event.result}</Status></div>) : <Empty title="No audit events" body="Administrative actions will appear here for authorized workspace roles." />}</div>;
+  const [action, setAction] = useState("");
+  const [result, setResult] = useState<"success" | "failure" | "all">("all");
+  const [offset, setOffset] = useState(0);
+  const limit = 50;
+  const audit = trpc.workspace.audit.useQuery({ action: action.trim() || undefined, result: result === "all" ? undefined : result, limit, offset }, { retry: false });
+  const events = audit.data ?? [];
+  const exportCsv = () => {
+    const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const csv = ["created_at,action,result,resource_type,resource_id", ...events.map(event => [event.created_at, event.action, event.result, event.resource_type, event.resource_id].map(escape).join(","))].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a"); link.href = url; link.download = "cloud-wai-audit-log.csv"; link.click(); URL.revokeObjectURL(url);
+  };
+  return <div className="vc-card"><div className="vc-card-heading"><div><span className="vc-eyebrow">Governance</span><h3>Audit log</h3></div><button className="vc-btn" disabled={!events.length} onClick={exportCsv}>Export CSV</button></div><div className="vc-form-grid"><label>Search action<input value={action} onChange={event => { setAction(event.target.value); setOffset(0); }} placeholder="deployment.rollback" /></label><label>Result<select value={result} onChange={event => { setResult(event.target.value as typeof result); setOffset(0); }}><option value="all">All results</option><option value="success">Success</option><option value="failure">Failure</option></select></label></div>{events.length ? events.map(event => <div className="vc-list-row" key={event.id}><ClipboardList size={16} /><span><strong>{event.action}</strong><small>{event.resource_type || "workspace"} · {new Date(event.created_at).toLocaleString()}</small></span><Status good={event.result === "success"}>{event.result}</Status></div>) : <Empty title="No audit events" body="Administrative actions will appear here for authorized workspace roles." />}<div className="vc-card-heading"><span className="vc-eyebrow">Showing {offset + 1}–{offset + events.length}</span><div><button className="vc-btn" disabled={offset === 0 || audit.isFetching} onClick={() => setOffset(value => Math.max(0, value - limit))}>Previous</button><button className="vc-btn" disabled={events.length < limit || audit.isFetching} onClick={() => setOffset(value => value + limit)}>Next</button></div></div></div>;
 }
