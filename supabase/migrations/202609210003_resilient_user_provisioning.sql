@@ -64,7 +64,7 @@ begin
 exception when others then
   -- Auth must remain successful even if a tenant-side object is temporarily
   -- unavailable. The authenticated client can retry this function after login.
-  raise warning 'USCS user provisioning deferred for %: %', target_user_id, sqlerrm;
+  raise warning 'Cloud Wai user provisioning deferred for %: %', target_user_id, sqlerrm;
 end;
 $$;
 
