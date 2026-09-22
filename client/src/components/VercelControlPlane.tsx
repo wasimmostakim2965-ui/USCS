@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import "@/styles/control-plane.css";
 import {
   Activity, BarChart3, Bell, Bot, Box, ChevronDown, ChevronRight, CircleHelp,
@@ -46,6 +47,14 @@ const nav: {label: Page; icon: Icon; children?: {label: string; page: Page}[]}[]
 
 const projectSettings = ["General","Build & Deployment","Environment Variables","Git","Integrations","Deployment Protection","Functions","Cron Jobs","Members","Webhooks","Drains","Security","Advanced"];
 
+const pageSlug = (page: Page) => page.toLowerCase().replace(/\s+/g, "-").replace(/\//g, "-");
+const pageFromSlug = (slug: string | undefined): Page => {
+  if (slug === "data") return "Storage";
+  if (slug === "developer") return "Connect";
+  const match = nav.flatMap(item => [item, ...(item.children ?? [])]).find(item => pageSlug(item.label as Page) === slug || ("page" in item && pageSlug(item.page) === slug));
+  return (match && ("page" in match ? match.page : match.label)) || "Overview";
+};
+
 function Status({children,good=false}:{children:ReactNode;good?:boolean}) {
   return <span className={`vc-status ${good?"good":""}`}><i/>{children}</span>;
 }
@@ -62,11 +71,9 @@ function Stat({label,value}:{label:string;value:string}) { return <div className
 function Meta({k,v,good}:{k:string;v:string;good?:boolean}) { return <div className="vc-meta"><small>{k}</small><strong className={good?"green":""}>{v}</strong></div>; }
 
 export default function VercelControlPlane({user,logout}:{user:{id?:string|null;name?:string|null;email?:string|null;loginMethod?:string|null;role?:string|null}|null;logout:()=>void}) {
-  const [page,setPage]=useState<Page>("Overview");
-  const [project,setProject]=useState(false);
+  const [location, setLocation] = useLocation();
   const [projectTab,setProjectTab]=useState<ProjectTab>("Overview");
   const [deploymentTab,setDeploymentTab]=useState<DeploymentTab>("Deployment");
-  const [deploymentOpen,setDeploymentOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(false);
   const [mobile,setMobile]=useState(false);
   const [search,setSearch]=useState("");
@@ -75,15 +82,19 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
   const [accountPanel,setAccountPanel]=useState<"account"|"api"|"settings"|null>(null);
   const initials=(user?.name||"U").trim().slice(0,1).toUpperCase();
 
-  const go=(p:Page)=>{setPage(p);setProject(false);setDeploymentOpen(false);setMobile(false);window.scrollTo({top:0});};
-  const openProject=()=>{setProject(true);setProjectTab("Overview");setDeploymentOpen(false);setMobile(false);};
+  const routeParts = location.replace(/^\/dashboard\/?/, "").split("/").filter(Boolean);
+  const page = pageFromSlug(routeParts[0]);
+  const project = page === "Projects" && routeParts.length > 1;
+  const deploymentOpen = page === "Deployments" && routeParts.length > 1;
+  const go=(p:Page)=>{setLocation(`/dashboard/${pageSlug(p)}`);setMobile(false);window.scrollTo({top:0});};
+  const openProject=(id?:string)=>{setLocation(`/dashboard/projects/${id ?? "new"}`);setProjectTab("Overview");setMobile(false);};
   const toggleGroup=(label:string)=>setOpenGroups(v=>v.includes(label)?v.filter(x=>x!==label):[...v,label]);
 
   const content = project
-    ? <ProjectView tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} deploymentOpen={deploymentOpen} setDeploymentOpen={setDeploymentOpen}/>
+    ? <ProjectView tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} deploymentOpen={deploymentOpen} setDeploymentOpen={(open)=>open?setLocation("/dashboard/projects/current/deployments/current"):setLocation("/dashboard/projects/current")}/>
     : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onOpenProject={openProject}/>
     : page==="Projects" ? <Projects onOpen={openProject}/>
-    : page==="Deployments" ? (deploymentOpen?<GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>setDeploymentOpen(false)}/>:<Deployments onOpen={()=>{setDeploymentTab("Deployment");setDeploymentOpen(true)}}/>)
+    : page==="Deployments" ? (deploymentOpen?<GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>go("Deployments")}/>:<Deployments onOpen={()=>{setDeploymentTab("Deployment");setLocation("/dashboard/deployments/current")}}/>)
     : page==="Logs" ? <Logs/>
     : page==="Analytics" ? <Analytics title="Analytics"/>
     : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
@@ -117,7 +128,7 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
       <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>Ctrl K</kbd></div>
       <div className="vc-nav">
         {nav.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,children})=><div key={label}>
-          <button className={`vc-nav-item ${page===label&&!project?"active":""}`} onClick={()=>children?toggleGroup(label):go(label)}>
+          <button className={`vc-nav-item ${page===label?"active":""}`} onClick={()=>children?toggleGroup(label):go(label)}>
             <Icon size={15}/><span>{label}</span>{children&&<ChevronRight className="vc-nav-chevron" size={13} style={{transform:openGroups.includes(label)?"rotate(90deg)":undefined}}/>}
           </button>
           {children&&openGroups.includes(label)&&<div className="vc-subnav">{children.map(c=><button key={c.label} onClick={()=>go(c.page)}>{c.label}<ChevronRight size={11}/></button>)}</div>}

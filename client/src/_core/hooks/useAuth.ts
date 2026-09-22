@@ -3,19 +3,11 @@ import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { getSupabaseSession, supabase, subscribeToSupabaseAuth } from "@/lib/supabase";
+import { getSupabaseSession, supabase, subscribeToSupabaseAuth, type BrowserAuthUser } from "@/lib/supabase";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
   redirectPath?: string;
-};
-
-type BrowserAuthUser = {
-  id: string;
-  name: string | null;
-  email: string | null;
-  loginMethod: string;
-  role: "user";
 };
 
 function browserUserFromSession(session: Session | null): BrowserAuthUser | null {

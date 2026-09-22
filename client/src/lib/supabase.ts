@@ -34,6 +34,14 @@ export const supabase: SupabaseClient | null = isSupabaseAuthConfigured
 
 export type SupabaseProvider = "google" | "github" | "gitlab";
 
+export type BrowserAuthUser = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  loginMethod: string;
+  role: "user";
+};
+
 export function getAuthRedirectUrl() {
   const configured = import.meta.env.VITE_SUPABASE_AUTH_REDIRECT_URL as string | undefined;
   if (configured) {

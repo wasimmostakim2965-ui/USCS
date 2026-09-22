@@ -109,11 +109,11 @@ export const appRouter = router({
 
   account: router({
     me: protectedProcedure.query(({ ctx }) => ({
-      id: ctx.identity?.supabaseId ?? ctx.user?.openId ?? null,
-      name: ctx.identity?.name ?? ctx.user?.name ?? null,
-      email: ctx.identity?.email ?? ctx.user?.email ?? null,
-      loginMethod: ctx.identity?.loginMethod ?? ctx.user?.loginMethod ?? "unknown",
-      role: ctx.identity?.role ?? ctx.user?.role ?? "user",
+      id: ctx.identity?.supabaseId ?? null,
+      name: ctx.identity?.name ?? null,
+      email: ctx.identity?.email ?? null,
+      loginMethod: ctx.identity?.loginMethod ?? "unknown",
+      role: ctx.identity?.role ?? "user",
     })),
     apiKeys: router({
       list: protectedProcedure.query(async ({ ctx }) => {

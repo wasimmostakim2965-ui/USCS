@@ -7,12 +7,26 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { AuthCallback } from "./pages/Home";
 
+const dashboardRoutes = [
+  "/dashboard/overview",
+  "/dashboard/projects",
+  "/dashboard/deployments",
+  "/dashboard/domains",
+  "/dashboard/data",
+  "/dashboard/security",
+  "/dashboard/observability",
+  "/dashboard/developer",
+  "/dashboard/settings",
+] as const;
+
 function Router() {
   return (
     <Switch>
       <Route path={"/auth/callback"} component={AuthCallback} />
       <Route path={"/"} component={Home} />
       <Route path={"/dashboard"} component={DashboardHome} />
+      {dashboardRoutes.map(path => <Route key={path} path={path} component={DashboardHome} />)}
+      <Route path={"/dashboard/:rest*"} component={DashboardHome} />
       <Route path={"/404"} component={NotFound} />
       <Route component={NotFound} />
     </Switch>
