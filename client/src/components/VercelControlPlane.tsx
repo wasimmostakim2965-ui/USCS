@@ -71,7 +71,7 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
     ? <ProjectView project={project} tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>
     : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onDeployments={()=>go("Deployments")}/>
     : page==="Projects" ? <Projects onOpen={openProject}/>
-    : page==="Deployments" ? <Deployments onOpen={()=>setDeploymentTab("Deployment")}/>
+    : page==="Deployments" ? (globalDeployment ? <GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>setGlobalDeployment(false)}/> : <Deployments onOpen={()=>{setDeploymentTab("Deployment");setGlobalDeployment(true)}}/>)
     : page==="Logs" ? <Logs/>
     : page==="Analytics" ? <Analytics title="Analytics"/>
     : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
