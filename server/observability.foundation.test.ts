@@ -16,5 +16,10 @@ describe("observability foundation", () => {
     expect(migration).toContain("alter table public.observability_alerts enable row level security");
     expect(migration.match(/private\.is_organization_member\(organization_id\)/g)?.length).toBeGreaterThanOrEqual(5);
     expect(router).toContain('action: "observability.alert.create"');
+    expect(router).toContain("observability_error_groups");
+    expect(router).toContain('action: "observability.alert_destination.create"');
+    const depthMigration = readFileSync(new URL("../supabase/migrations/20260922201000_observability_depth.sql", import.meta.url), "utf8");
+    expect(depthMigration).toContain("alter table public.observability_error_groups enable row level security");
+    expect(depthMigration).toContain("alter table public.observability_alert_destinations enable row level security");
   });
 });

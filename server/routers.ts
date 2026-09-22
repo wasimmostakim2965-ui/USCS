@@ -262,6 +262,38 @@ export const appRouter = router({
           return data;
         }),
     }),
+    errorGroups: router({
+      list: protectedProcedure.input(z.object({ organizationId: z.string().uuid().optional(), status: z.enum(["open", "resolved", "ignored"]).optional() }).optional()).query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+        if (membershipError) throw new Error(membershipError.message);
+        const ids = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+        if (!ids.length) return [];
+        let query = client.from("observability_error_groups").select("id,organization_id,project_id,fingerprint,example_message,occurrence_count,first_seen_at,last_seen_at,status,created_at,updated_at").in("organization_id", ids).order("last_seen_at", { ascending: false }).limit(200);
+        if (input?.status) query = query.eq("status", input.status);
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+    }),
+    alertDestinations: router({
+      list: protectedProcedure.input(z.object({ alertId: z.string().uuid() })).query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data, error } = await client.from("observability_alert_destinations").select("id,organization_id,alert_id,destination_type,destination_ref,enabled,created_by,created_at").eq("alert_id", input.alertId).order("created_at", { ascending: false });
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+      create: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), alertId: z.string().uuid(), destinationType: z.enum(["email", "webhook", "slack"]), destinationRef: z.string().trim().min(1).max(1024) })).mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data, error } = await client.from("observability_alert_destinations").insert({ organization_id: input.organizationId, alert_id: input.alertId, destination_type: input.destinationType, destination_ref: input.destinationRef, created_by: ctx.identity.supabaseId }).select("id,organization_id,alert_id,destination_type,destination_ref,enabled,created_by,created_at").single();
+        if (error) throw new Error(error.message);
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "observability.alert_destination.create", resource_type: "observability_alert_destination", resource_id: data.id, metadata: { alertId: input.alertId, destinationType: input.destinationType } });
+        return data;
+      }),
+    }),
   }),
 
   billing: router({
