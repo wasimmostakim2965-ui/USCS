@@ -1,8 +1,8 @@
-# USCS Information Architecture and Navigation Audit
+# Cloud Wai Information Architecture and Navigation Audit
 
 ## Current application map
 
-USCS is a React 19 and Vite frontend with a small Express/tRPC runtime. The landing page and authenticated control plane currently live in `client/src/pages/Home.tsx`. Authentication is provided through the existing `useAuth` hook and server-side OAuth/tRPC contract. The database layer currently contains the platform user model; resource-specific cloud entities are not yet present. Vercel builds with `pnpm build`, serves `dist/public`, and rewrites application routes to `index.html`.
+Cloud Wai is a React 19 and Vite frontend with a small Express/tRPC runtime. The landing page and authenticated control plane currently live in `client/src/pages/Home.tsx`. Authentication is provided through the existing `useAuth` hook and server-side OAuth/tRPC contract. The database layer currently contains the platform user model; resource-specific cloud entities are not yet present. Vercel builds with `pnpm build`, serves `dist/public`, and rewrites application routes to `index.html`.
 
 The existing authenticated experience already contains honest, provider-aware surfaces for Overview, Projects, Deployments, Domains, Data, Security, Observability, Developer, Team, Billing, and Settings. These surfaces intentionally show configuration-required or not-connected states rather than fabricated infrastructure data.
 
