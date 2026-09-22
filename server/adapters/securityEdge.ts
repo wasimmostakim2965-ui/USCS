@@ -1,5 +1,20 @@
 import type { EdgeEnforcementConfig } from "../securityPolicy";
-import type { AdapterResult, SecurityEdgeConfig, SecurityEdgeAdapter } from "./platform";
+import type { AdapterResult } from "./platform";
+
+export type SecurityEdgeConfig = {
+  organizationId: string;
+  projectId: string;
+  desiredConfig: Record<string, unknown>;
+};
+
+export interface SecurityEdgeAdapter {
+  render(input: SecurityEdgeConfig): Promise<AdapterResult<SecurityEdgeArtifacts>>;
+  preview(input: SecurityEdgeConfig): Promise<AdapterResult<{
+    diff: Array<{ path: string; before: unknown; after: unknown }>;
+    artifacts?: SecurityEdgeArtifacts;
+  }>>;
+  apply(input: SecurityEdgeConfig): Promise<AdapterResult<{ appliedAt: string; version: number }>>;
+}
 
 export type SecurityEdgeArtifacts = {
   openresty: string;

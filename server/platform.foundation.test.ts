@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NotConfiguredDomainReseller } from "./adapters/domainReseller";
-import { getPlatformAdapters } from "./adapters/platform";
+import { getDatabaseAdapter } from "./adapters/data";
 import { getSecurityEdgeAdapter, renderSecurityEdgeArtifacts } from "./adapters/securityEdge";
 import { getHostingAdapter } from "./adapters/hosting";
 import { diffSecurityPolicy, resolveSecurityPolicy } from "./securityPolicy";
@@ -14,9 +14,9 @@ describe("platform foundation", () => {
   });
 
   it("does not report self-operated engines as successful before provisioning", async () => {
-    const result = await getPlatformAdapters().database.provision({ organizationId: "org", projectId: "project", name: "primary", engine: "postgres" });
-    expect(result.status).toBe("not_configured");
-    expect(result.data).toBeNull();
+    const result = await getDatabaseAdapter().provisionDatabase({ databaseInstanceId: "database", organizationId: "org", projectId: "project", name: "primary" });
+    expect(result.configured).toBe(false);
+    expect(result.reason).toContain("not configured");
   });
 
   it("maps ultimate security to concrete edge enforcement and produces a diff", () => {
