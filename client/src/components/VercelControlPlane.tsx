@@ -54,6 +54,7 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
   const [securityPage, setSecurityPage] = useState<SecurityPage>("Overview");
   const [securityOpen, setSecurityOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
+  const [projectSetting, setProjectSetting] = useState("General");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -132,7 +133,7 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
           <div className="cp-nav-label">Project Settings</div>
           <nav className="cp-nav cp-settings-nav">
             {projectSettings.map(([label, detail]) => <button key={label} className={`cp-nav-item cp-nav-settings-item ${projectSettingsOpen && title === label ? "is-active" : ""}`} title={detail}
-              onClick={() => { setProjectSettingsOpen(true); setPage("Settings"); setSecurityPage("Overview"); setMobileOpen(false); }}>
+              onClick={() => { setProjectSetting(label); setProjectSettingsOpen(true); setPage("Settings"); setSecurityPage("Overview"); setMobileOpen(false); }}>
               <Settings2 size={15} /><span>{label}</span>
             </button>)}
           </nav>
@@ -180,7 +181,7 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
       </header>
 
       <div className="cp-content">
-        {projectSettingsOpen ? <ProjectSettingsPanel project={project || "Project"} settings={projectSettings} /> :
+        {projectSettingsOpen ? <ProjectSettingsPanel project={project || "Project"} settings={projectSettings} selected={projectSetting} onSelect={setProjectSetting} /> :
           page === "Overview" && <Overview onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} project={project} /> }
         {page === "Projects" && !projectSettingsOpen && <Projects onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} />}
         {page === "Deployments" && !projectSettingsOpen && <Deployments onGo={go} />}
@@ -199,12 +200,11 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
   </div>;
 }
 
-function ProjectSettingsPanel({ project, settings }: { project: string; settings: string[][] }) {
-  const [selected, setSelected] = useState(settings[0][0]);
+function ProjectSettingsPanel({ project, settings, selected, onSelect }: { project: string; settings: string[][]; selected: string; onSelect: (name: string) => void }) {
   const current = settings.find(([name]) => name === selected) || settings[0];
   return <><PageHeader eyebrow={`Project / ${project}`} title={current[0]} description={current[1]} action={<button className="cp-button cp-button-primary" onClick={() => toast.info(`${current[0]} changes will be persisted through the project settings API.`)}>Save changes</button>} />
     <div className="cp-settings-layout">
-      <nav className="cp-settings-sidebar">{settings.map(([name, detail]) => <button key={name} className={selected === name ? "active" : ""} onClick={() => setSelected(name)}><span>{name}</span><small>{detail}</small></button>)}</nav>
+      <nav className="cp-settings-sidebar">{settings.map(([name, detail]) => <button key={name} className={selected === name ? "active" : ""} onClick={() => onSelect(name)}><span>{name}</span><small>{detail}</small></button>)}</nav>
       <section className="cp-panel cp-settings-editor">
         <div className="cp-panel-head"><div><span>Configuration</span><h2>{current[0]}</h2></div><Status>Not configured</Status></div>
         <div className="cp-settings-body">
@@ -228,31 +228,65 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
 }
 
 function Overview({ onGo, onProject, project }: { onGo: (p: Page) => void; onProject: (name: string) => void; project: string | null }) {
+  if (project) return <>
+    <PageHeader eyebrow={`Project / ${project}`} title={project} description="Project overview, production status, recent deployments, resources and project configuration."
+      action={<><button className="cp-button cp-button-secondary" onClick={() => onGo("Deployments")}>View deployments</button><button className="cp-button cp-button-primary" onClick={() => toast.info("Import and deployment actions will be connected to the provider API.")}><Plus size={15} /> Deploy</button></>} />
+    <div className="cp-scopebar">
+      <div><span>Project</span><strong>{project}</strong></div>
+      <div><span>Production</span><strong>Not deployed</strong></div>
+      <div><span>Environment</span><strong>Preview / Production</strong></div>
+      <Status tone="warn">Setup required</Status>
+    </div>
+    <div className="cp-metrics">
+      <Metric label="Deployments" value="0" detail="No deployments yet" onClick={() => onGo("Deployments")} />
+      <Metric label="Domains" value="0" detail="Add a custom domain" onClick={() => onGo("Domains")} />
+      <Metric label="Requests" value="—" detail="No production traffic" onClick={() => onGo("Observability")} />
+      <Metric label="Functions" value="0" detail="View deployment resources" onClick={() => toast.info("Functions appear here after a deployment is connected.")} />
+    </div>
+    <div className="cp-grid cp-grid-main">
+      <section className="cp-panel">
+        <div className="cp-panel-head"><div><span>Production</span><h2>Latest deployment</h2></div><button className="cp-text-button" onClick={() => onGo("Deployments")}>Deployments <ArrowIcon /></button></div>
+        <Empty icon={Cloud} title="No production deployment" body="Connect a Git repository or deploy with the API/CLI. Production promotion remains an explicit project action." action="Configure Git" onAction={() => { setTimeout(() => {}, 0); toast.info("Git configuration is available in Project Settings → Git."); }} />
+      </section>
+      <section className="cp-panel">
+        <div className="cp-panel-head"><div><span>Project configuration</span><h2>Quick settings</h2></div><Settings2 size={16} className="muted-icon" /></div>
+        <div className="cp-checks">
+          <CheckRow label="Environment Variables" detail="Configure per environment" />
+          <CheckRow label="Deployment Protection" detail="Preview and production access" />
+          <CheckRow label="Custom Domains" detail="Attach domains to this project" />
+          <CheckRow label="Git integration" detail="Connect repository and branches" />
+        </div>
+      </section>
+    </div>
+    <div className="cp-three">
+      <Info title="Resources" text="Deployment resources include middleware, static assets and functions with runtime details." icon={Server} />
+      <Info title="Observability" text="Inspect logs, errors, requests, metrics and runtime behavior for this project." icon={Activity} />
+      <Info title="Security" text="Project protection, firewall rules and deployment access controls stay in project context." icon={ShieldCheck} />
+    </div>
+  </>;
+
   return <>
     <PageHeader eyebrow="Workspace" title="Overview" description="Everything important about your cloud workspace, in one place."
       action={<button className="cp-button cp-button-primary" onClick={() => onGo("Projects")}><Plus size={15} /> New project</button>} />
-
     <div className="cp-scopebar">
       <div><span>Workspace</span><strong>Personal</strong></div>
       <div><span>Region</span><strong>Global</strong></div>
       <div><span>Environment</span><strong><i className="cp-live-dot" /> Production</strong></div>
       <Status tone="warn">Setup required</Status>
     </div>
-
     <div className="cp-metrics">
       <Metric label="Projects" value="0" detail="Create your first project" onClick={() => onGo("Projects")} />
       <Metric label="Deployments" value="0" detail="No releases yet" onClick={() => onGo("Deployments")} />
       <Metric label="Domains" value="0" detail="Connect a domain" onClick={() => onGo("Domains")} />
       <Metric label="Requests" value="—" detail="Waiting for traffic" onClick={() => onGo("Observability")} />
     </div>
-
     <div className="cp-grid cp-grid-main">
       <section className="cp-panel">
         <div className="cp-panel-head"><div><span>Projects</span><h2>Your projects</h2></div><button className="cp-text-button" onClick={() => onGo("Projects")}>View all <ArrowIcon /></button></div>
         <Empty icon={Box} title="Create your first project" body="Import a repository, configure its environment, and get a preview deployment." action="New project" onAction={() => onGo("Projects")} />
       </section>
       <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Security</span><h2>Protection status</h2></div><button className="cp-text-button" onClick={() => onGo("Security")}>Open security <ArrowIcon /></button></div>
+        <div className="cp-panel-head"><div><span>Security</span><h2>Protection status</h2></div><button className="cp-text-button" onClick={() => setPage("Security")}>Open security <ArrowIcon /></button></div>
         <div className="cp-checks">
           <CheckRow label="Origin protection" detail="Waiting for deployment" />
           <CheckRow label="WAF" detail="Not configured" />
@@ -261,14 +295,12 @@ function Overview({ onGo, onProject, project }: { onGo: (p: Page) => void; onPro
         </div>
       </section>
     </div>
-
     <section className="cp-panel cp-activity-panel">
-      <div className="cp-panel-head"><div><span>Activity</span><h2>Recent activity</h2></div><button className="cp-icon-button" onClick={() => toast.info("Activity refresh will use the audit log API.")}>↻</button></div>
-      <Empty icon={Activity} title="No activity yet" body="Deployments, DNS changes, security events, and team actions will appear here." />
+      <div className="cp-panel-head"><div><span>Activity</span><h2>Recent workspace activity</h2></div><button className="cp-text-button" onClick={() => toast.info("Activity will populate from the audit log.")}>View activity <ArrowIcon /></button></div>
+      <Empty icon={Activity} title="No activity yet" body="Deployments, domain changes, security events and workspace actions will appear here." />
     </section>
   </>;
 }
-
 function ArrowIcon() { return <ExternalLink size={13} />; }
 
 function CheckRow({ label, detail, good = false }: { label: string; detail: string; good?: boolean }) {
