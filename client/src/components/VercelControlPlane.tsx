@@ -286,7 +286,7 @@ function Overview({ onGo, onProject, project }: { onGo: (p: Page) => void; onPro
         <Empty icon={Box} title="Create your first project" body="Import a repository, configure its environment, and get a preview deployment." action="New project" onAction={() => onGo("Projects")} />
       </section>
       <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Security</span><h2>Protection status</h2></div><button className="cp-text-button" onClick={() => setPage("Security")}>Open security <ArrowIcon /></button></div>
+        <div className="cp-panel-head"><div><span>Security</span><h2>Protection status</h2></div><button className="cp-text-button" onClick={() => onGo("Security")}>Open security <ArrowIcon /></button></div>
         <div className="cp-checks">
           <CheckRow label="Origin protection" detail="Waiting for deployment" />
           <CheckRow label="WAF" detail="Not configured" />
