@@ -1,6 +1,9 @@
 -- Phase 3: project security posture is a control-plane record that drives
 -- concrete edge enforcement. It is not a cosmetic UI preference.
-create type public.security_level as enum ('none', 'normal', 'high', 'ultimate');
+do $$ begin
+  create type public.security_level as enum ('none', 'normal', 'high', 'ultimate');
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists public.security_policies (
   id uuid primary key default gen_random_uuid(),
