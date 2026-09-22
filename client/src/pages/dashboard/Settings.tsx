@@ -2,17 +2,17 @@ import { useState } from "react";
 import { Bell, ClipboardList, MailPlus, Settings2, Shield, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Empty, Header, Status } from "./shared";
+import { ComingSoon, Empty, Header, Status } from "./shared";
 
-type SettingsTab = "workspace" | "team" | "notifications" | "audit";
-const tabs: SettingsTab[] = ["workspace", "team", "notifications", "audit"];
+type SettingsTab = "workspace" | "team" | "notifications" | "connected-accounts" | "audit";
+const tabs: SettingsTab[] = ["workspace", "team", "notifications", "connected-accounts", "audit"];
 
 export default function Settings({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
   const tab = tabs.includes(routeParts?.[1] as SettingsTab) ? routeParts?.[1] as SettingsTab : "workspace";
   const organizations = trpc.workspace.organizations.useQuery(undefined, { retry: false });
   const organization = organizations.data?.[0];
   const go = (next: SettingsTab) => onNavigate?.(`/dashboard/settings/${next}`);
-  return <><Header title="Settings" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>{!organization ? <Empty title="Workspace required" body="Sign in to a workspace to manage settings." /> : tab === "workspace" ? <WorkspacePanel organization={organization} /> : tab === "team" ? <TeamPanel organizationId={organization.id} /> : tab === "notifications" ? <NotificationPanel organizationId={organization.id} /> : <AuditPanel />}</>;
+  return <><Header title="Settings" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>{!organization ? <Empty title="Workspace required" body="Sign in to a workspace to manage settings." /> : tab === "workspace" ? <WorkspacePanel organization={organization} /> : tab === "team" ? <TeamPanel organizationId={organization.id} /> : tab === "notifications" ? <NotificationPanel organizationId={organization.id} /> : tab === "connected-accounts" ? <ComingSoon title="Connected accounts" body="OAuth connection management will appear after a provider connection contract is configured." /> : <AuditPanel />}</>;
 }
 
 function WorkspacePanel({ organization }: { organization: { id: string; name: string; slug: string; role?: string } }) {

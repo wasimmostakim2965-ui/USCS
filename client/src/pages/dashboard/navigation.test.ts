@@ -28,4 +28,11 @@ describe("dashboard navigation", () => {
       expect(dashboardChildFromSlug(item, "missing-route")).toBeUndefined();
     }
   });
+
+  it("uses implementation-safe slugs for labels containing punctuation or legacy aliases", () => {
+    expect(dashboardHref(dashboardNav.find(item => item.path === "domains")!, dashboardNav.find(item => item.path === "domains")!.children.find(child => child.label === "SSL/TLS"))).toBe("/dashboard/domains/ssl-tls");
+    expect(dashboardHref(dashboardNav.find(item => item.path === "developer")!, dashboardNav.find(item => item.path === "developer")!.children[0])).toBe("/dashboard/developer/connections");
+    expect(dashboardHref(dashboardNav.find(item => item.path === "settings")!, dashboardNav.find(item => item.path === "settings")!.children[0])).toBe("/dashboard/settings/workspace");
+    expect(new Set(dashboardRoutes).size).toBe(dashboardRoutes.length);
+  });
 });
