@@ -148,20 +148,28 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
     {accountPanel&&<AccountCenter panel={accountPanel} onClose={()=>setAccountPanel(null)} user={user}/>}\n  </div>;
 }
 
-function Overview({onProjects,onOpenProject}:{onProjects:()=>void;onOpenProject:()=>void}) {
+function Overview({onProjects,onOpenProject}:{onProjects:()=>void;onOpenProject:(id?:string)=>void}) {
+  const projectsQuery = trpc.workspace.projects.list.useQuery(undefined,{retry:false});
+  const projects = projectsQuery.data ?? [];
   return <><Header title="Overview" action={<button className="vc-btn primary" onClick={onProjects}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
-    <div className="vc-card vc-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Empty title="No recent activity" body="Deployments, project changes and alerts will appear here when USCS has activity." action="Open Projects" onAction={onProjects}/></div>
+    <div className="vc-card vc-recent"><div className="vc-tabs"><button className="active">Recents</button><button onClick={()=>toast.info("Usage opens from the sidebar.")}>Usage</button><button onClick={()=>toast.info("Alerts will populate from audit and provider events.")}>Alerts</button></div>{projectsQuery.isLoading?<div className="vc-loading-row">Loading workspace data…</div>:<Empty title="No recent activity" body="Deployments, project changes and alerts will appear here when USCS has activity." action="Open Projects" onAction={onProjects}/>}</div>
     <div className="vc-section-title">Projects</div>
-    <div className="vc-project-card" onClick={onOpenProject}><div className="vc-project-logo">U</div><div><strong>uscs</strong><small>USCS workspace project</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good>Connected</Status></div>
+    {projects.length?projects.map(p=><div className="vc-project-card" key={p.id} onClick={()=>onOpenProject(p.id)}><div className="vc-project-logo">U</div><div><strong>{p.name}</strong><small>{p.slug}</small><p>USCS workspace · {new Date(p.updated_at).toLocaleDateString()}</p></div><Status good>Connected</Status></div>):<div className="vc-card"><Empty title="No projects yet" body="Create a project to connect repositories, deployments, domains and runtime resources."/></div>}
   </>;
 }
 
-function Projects({onOpen}:{onOpen:()=>void}) {
-  return <><Header title="Projects" crumb="All Projects" action={<button className="vc-btn primary" onClick={()=>toast.info("Add New: import Git repository or create from template.")}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
-    <div className="vc-project-toolbar"><div className="vc-search-input"><Search size={15}/><input placeholder="Search Projects"/></div><button className="vc-icon-btn" onClick={()=>toast.info("Project filters: framework, status, updated time")}><ListFilter size={15}/></button></div>
-    <div className="vc-card vc-project-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Empty title="No recent project activity" body="Activity appears here after deployments, configuration changes or alerts."/></div>
+function Projects({onOpen}:{onOpen:(id?:string)=>void}) {
+  const projectsQuery = trpc.workspace.projects.list.useQuery(undefined,{retry:false});
+  const orgQuery = trpc.workspace.organizations.useQuery(undefined,{retry:false});
+  const createProject = trpc.workspace.projects.create.useMutation({onSuccess:()=>{void projectsQuery.refetch();toast.success("Project created");},onError:e=>toast.error(e.message)});
+  const [q,setQ]=useState("");
+  const projects=(projectsQuery.data??[]).filter(p=>p.name.toLowerCase().includes(q.toLowerCase())||p.slug.toLowerCase().includes(q.toLowerCase()));
+  const add=()=>{const name=window.prompt("Project name");const org=orgQuery.data?.[0];if(!name?.trim())return;if(!org){toast.error("No workspace is available");return;}createProject.mutate({organizationId:org.id,name:name.trim()});};
+  return <><Header title="Projects" crumb="All Projects" action={<button className="vc-btn primary" onClick={add}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
+    <div className="vc-project-toolbar"><div className="vc-search-input"><Search size={15}/><input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search Projects"/></div><button className="vc-icon-btn" onClick={()=>toast.info("Filters: framework, status, updated time")}><ListFilter size={15}/></button></div>
+    <div className="vc-card vc-project-recent"><div className="vc-tabs"><button className="active">Recents</button><button onClick={()=>toast.info("Usage opens from the sidebar.")}>Usage</button><button onClick={()=>toast.info("Alerts come from audit and provider events.")}>Alerts</button></div>{projectsQuery.isLoading?<div className="vc-loading-row">Loading projects…</div>:<Empty title={projects.length?"Project activity":"No recent project activity"} body="Deployment, configuration and security events will appear here when connected providers produce activity."/></div>
     <div className="vc-section-title">Projects</div>
-    <div className="vc-project-card" onClick={onOpen}><div className="vc-project-logo">U</div><div><strong>uscs</strong><small>USCS workspace project</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good>Connected</Status></div>
+    {projects.length?projects.map(p=><div className="vc-project-card" key={p.id} onClick={()=>onOpen(p.id)}><div className="vc-project-logo">U</div><div><strong>{p.name}</strong><small>{p.slug}</small><p>USCS workspace · {new Date(p.updated_at).toLocaleDateString()}</p></div><Status good>Ready</Status></div>):<div className="vc-card"><Empty title="No projects yet" body="Create a project to connect repositories, deployments, domains and runtime resources." action="Add New" onAction={add}/></div>}
   </>;
 }
 
