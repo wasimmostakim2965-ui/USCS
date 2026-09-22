@@ -5,6 +5,7 @@ import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, C
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/contexts/ThemeContext";
 import { trpc } from "@/lib/trpc";
+import "@/styles/control-plane.css";
 import { AppShell as Shell, Button, EmptyState, PageHeader } from "@/components/ui-kit";
 import { legacyPageForPath, projectNav, projectItem, workspaceItem, workspaceNav } from "@/pages/dashboard/navigation";
 import Overview from "@/pages/dashboard/Overview";
