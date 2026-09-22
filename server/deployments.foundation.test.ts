@@ -22,4 +22,14 @@ describe("deployments foundation", () => {
     expect(router).toContain('action: "deployment.protection.update"');
     expect(router).toContain('action: "deployment.rollback"');
   });
+
+  it("keeps environment references masked and domain binding adapter-gated", () => {
+    const migration = readFileSync(new URL("../supabase/migrations/20260922191000_deployment_depth.sql", import.meta.url), "utf8");
+    const router = readFileSync(new URL("./routers.ts", import.meta.url), "utf8");
+    expect(migration).toContain("masked_value text not null");
+    expect(migration).toContain("alter table public.deployment_env_vars enable row level security");
+    expect(migration).toContain("alter table public.deployment_domain_bindings enable row level security");
+    expect(router).toContain('action: "deployment.env_var.upsert"');
+    expect(router).toContain('status: "not_configured"');
+  });
 });

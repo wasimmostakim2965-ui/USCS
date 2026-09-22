@@ -460,6 +460,66 @@ export const appRouter = router({
         return { configured: true as const, deployment: updated };
       }),
 
+    envVars: router({
+      list: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid(), environment: z.enum(["production", "preview", "development"]) }))
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client.from("deployment_env_vars").select("id,organization_id,project_id,environment,name,masked_value,is_secret,created_by,created_at,updated_at").eq("organization_id", input.organizationId).eq("project_id", input.projectId).eq("environment", input.environment).order("name");
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      upsert: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid(), environment: z.enum(["production", "preview", "development"]), name: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/), valueRef: z.string().trim().min(1).max(2048).nullable().optional(), isSecret: z.boolean().default(true) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client.from("deployment_env_vars").upsert({ organization_id: input.organizationId, project_id: input.projectId, environment: input.environment, name: input.name, value_ref: input.valueRef ?? null, masked_value: input.isSecret ? "••••••••" : (input.valueRef ?? ""), is_secret: input.isSecret, created_by: ctx.identity.supabaseId, updated_at: new Date().toISOString() }, { onConflict: "organization_id,project_id,environment,name" }).select("id,organization_id,project_id,environment,name,masked_value,is_secret,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.env_var.upsert", resource_type: "deployment_env_var", resource_id: data.id, metadata: { projectId: input.projectId, environment: input.environment, name: input.name } });
+          return data;
+        }),
+      remove: protectedProcedure
+        .input(z.object({ id: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: record, error: lookupError } = await client.from("deployment_env_vars").select("id,organization_id,name").eq("id", input.id).maybeSingle();
+          if (lookupError) throw new Error(lookupError.message);
+          if (!record) throw new Error("Environment variable not found");
+          const { error } = await client.from("deployment_env_vars").delete().eq("id", input.id);
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: record.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.env_var.remove", resource_type: "deployment_env_var", resource_id: record.id, metadata: { name: record.name } });
+          return { success: true };
+        }),
+    }),
+
+    domainBindings: router({
+      list: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid() }))
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client.from("deployment_domain_bindings").select("id,organization_id,project_id,domain_id,environment,status,provider_ref,error_message,created_by,created_at,updated_at,domains(hostname)").eq("organization_id", input.organizationId).eq("project_id", input.projectId).order("created_at", { ascending: false });
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      bind: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid(), domainId: z.string().uuid(), environment: z.enum(["production", "preview", "development"]) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: domain, error: domainError } = await client.from("domains").select("id,organization_id,hostname").eq("id", input.domainId).eq("organization_id", input.organizationId).maybeSingle();
+          if (domainError) throw new Error(domainError.message);
+          if (!domain) throw new Error("Domain does not belong to this organization");
+          const { data, error } = await client.from("deployment_domain_bindings").upsert({ organization_id: input.organizationId, project_id: input.projectId, domain_id: input.domainId, environment: input.environment, status: "not_configured", error_message: "Hosting domain binding adapter is not configured.", created_by: ctx.identity.supabaseId, updated_at: new Date().toISOString() }, { onConflict: "organization_id,project_id,domain_id,environment" }).select("id,organization_id,project_id,domain_id,environment,status,provider_ref,error_message,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.domain.bind", resource_type: "deployment_domain_binding", resource_id: data.id, metadata: { projectId: input.projectId, domainId: domain.id, hostname: domain.hostname, environment: input.environment } });
+          return data;
+        }),
+    }),
+
     protection: router({
       get: protectedProcedure
         .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid() }))
