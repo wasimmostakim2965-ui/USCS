@@ -7,6 +7,8 @@ import { z } from "zod";
 import { getSupabaseUserClient } from "./_core/supabaseAuth";
 import { getHostingAdapter, type DeploymentEnvironment } from "./adapters/hosting";
 import { getDatabaseAdapter, getStorageAdapter } from "./adapters/data";
+import { getDomainResellerAdapter } from "./adapters/domainReseller";
+import { resolveSecurityPolicy } from "./securityPolicy";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -20,6 +22,18 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+  }),
+
+  domains: router({
+    search: protectedProcedure
+      .input(z.object({ query: z.string().trim().min(1).max(253) }))
+      .query(async ({ input }) => getDomainResellerAdapter().search(input.query)),
+  }),
+
+  security: router({
+    previewPolicy: protectedProcedure
+      .input(z.object({ level: z.enum(["none", "normal", "high", "ultimate"]) }))
+      .query(({ input }) => ({ status: "ready" as const, config: resolveSecurityPolicy(input.level) })),
   }),
 
   workspace: router({
