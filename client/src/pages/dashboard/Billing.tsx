@@ -1,1 +1,2 @@
-export { Usage as default } from "@/components/VercelControlPlane";
+import { ComingSoon, Header, Stat } from "./shared";
+export default function Billing() { return <><Header title="Billing" /><div className="vc-grid-3"><Stat label="Current usage" value="—" /><Stat label="This period" value="$0" /><Stat label="Plan" value="Not configured" /></div><ComingSoon title="Billing and usage" body="Usage, projected cost, invoices, and plan controls will appear after a billing provider is configured." /></>; }

@@ -1,1 +1,2 @@
-export { Domains as default } from "@/components/VercelControlPlane";
+import { ComingSoon, Empty, Header } from "./shared";
+export default function Domains() { return <><Header title="Domains" /><div className="vc-card"><Empty title="No domains connected" body="Domain state will appear only after a registrar and DNS provider are configured." /></div><ComingSoon title="Domain registration" body="Live availability, pricing, DNS, TLS, and renewals are intentionally gated until provider credentials exist." /></>; }

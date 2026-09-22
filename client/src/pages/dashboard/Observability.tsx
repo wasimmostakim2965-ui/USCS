@@ -1,1 +1,2 @@
-export { Observability as default } from "@/components/VercelControlPlane";
+import { ComingSoon, Header, Stat } from "./shared";
+export default function Observability() { return <><Header title="Observability" /><div className="vc-grid-3"><Stat label="Requests" value="—" /><Stat label="Errors" value="—" /><Stat label="Latency" value="—" /></div><ComingSoon title="Runtime telemetry" body="Connect a deployment/runtime to populate searchable logs, metrics, errors, requests, and uptime data." /></>; }
