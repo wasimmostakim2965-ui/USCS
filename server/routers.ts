@@ -10,6 +10,8 @@ import { getDatabaseAdapter, getStorageAdapter } from "./adapters/data";
 import { getDomainResellerAdapter } from "./adapters/domainReseller";
 import { resolveSecurityPolicy } from "./securityPolicy";
 import { getBillingAdapter } from "./adapters/billing";
+import { getSecurityEdgeAdapter } from "./adapters/securityEdge";
+import type { SecurityLevel } from "./securityPolicy";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -35,6 +37,69 @@ export const appRouter = router({
     previewPolicy: protectedProcedure
       .input(z.object({ level: z.enum(["none", "normal", "high", "ultimate"]) }))
       .query(({ input }) => ({ status: "ready" as const, config: resolveSecurityPolicy(input.level) })),
+
+    getPolicy: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional() }))
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership) throw new Error("Organization membership required");
+        const { data: policy, error } = await client.from("security_policies").select("id,organization_id,project_id,security_level,auto_setup,enforcement_version,desired_config,applied_config,last_applied_at,last_apply_status,last_apply_error,created_by,created_at,updated_at").eq("organization_id", input.organizationId).is("project_id", input.projectId ?? null).maybeSingle();
+        if (error) throw new Error(error.message);
+        const { data: events, error: eventsError } = policy ? await client.from("security_policy_events").select("id,event_type,actor_id,desired_config,applied_config,error_message,created_at").eq("security_policy_id", policy.id).order("created_at", { ascending: false }).limit(30) : { data: [], error: null };
+        if (eventsError) throw new Error(eventsError.message);
+        return { policy, events: events ?? [], role: membership.role };
+      }),
+
+    setLevel: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), level: z.enum(["none", "normal", "high", "ultimate"]), autoSetup: z.boolean().default(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin", "security"].includes(membership.role)) throw new Error("Security policy changes require owner, admin, or security role");
+        if (input.projectId) {
+          const { data: project, error: projectError } = await client.from("projects").select("id").eq("id", input.projectId).eq("organization_id", input.organizationId).maybeSingle();
+          if (projectError) throw new Error(projectError.message);
+          if (!project) throw new Error("Project does not belong to this organization");
+        }
+        const desiredConfig = resolveSecurityPolicy(input.level as SecurityLevel);
+        const { data: existing, error: existingError } = await client.from("security_policies").select("id,applied_config,enforcement_version").eq("organization_id", input.organizationId).is("project_id", input.projectId ?? null).maybeSingle();
+        if (existingError) throw new Error(existingError.message);
+        const payload = { organization_id: input.organizationId, project_id: input.projectId ?? null, security_level: input.level, auto_setup: input.autoSetup, desired_config: desiredConfig, updated_at: new Date().toISOString(), created_by: ctx.identity.supabaseId };
+        const query = existing ? client.from("security_policies").update(payload).eq("id", existing.id) : client.from("security_policies").insert(payload);
+        const { data: policy, error } = await query.select("id,organization_id,project_id,security_level,auto_setup,enforcement_version,desired_config,applied_config,last_applied_at,last_apply_status,last_apply_error,created_by,created_at,updated_at").single();
+        if (error) throw new Error(error.message);
+        const { error: eventError } = await client.from("security_policy_events").insert({ organization_id: input.organizationId, security_policy_id: policy.id, event_type: "previewed", actor_id: ctx.identity.supabaseId, desired_config: desiredConfig, applied_config: existing?.applied_config ?? {} });
+        if (eventError) throw new Error(eventError.message);
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "security_policy.set_level", resource_type: "security_policy", resource_id: policy.id, metadata: { level: input.level, autoSetup: input.autoSetup } });
+        return policy;
+      }),
+
+    applyPolicy: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin", "security"].includes(membership.role)) throw new Error("Security policy apply requires owner, admin, or security role");
+        const { data: policy, error: policyError } = await client.from("security_policies").select("id,organization_id,project_id,security_level,desired_config,applied_config,enforcement_version").eq("organization_id", input.organizationId).is("project_id", input.projectId ?? null).maybeSingle();
+        if (policyError) throw new Error(policyError.message);
+        if (!policy) throw new Error("Set a security level before applying a policy");
+        const adapter = getSecurityEdgeAdapter();
+        const result = await adapter.apply({ organizationId: input.organizationId, projectId: input.projectId ?? "organization-default", desiredConfig: policy.desired_config });
+        const status = result.status === "ready" ? "applied" : result.status === "not_configured" ? "pending" : "failed";
+        const { data: updated, error: updateError } = await client.from("security_policies").update({ applied_config: result.status === "ready" ? policy.desired_config : policy.applied_config, last_apply_status: status, last_applied_at: result.status === "ready" ? new Date().toISOString() : null, last_apply_error: result.status === "ready" ? null : result.message, enforcement_version: policy.enforcement_version + 1, updated_at: new Date().toISOString() }).eq("id", policy.id).select("id,organization_id,project_id,security_level,auto_setup,enforcement_version,desired_config,applied_config,last_applied_at,last_apply_status,last_apply_error,created_by,created_at,updated_at").single();
+        if (updateError) throw new Error(updateError.message);
+        const eventType = result.status === "ready" ? "applied" : result.status === "not_configured" ? "previewed" : "failed";
+        await client.from("security_policy_events").insert({ organization_id: input.organizationId, security_policy_id: policy.id, event_type: eventType, actor_id: ctx.identity.supabaseId, desired_config: policy.desired_config, applied_config: result.status === "ready" ? policy.desired_config : policy.applied_config, error_message: result.status === "ready" ? null : result.message });
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "security_policy.apply", resource_type: "security_policy", resource_id: policy.id, result: result.status === "error" ? "failure" : "success", metadata: { adapter: adapter.name, status, message: result.message } });
+        return { policy: updated, adapter: adapter.name, status, message: result.message };
+      }),
   }),
 
   billing: router({
