@@ -657,6 +657,37 @@ export const appRouter = router({
         }),
     }),
 
+    storageFiles: router({
+      files: router({
+        list: protectedProcedure
+          .input(z.object({ bucketId: z.string().uuid() }))
+          .query(async ({ ctx, input }) => {
+            const client = getSupabaseUserClient(ctx.req);
+            if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+            const { data, error } = await client.from("storage_files").select("id,organization_id,storage_bucket_id,object_key,content_type,size_bytes,status,adapter_ref,error_message,created_by,created_at,updated_at").eq("storage_bucket_id", input.bucketId).order("object_key").limit(500);
+            if (error) throw new Error(error.message);
+            return data ?? [];
+          }),
+        upload: protectedProcedure
+          .input(z.object({ organizationId: z.string().uuid(), bucketId: z.string().uuid(), objectKey: z.string().trim().min(1).max(1024), contentType: z.string().trim().max(255).nullable().optional() }))
+          .mutation(async ({ ctx, input }) => {
+            const client = getSupabaseUserClient(ctx.req);
+            if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+            const { data: bucket, error: bucketError } = await client.from("storage_buckets").select("id,organization_id").eq("id", input.bucketId).eq("organization_id", input.organizationId).maybeSingle();
+            if (bucketError) throw new Error(bucketError.message);
+            if (!bucket) throw new Error("Bucket not found in this organization");
+            const { data: file, error } = await client.from("storage_files").insert({ organization_id: input.organizationId, storage_bucket_id: input.bucketId, object_key: input.objectKey, content_type: input.contentType ?? null, created_by: ctx.identity.supabaseId, status: "pending" }).select("id,organization_id,storage_bucket_id,object_key,content_type,size_bytes,status,adapter_ref,error_message,created_by,created_at,updated_at").single();
+            if (error) throw new Error(error.message);
+            const adapter = getStorageAdapter();
+            const result = await adapter.uploadFile({ fileId: file.id, bucketId: file.storage_bucket_id, organizationId: file.organization_id, objectKey: file.object_key, contentType: file.content_type });
+            const { data: updated, error: updateError } = await client.from("storage_files").update({ status: result.configured ? result.status : "failed", adapter_ref: result.configured ? result.adapterRef : null, error_message: result.configured ? null : result.reason, updated_at: new Date().toISOString() }).eq("id", file.id).select("id,organization_id,storage_bucket_id,object_key,content_type,size_bytes,status,adapter_ref,error_message,created_by,created_at,updated_at").single();
+            if (updateError) throw new Error(updateError.message);
+            await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "storage_file.upload", resource_type: "storage_file", resource_id: file.id, result: result.configured ? "success" : "failure", metadata: { adapter: adapter.name, objectKey: input.objectKey, reason: result.configured ? null : result.reason } });
+            return { configured: result.configured, reason: result.configured ? "File upload accepted by storage adapter." : result.reason, file: updated };
+          }),
+      }),
+    }),
+
     backups: router({
       list: protectedProcedure
         .input(z.object({ organizationId: z.string().uuid().optional(), resourceType: z.enum(["database", "storage"]).optional() }).optional())
@@ -698,6 +729,45 @@ export const appRouter = router({
           await client.from("audit_logs").insert({ organization_id: backup.organization_id, actor_id: ctx.identity.supabaseId, action: "backup.create", resource_type: "backup", resource_id: backup.id, metadata: { adapter: adapter.name, adapterRef: result.adapterRef, resourceType: input.resourceType } });
           return { configured: true as const, backup: updated };
         }),
+      restore: protectedProcedure
+        .input(z.object({ id: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: backup, error } = await client.from("backups").select("id,organization_id,resource_type,database_instance_id,storage_bucket_id").eq("id", input.id).maybeSingle();
+          if (error) throw new Error(error.message);
+          if (!backup) throw new Error("Backup not found");
+          const adapter = backup.resource_type === "database" ? getDatabaseAdapter() : getStorageAdapter();
+          const resourceId = backup.database_instance_id ?? backup.storage_bucket_id;
+          if (!resourceId) throw new Error("Backup resource is missing");
+          const result = await adapter.restoreBackup({ backupId: backup.id, organizationId: backup.organization_id, resourceType: backup.resource_type, resourceId });
+          const { data: updated, error: updateError } = await client.from("backups").update({ restore_status: result.configured ? "completed" : "failed", restored_at: result.configured ? new Date().toISOString() : null, restore_error: result.configured ? null : result.reason }).eq("id", backup.id).select("id,restore_status,restored_at,restore_error").single();
+          if (updateError) throw new Error(updateError.message);
+          await client.from("audit_logs").insert({ organization_id: backup.organization_id, actor_id: ctx.identity.supabaseId, action: "backup.restore", resource_type: "backup", resource_id: backup.id, result: result.configured ? "success" : "failure", metadata: { adapter: adapter.name, reason: result.configured ? null : result.reason } });
+          return { configured: result.configured, reason: result.configured ? "Restore completed." : result.reason, backup: updated };
+        }),
+      schedules: router({
+        list: protectedProcedure.query(async ({ ctx }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+          if (membershipError) throw new Error(membershipError.message);
+          const ids = (memberships ?? []).map(row => row.organization_id);
+          if (!ids.length) return [];
+          const { data, error } = await client.from("backup_schedules").select("id,organization_id,database_instance_id,storage_bucket_id,frequency,enabled,next_run_at,last_run_at,created_by,created_at,updated_at").in("organization_id", ids).order("updated_at", { ascending: false }).limit(100);
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+        create: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), resourceType: z.enum(["database", "storage"]), resourceId: z.string().uuid(), frequency: z.enum(["hourly", "daily", "weekly"]) })).mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const fields = input.resourceType === "database" ? { database_instance_id: input.resourceId, storage_bucket_id: null } : { database_instance_id: null, storage_bucket_id: input.resourceId };
+          const { data, error } = await client.from("backup_schedules").insert({ organization_id: input.organizationId, ...fields, frequency: input.frequency, created_by: ctx.identity.supabaseId }).select("id,organization_id,database_instance_id,storage_bucket_id,frequency,enabled,next_run_at,last_run_at,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "backup.schedule.create", resource_type: "backup_schedule", resource_id: data.id, metadata: { frequency: input.frequency, resourceType: input.resourceType, resourceId: input.resourceId } });
+          return data;
+        }),
+      }),
     }),
   }),
 

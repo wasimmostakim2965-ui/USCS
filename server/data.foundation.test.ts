@@ -8,9 +8,13 @@ describe("data foundation", () => {
     const storage = getStorageAdapter();
     const databaseResult = await database.provisionDatabase({ databaseInstanceId: "database", organizationId: "organization", name: "primary" });
     const storageResult = await storage.provisionBucket({ bucketId: "bucket", organizationId: "organization", name: "uploads", visibility: "private" });
+    const fileResult = await storage.uploadFile({ fileId: "file", bucketId: "bucket", organizationId: "organization", objectKey: "logo.svg" });
+    const restoreResult = await storage.restoreBackup({ backupId: "backup", organizationId: "organization", resourceType: "storage", resourceId: "bucket" });
     const databaseBackup = await database.createBackup({ backupId: "backup", organizationId: "organization", resourceType: "database", resourceId: "database" });
     expect(databaseResult.configured).toBe(false);
     expect(storageResult.configured).toBe(false);
+    expect(fileResult.configured).toBe(false);
+    expect(restoreResult.configured).toBe(false);
     expect(databaseBackup.configured).toBe(false);
     expect(databaseResult.reason).toContain("not configured");
     expect(storageResult.reason).toContain("not configured");
@@ -26,5 +30,10 @@ describe("data foundation", () => {
     expect(router).toContain('action: "database_instance.provision"');
     expect(router).toContain('action: "storage_bucket.provision"');
     expect(router).toContain('action: "backup.create"');
+    expect(router).toContain('action: "storage_file.upload"');
+    expect(router).toContain('action: "backup.restore"');
+    const depthMigration = readFileSync(new URL("../supabase/migrations/20260922192000_data_depth.sql", import.meta.url), "utf8");
+    expect(depthMigration).toContain("alter table public.storage_files enable row level security");
+    expect(depthMigration).toContain("alter table public.backup_schedules enable row level security");
   });
 });
