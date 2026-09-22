@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NotConfiguredDomainReseller } from "./adapters/domainReseller";
 import { getPlatformAdapters } from "./adapters/platform";
 import { getSecurityEdgeAdapter, renderSecurityEdgeArtifacts } from "./adapters/securityEdge";
+import { getHostingAdapter } from "./adapters/hosting";
 import { diffSecurityPolicy, resolveSecurityPolicy } from "./securityPolicy";
 
 describe("platform foundation", () => {
@@ -27,6 +28,15 @@ describe("platform foundation", () => {
       expect.objectContaining({ path: "tls.minimumVersion", after: "TLSv1.3" }),
       expect.objectContaining({ path: "rateLimit.requestsPerMinute", after: 60 }),
     ]));
+  });
+
+  it("keeps deployment honest before COMPUTE_HOST is provisioned", async () => {
+    const previous = process.env.COMPUTE_HOST;
+    delete process.env.COMPUTE_HOST;
+    const result = await getHostingAdapter().createDeployment({ deploymentId: "deployment", projectId: "project", environment: "preview", sourceRepository: "https://github.com/example/app" });
+    if (previous) process.env.COMPUTE_HOST = previous;
+    expect(result.configured).toBe(false);
+    expect(result.reason).toContain("COMPUTE_HOST");
   });
 
   it("renders stricter open-source edge artifacts for ultimate policy", () => {

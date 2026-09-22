@@ -296,11 +296,12 @@ export const appRouter = router({
 
         const { data: updated, error: updateError } = await client
           .from("deployments")
-          .update({ status: result.status, provider_ref: result.providerRef, deployment_url: result.deploymentUrl ?? null, updated_at: new Date().toISOString() })
+          .update({ status: result.status, provider_ref: result.providerRef, deployment_url: result.deploymentUrl ?? null, started_at: deployment.started_at ?? new Date().toISOString(), completed_at: result.status === "ready" ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
           .eq("id", deployment.id)
           .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
           .single();
         if (updateError) throw new Error(updateError.message);
+        if (result.logs?.length) await client.from("deployment_logs").insert(result.logs.map(log => ({ deployment_id: deployment.id, organization_id: input.organizationId, level: log.level, message: log.message, source: adapter.name })));
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.create", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name, providerRef: result.providerRef } });
         return { configured: true as const, deployment: updated };
       }),
@@ -332,6 +333,7 @@ export const appRouter = router({
           .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
           .single();
         if (updateError) throw new Error(updateError.message);
+        if (result.logs?.length) await client.from("deployment_logs").insert(result.logs.map(log => ({ deployment_id: deployment.id, organization_id: deployment.organization_id, level: log.level, message: log.message, source: adapter.name })));
         await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name } });
         return { configured: true as const, deployment: updated };
       }),
