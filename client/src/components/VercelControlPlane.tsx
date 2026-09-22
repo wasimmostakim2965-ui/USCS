@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 type Page =
   | "Overview" | "Projects" | "Deployments" | "Domains" | "Security"
-  | "Observability" | "Storage" | "Functions" | "Team" | "Billing" | "Settings";
+  | "Observability" | "Firewall" | "Usage" | "Storage" | "Functions" | "Team" | "Billing" | "Settings" | "Help";
 
 type SecurityPage = "Overview" | "Firewall" | "WAF" | "DDoS Protection" | "Bot Protection" | "Rate Limiting" | "Access Control" | "Secrets" | "API Security" | "Audit Log";
 
@@ -52,52 +52,101 @@ function Empty({ icon: Icon, title, body, action, onAction }: { icon: typeof Box
 export default function VercelControlPlane({ user, logout }: { user: { name?: string | null } | null; logout: () => void }) {
   const [page, setPage] = useState<Page>("Overview");
   const [securityPage, setSecurityPage] = useState<SecurityPage>("Overview");
-  const [securityOpen, setSecurityOpen] = useState(true);
+  const [securityOpen, setSecurityOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [project, setProject] = useState<string | null>(null);
 
   const go = (next: Page) => { setPage(next); setMobileOpen(false); window.scrollTo({ top: 0 }); };
   const initials = (user?.name || "U").trim().slice(0, 1).toUpperCase();
+  const projectMode = Boolean(project);
+  const title = projectSettingsOpen ? "Project Settings" : securityPage !== "Overview" && page === "Security" ? securityPage : page;
 
-  const title = securityPage !== "Overview" && page === "Security" ? securityPage : page;
+  const workspaceItems: { label: Page; icon: typeof LayoutDashboard }[] = [
+    { label: "Overview", icon: LayoutDashboard },
+    { label: "Projects", icon: FolderGit2 },
+    { label: "Deployments", icon: Cloud },
+    { label: "Domains", icon: Globe2 },
+    { label: "Observability", icon: Activity },
+    { label: "Firewall", icon: ShieldCheck },
+    { label: "Usage", icon: BarChart3 },
+  ];
 
-  return <div className={`cp-shell ${collapsed ? "cp-collapsed" : ""}`}>
+  const projectItems: { label: Page; icon: typeof LayoutDashboard }[] = [
+    { label: "Overview", icon: LayoutDashboard },
+    { label: "Deployments", icon: Cloud },
+    { label: "Domains", icon: Globe2 },
+    { label: "Observability", icon: Activity },
+    { label: "Firewall", icon: ShieldCheck },
+  ];
+
+  const projectSettings = [
+    ["General", "Project identity and runtime defaults"],
+    ["Build & Deployment", "Framework, build command and deployment behavior"],
+    ["Environment Variables", "Environment-scoped configuration and secrets"],
+    ["Git", "Repository, branches, hooks and deploy rules"],
+    ["Integrations", "Connected apps and providers"],
+    ["Deployment Protection", "Preview and production access controls"],
+    ["Functions", "Runtime, memory, timeout and regions"],
+    ["Cron Jobs", "Scheduled jobs and execution policy"],
+    ["Members", "Project access and roles"],
+    ["Webhooks", "Project event delivery"],
+    ["Drains", "Logs, traces and analytics destinations"],
+    ["Security", "Fork protection, retention and visibility"],
+    ["Advanced", "Directory, skew and advanced runtime controls"],
+  ];
+
+  return <div className={`cp-shell ${collapsed ? "cp-collapsed" : ""} ${projectMode ? "cp-project-mode" : ""}`}>
     <aside className={`cp-sidebar ${mobileOpen ? "cp-mobile-open" : ""}`}>
       <div className="cp-brand">
         <div className="cp-brand-mark"><span /></div>
-        {!collapsed && <><strong>USCS</strong><button className="cp-workspace-switcher" onClick={() => toast.info("Workspace switching will be enabled with organizations.")}>Personal <ChevronDown size={13} /></button></>}
+        {!collapsed && <button className="cp-brand-workspace" onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Overview"); }}>
+          <strong>USCS</strong><span>Workspace</span><ChevronDown size={12} />
+        </button>}
+        <button className="cp-collapse-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed(v => !v)}>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
         <button className="cp-mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button>
       </div>
 
       <div className="cp-sidebar-scroll">
-        <div className="cp-nav-label">{collapsed ? "" : "Workspace"}</div>
+        {!collapsed && projectMode ? <div className="cp-project-switcher">
+          <button onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Projects"); }}>
+            <span className="cp-project-dot" /><span className="cp-project-name">{project}</span><ChevronDown size={12} />
+          </button>
+        </div> : !collapsed && <div className="cp-workspace-row"><span>Workspace</span><strong>Personal</strong><ChevronDown size={12} /></div>}
+
+        <div className="cp-nav-label">{collapsed ? "" : projectMode ? "Project" : "Workspace"}</div>
         <nav className="cp-nav">
-          {nav.map(item => {
-            const active = page === item.label;
+          {(projectMode ? projectItems : workspaceItems).map(item => {
             const Icon = item.icon;
-            if (item.children) return <div key={item.label} className={`cp-nav-group ${active ? "is-active" : ""}`}>
-              <button className="cp-nav-item" onClick={() => { go("Security"); setSecurityOpen(v => !v); }}>
-                <Icon size={16} /><span>{!collapsed && item.label}</span>{!collapsed && <ChevronDown className={`cp-nav-chevron ${securityOpen ? "open" : ""}`} size={13} />}
-              </button>
-              {!collapsed && securityOpen && active && <div className="cp-subnav">
-                {item.children.map(child => <button key={child} className={securityPage === child ? "is-active" : ""} onClick={() => { setPage("Security"); setSecurityPage(child as SecurityPage); setMobileOpen(false); }}>
-                  <span className="cp-subdot" />{child}
-                </button>)}
-              </div>}
-            </div>;
-            return <button key={item.label} className={`cp-nav-item ${active ? "is-active" : ""}`} onClick={() => go(item.label as Page)}>
+            const active = page === item.label && !projectSettingsOpen;
+            return <button key={item.label} className={`cp-nav-item ${active ? "is-active" : ""}`} onClick={() => { setProjectSettingsOpen(false); go(item.label); }}>
               <Icon size={16} /><span>{!collapsed && item.label}</span>
             </button>;
           })}
         </nav>
 
+        {projectMode && !collapsed && <>
+          <div className="cp-nav-divider" />
+          <div className="cp-nav-label">Project Settings</div>
+          <nav className="cp-nav cp-settings-nav">
+            {projectSettings.map(([label, detail]) => <button key={label} className={`cp-nav-item cp-nav-settings-item ${projectSettingsOpen && title === label ? "is-active" : ""}`} title={detail}
+              onClick={() => { setProjectSettingsOpen(true); setPage("Settings"); setSecurityPage("Overview"); setMobileOpen(false); }}>
+              <Settings2 size={15} /><span>{label}</span>
+            </button>)}
+          </nav>
+        </>}
+
         {!collapsed && <div className="cp-nav-divider" />}
-        {!collapsed && <div className="cp-nav-label">Manage</div>}
+        <div className="cp-nav-label">{collapsed ? "" : "Manage"}</div>
         <nav className="cp-nav">
-          {utilityNav.map(item => {
+          {(projectMode
+            ? [{ label: "Team", icon: Users }, { label: "Settings", icon: Settings2 }]
+            : [{ label: "Team", icon: Users }, { label: "Settings", icon: Settings2 }]
+          ).map(item => {
             const Icon = item.icon;
-            return <button key={item.label} className={`cp-nav-item ${page === item.label ? "is-active" : ""}`} onClick={() => go(item.label as Page)}>
+            return <button key={item.label} className={`cp-nav-item ${page === item.label && !projectSettingsOpen ? "is-active" : ""}`} onClick={() => { setProjectSettingsOpen(false); go(item.label as Page); }}>
               <Icon size={16} /><span>{!collapsed && item.label}</span>
             </button>;
           })}
@@ -105,7 +154,7 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
       </div>
 
       <div className="cp-sidebar-bottom">
-        <button className="cp-help" onClick={() => toast.info("Help center and documentation will be connected here.")}><CircleHelp size={16} />{!collapsed && "Help"}</button>
+        <button className="cp-help" onClick={() => go("Help")}><CircleHelp size={16} />{!collapsed && "Help"}</button>
         <button className="cp-account" onClick={logout}>
           <span className="cp-avatar">{initials}</span>{!collapsed && <span className="cp-account-copy"><strong>{user?.name || "Account"}</strong><small>Sign out</small></span>}
           {!collapsed && <MoreHorizontal size={15} />}
@@ -117,27 +166,32 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
       <header className="cp-topbar">
         <div className="cp-top-left">
           <button className="cp-mobile-menu" onClick={() => setMobileOpen(true)}><Menu size={19} /></button>
-          <div className="cp-breadcrumb"><span>Personal</span><ChevronRight size={13} /><strong>{title}</strong></div>
+          <div className="cp-breadcrumb">
+            <button onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Overview"); }}>{project ? "Personal" : "USCS"}</button>
+            {project && <><ChevronRight size={13} /><button className="cp-crumb-project" onClick={() => go("Overview")}>{project}</button></>}
+            <ChevronRight size={13} /><strong>{title}</strong>
+          </div>
         </div>
         <div className="cp-top-actions">
-          <button className="cp-search" onClick={() => setSearchOpen(true)}><Search size={15} /><span>Search</span><kbd>⌘ K</kbd></button>
+          <button className="cp-search" onClick={() => setSearchOpen(true)}><Search size={15} /><span>Search</span><kbd>Ctrl K</kbd></button>
           <button className="cp-icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={16} /></button>
           <button className="cp-avatar cp-top-avatar" onClick={logout}>{initials}</button>
         </div>
       </header>
 
       <div className="cp-content">
-        {page === "Overview" && <Overview onGo={go} />}
-        {page === "Projects" && <Projects onGo={go} />}
-        {page === "Deployments" && <Deployments onGo={go} />}
-        {page === "Domains" && <Domains />}
-        {page === "Security" && <Security page={securityPage} onPage={setSecurityPage} />}
-        {page === "Observability" && <Observability />}
-        {page === "Storage" && <ResourcePage title="Storage" icon={HardDrive} description="Buckets, objects, access policies, retention and delivery." />}
-        {page === "Functions" && <ResourcePage title="Functions" icon={TerminalSquare} description="Serverless functions, runtime settings, invocations and logs." />}
-        {page === "Team" && <Team />}
-        {page === "Billing" && <Billing />}
-        {page === "Settings" && <Settings />}
+        {projectSettingsOpen ? <ProjectSettingsPanel project={project || "Project"} settings={projectSettings} /> :
+          page === "Overview" && <Overview onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} project={project} /> }
+        {page === "Projects" && !projectSettingsOpen && <Projects onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} />}
+        {page === "Deployments" && !projectSettingsOpen && <Deployments onGo={go} />}
+        {page === "Domains" && !projectSettingsOpen && <Domains />}
+        {page === "Security" && !projectSettingsOpen && <Security page={securityPage} onPage={setSecurityPage} />}
+        {page === "Observability" && !projectSettingsOpen && <Observability />}
+        {page === "Firewall" && !projectSettingsOpen && <Security page="Firewall" onPage={setSecurityPage} />}
+        {page === "Usage" && !projectSettingsOpen && <Billing />}
+        {page === "Team" && !projectSettingsOpen && <Team />}
+        {page === "Settings" && !projectSettingsOpen && <Settings />}
+        {page === "Help" && !projectSettingsOpen && <Help />}
       </div>
     </main>
 
@@ -145,11 +199,35 @@ export default function VercelControlPlane({ user, logout }: { user: { name?: st
   </div>;
 }
 
+function ProjectSettingsPanel({ project, settings }: { project: string; settings: string[][] }) {
+  const [selected, setSelected] = useState(settings[0][0]);
+  const current = settings.find(([name]) => name === selected) || settings[0];
+  return <><PageHeader eyebrow={`Project / ${project}`} title={current[0]} description={current[1]} action={<button className="cp-button cp-button-primary" onClick={() => toast.info(`${current[0]} changes will be persisted through the project settings API.`)}>Save changes</button>} />
+    <div className="cp-settings-layout">
+      <nav className="cp-settings-sidebar">{settings.map(([name, detail]) => <button key={name} className={selected === name ? "active" : ""} onClick={() => setSelected(name)}><span>{name}</span><small>{detail}</small></button>)}</nav>
+      <section className="cp-panel cp-settings-editor">
+        <div className="cp-panel-head"><div><span>Configuration</span><h2>{current[0]}</h2></div><Status>Not configured</Status></div>
+        <div className="cp-settings-body">
+          <div className="cp-form-row"><div><strong>Project scope</strong><small>All settings are scoped to the selected project.</small></div><span className="cp-value">{project}</span></div>
+          <div className="cp-form-row"><div><strong>Provider state</strong><small>USCS will only display verified provider-backed configuration.</small></div><Status tone="warn">Provider required</Status></div>
+          <div className="cp-form-row"><div><strong>{current[0]} controls</strong><small>Configure this surface after its backend provider and audit path are connected.</small></div><button className="cp-button cp-button-secondary" onClick={() => toast.info("This control is staged for the provider integration phase.")}>Configure</button></div>
+        </div>
+      </section>
+    </div>
+  </>;
+}
+
+function Help() {
+  return <><PageHeader eyebrow="Help" title="Help & documentation" description="Find product documentation, API references and operational guidance." />
+    <div className="cp-three"><Info title="Documentation" text="Guides for projects, deployments, domains, security and providers." icon={FileCode2} /><Info title="API reference" text="Programmatic access to projects, deployments and infrastructure." icon={Code2} /><Info title="Support" text="Workspace support and incident communication." icon={CircleHelp} /></div>
+  </>;
+}
+
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
   return <div className="cp-page-header"><div><div className="cp-eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
 }
 
-function Overview({ onGo }: { onGo: (p: Page) => void }) {
+function Overview({ onGo, onProject, project }: { onGo: (p: Page) => void; onProject: (name: string) => void; project: string | null }) {
   return <>
     <PageHeader eyebrow="Workspace" title="Overview" description="Everything important about your cloud workspace, in one place."
       action={<button className="cp-button cp-button-primary" onClick={() => onGo("Projects")}><Plus size={15} /> New project</button>} />
@@ -197,7 +275,7 @@ function CheckRow({ label, detail, good = false }: { label: string; detail: stri
   return <div className="cp-check-row"><span className={good ? "cp-check cp-check-good" : "cp-check"}>{good ? "✓" : "—"}</span><div><strong>{label}</strong><small>{detail}</small></div><ChevronRight size={14} /></div>;
 }
 
-function Projects({ onGo }: { onGo: (p: Page) => void }) {
+function Projects({ onGo, onProject }: { onGo: (p: Page) => void; onProject: (name: string) => void }) {
   return <><PageHeader eyebrow="Projects" title="Projects" description="Applications are the core unit of deployments, domains, environments and runtime configuration."
     action={<button className="cp-button cp-button-primary" onClick={() => toast.info("Repository import will be connected to GitHub.")}><FolderGit2 size={15} /> Import Git repository</button>} />
     <div className="cp-toolbar"><div className="cp-input"><Search size={15} /><input placeholder="Search projects" /></div><button className="cp-filter">All <ChevronDown size={13} /></button><button className="cp-filter">Updated <ChevronDown size={13} /></button></div>
