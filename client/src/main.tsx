@@ -22,11 +22,19 @@ const trpcClient = trpc.createClient({
         }
         return {};
       },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
+      async fetch(input, init) {
+        const response = await globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",
         });
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
+          return new Response(JSON.stringify({ error: { message: "The API endpoint returned a non-JSON response. Check the deployment API route." } }), {
+            status: response.status >= 400 ? response.status : 502,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return response;
       },
     }),
   ],
