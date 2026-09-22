@@ -60,7 +60,7 @@ function Row({icon:Icon,title,detail,onClick}:{icon:Icon;title:string;detail?:st
 function Stat({label,value}:{label:string;value:string}) { return <div className="vc-stat"><small>{label}</small><strong>{value}</strong></div>; }
 function Meta({k,v,good}:{k:string;v:string;good?:boolean}) { return <div className="vc-meta"><small>{k}</small><strong className={good?"green":""}>{v}</strong></div>; }
 
-export default function VercelControlPlane({user,logout}:{user:{name?:string|null}|null;logout:()=>void}) {
+export default function VercelControlPlane({user,logout}:{user:{id?:string|null;name?:string|null;email?:string|null;loginMethod?:string|null;role?:string|null}|null;logout:()=>void}) {
   const [page,setPage]=useState<Page>("Overview");
   const [project,setProject]=useState(false);
   const [projectTab,setProjectTab]=useState<ProjectTab>("Overview");
