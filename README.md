@@ -57,6 +57,24 @@ pnpm verify
 
 `pnpm verify` runs the production build, TypeScript check, and test suite in sequence. If a fresh clone has no dependencies yet, run `pnpm install` first.
 
+## Control-plane surface and implementation state
+
+The authenticated dashboard uses URL-backed section and child routes under `/dashboard/:section/:child`. The sidebar, breadcrumbs, tabs, deep links, browser refresh, and the Ctrl/⌘+K command palette all resolve from the same navigation contract in `client/src/pages/dashboard/navigation.ts`.
+
+| Section | Current state |
+| --- | --- |
+| Overview and Projects | Workspace-scoped summaries and project controls backed by tRPC/Supabase |
+| Deployments | Environment controls, protected environment variables, build-log polling, domain binding, rollback history, and adapter-aware status |
+| Domains and Data | DNS/domain records, database/storage/backup control records, and provider-safe connection metadata |
+| Security | Organization-scoped policy configuration, enforcement history, edge-event surfaces, and honest adapter status |
+| Observability | Append-only events, live polling for logs, metrics/error/alert surfaces, and provider-aware empty states |
+| Developer and Billing | Connection-required developer surfaces, repository/webhook metadata, usage/invoice/payment records, and gated checkout |
+| Settings | Workspace identity, role-aware team controls, notification preferences, connected-account placeholder, and paginated audit log with filtering and CSV export |
+
+Every resource query and mutation must remain organization-scoped and protected by Supabase RLS. Provider actions return an explicit `not_configured` or equivalent failure state until a real adapter is configured; UI placeholders must not be interpreted as successful infrastructure operations.
+
+The repository is delivered in small, reviewable commits. Each feature commit is required to pass `pnpm build`, `pnpm check`, and `pnpm test` before it is pushed. The current suite includes router contract tests, adapter behavior tests, RLS-oriented foundation checks, and dashboard navigation regression tests.
+
 ## Project shape
 
 The browser application is under `client/`, the server and tRPC routers are under `server/`, shared types are under `shared/`, and ordered Supabase migrations are under `supabase/migrations/`. Dashboard sections live in their corresponding files under `client/src/pages/dashboard/`; the control-plane component is only the authenticated shell and route dispatcher.
