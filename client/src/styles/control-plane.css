@@ -5,7 +5,7 @@
 .vc-collapse{margin-left:auto;width:25px;height:25px;border:0;background:transparent;border-radius:5px;display:grid;place-items:center;color:#777;cursor:pointer}
 .vc-collapse:hover{background:#f2f2f2;color:#111}
 .vc-shell.collapsed .vc-sidebar{width:56px;flex-basis:56px}
-.vc-shell.collapsed .vc-team,.vc-shell.collapsed .vc-find input,.vc-shell.collapsed .vc-find kbd,.vc-shell.collapsed .vc-nav-item span,.vc-shell.collapsed .vc-nav-chevron,.vc-shell.collapsed .vc-nav-bottom,.vc-shell.collapsed .vc-account div,.vc-shell.collapsed .vc-account>svg{display:none}
+.vc-shell.collapsed .vc-team,.vc-shell.collapsed .vc-find input,.vc-shell.collapsed .vc-find kbd,.vc-shell.collapsed .vc-nav-item span,.vc-shell.collapsed .vc-nav-chevron,.vc-shell.collapsed .vc-nav-bottom,.vc-shell.collapsed .vc-account div,.vc-shell.collapsed .vc-account>svg,.vc-shell.collapsed .vc-subnav{display:none}
 .vc-shell.collapsed .vc-brand{justify-content:center;padding:0 7px}
 .vc-shell.collapsed .vc-collapse{margin-left:0;transform:rotate(180deg)}
 .vc-shell.collapsed .vc-find{margin:7px 8px;justify-content:center;padding:0}
@@ -19,7 +19,7 @@
 @media(max-width:800px){
   .vc-collapse{display:none}
   .vc-shell.collapsed .vc-sidebar{width:190px;flex-basis:190px}
-  .vc-shell.collapsed .vc-team,.vc-shell.collapsed .vc-find input,.vc-shell.collapsed .vc-find kbd,.vc-shell.collapsed .vc-nav-item span,.vc-shell.collapsed .vc-nav-chevron,.vc-shell.collapsed .vc-nav-bottom,.vc-shell.collapsed .vc-account div,.vc-shell.collapsed .vc-account>svg{display:block}
+  .vc-shell.collapsed .vc-team,.vc-shell.collapsed .vc-find input,.vc-shell.collapsed .vc-find kbd,.vc-shell.collapsed .vc-nav-item span,.vc-shell.collapsed .vc-nav-chevron,.vc-shell.collapsed .vc-nav-bottom,.vc-shell.collapsed .vc-account div,.vc-shell.collapsed .vc-account>svg,.vc-shell.collapsed .vc-subnav{display:block}
   .vc-shell.collapsed .vc-nav-item{justify-content:flex-start;padding:0 9px}
 }
 
