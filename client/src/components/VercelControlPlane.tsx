@@ -51,7 +51,7 @@ export default function VercelControlPlane({ user, logout }: Props) {
   const content: ReactNode = page === "Overview" ? <Overview onProjects={() => go("Projects")} onOpenProject={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
     : page === "Projects" ? <Projects onOpen={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
     : page === "Deployments" ? <Deployments routeParts={parts} onNavigate={navigate} onOpen={id => navigate(`/dashboard/deployments/${id ?? "current"}`)} />
-    : page === "Domains" ? <Domains routeParts={parts} onNavigate={navigate} /> : page === "Data" ? <Data routeParts={parts} onNavigate={navigate} /> : page === "Security" ? <Security />
+    : page === "Domains" ? <Domains routeParts={parts} onNavigate={navigate} /> : page === "Data" ? <Data routeParts={parts} onNavigate={navigate} /> : page === "Security" ? <Security routeParts={parts} onNavigate={navigate} />
     : page === "Observability" ? <Observability /> : page === "Developer" ? <Developer /> : page === "Billing" ? <Billing /> : <Settings />;
   const initials = (user?.name || user?.email || "U").trim().slice(0, 1).toUpperCase();
   return <div className={`vc-shell ${collapsed ? "collapsed" : ""}`}>
