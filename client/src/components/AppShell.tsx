@@ -44,7 +44,7 @@ export default function AppShell({ user, logout }: AppShellProps) {
   const content = useMemo<ReactNode>(() => {
     if (projectId) {
       if (!project) return <EmptyState title="Loading project" body="The project is being resolved from the live workspace." />;
-      if (!parts[2]) return <Projects routeParts={parts} onOpen={() => undefined} />;
+      if (!parts[2]) return <Projects routeParts={parts} onOpen={() => undefined} onNavigate={navigate} />;
       if (["deployments"].includes(parts[2])) return <Deployments routeParts={["deployments", ...parts.slice(3)]} onNavigate={navigate} onOpen={() => undefined} />;
       if (["domains"].includes(parts[2])) return <Domains routeParts={["domains", ...parts.slice(3)]} onNavigate={navigate} />;
       if (["security"].includes(parts[2])) return <Security routeParts={["security", ...parts.slice(3)]} onNavigate={navigate} />;
@@ -53,7 +53,7 @@ export default function AppShell({ user, logout }: AppShellProps) {
     }
     const page = legacyPageForPath[workspace.path] ?? workspace.path;
     if (page === "overview") return <Overview routeParts={parts} onProjects={() => navigate("/dashboard/projects")} onOpenProject={id => id && navigate(`/dashboard/projects/${id}`)} />;
-    if (page === "projects") return <Projects routeParts={parts} onOpen={id => id && navigate(`/dashboard/projects/${id}`)} />;
+    if (page === "projects") return <Projects routeParts={parts} onOpen={id => id && navigate(`/dashboard/projects/${id}`)} onNavigate={navigate} />;
     if (page === "deployments") return <Deployments routeParts={parts} onNavigate={navigate} onOpen={() => undefined} />;
     if (page === "domains") return <Domains routeParts={parts} onNavigate={navigate} />;
     if (page === "data") return <Data routeParts={["data", workspace.path === "storage" ? "storage-buckets" : workspace.path === "database" ? "databases" : parts[1] ?? "databases"]} onNavigate={navigate} />;
