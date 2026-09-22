@@ -6,6 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { getSupabaseUserClient } from "./_core/supabaseAuth";
 import { getHostingAdapter, type DeploymentEnvironment } from "./adapters/hosting";
+import { getDatabaseAdapter, getStorageAdapter } from "./adapters/data";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -250,6 +251,138 @@ export const appRouter = router({
         await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name } });
         return { configured: true as const, deployment: updated };
       }),
+  }),
+
+  data: router({
+    databaseInstances: router({
+      list: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid().optional(), projectId: z.string().uuid().optional() }).optional())
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+          if (membershipError) throw new Error(membershipError.message);
+          const organizationIds = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+          if (!organizationIds.length) return [];
+          let query = client.from("database_instances").select("id,organization_id,project_id,name,engine,status,tenant_identifier,adapter_ref,error_message,created_by,created_at,updated_at").in("organization_id", organizationIds).order("created_at", { ascending: false }).limit(100);
+          if (input?.projectId) query = query.eq("project_id", input.projectId);
+          const { data, error } = await query;
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      provision: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), name: z.string().trim().min(1).max(120) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          if (input.projectId) {
+            const { data: project, error: projectError } = await client.from("projects").select("id").eq("id", input.projectId).eq("organization_id", input.organizationId).maybeSingle();
+            if (projectError) throw new Error(projectError.message);
+            if (!project) throw new Error("Project does not belong to this organization");
+          }
+          const { data: instance, error } = await client.from("database_instances").insert({ organization_id: input.organizationId, project_id: input.projectId ?? null, name: input.name, created_by: ctx.identity.supabaseId, status: "pending" }).select("id,organization_id,project_id,name,engine,status,tenant_identifier,adapter_ref,error_message,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          const adapter = getDatabaseAdapter();
+          const result = await adapter.provisionDatabase({ databaseInstanceId: instance.id, organizationId: instance.organization_id, projectId: instance.project_id, name: instance.name });
+          if (!result.configured) {
+            const now = new Date().toISOString();
+            const { data: updated, error: updateError } = await client.from("database_instances").update({ status: "failed", error_message: result.reason, updated_at: now }).eq("id", instance.id).select("id,organization_id,project_id,name,engine,status,tenant_identifier,adapter_ref,error_message,created_by,created_at,updated_at").single();
+            if (updateError) throw new Error(updateError.message);
+            await client.from("audit_logs").insert({ organization_id: instance.organization_id, actor_id: ctx.identity.supabaseId, action: "database_instance.provision", resource_type: "database_instance", resource_id: instance.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason } });
+            return { configured: false as const, reason: result.reason, instance: updated };
+          }
+          const { data: updated, error: updateError } = await client.from("database_instances").update({ status: result.status, adapter_ref: result.adapterRef, tenant_identifier: result.tenantIdentifier ?? null, updated_at: new Date().toISOString() }).eq("id", instance.id).select("id,organization_id,project_id,name,engine,status,tenant_identifier,adapter_ref,error_message,created_by,created_at,updated_at").single();
+          if (updateError) throw new Error(updateError.message);
+          await client.from("audit_logs").insert({ organization_id: instance.organization_id, actor_id: ctx.identity.supabaseId, action: "database_instance.provision", resource_type: "database_instance", resource_id: instance.id, metadata: { adapter: adapter.name, adapterRef: result.adapterRef } });
+          return { configured: true as const, instance: updated };
+        }),
+    }),
+
+    storageBuckets: router({
+      list: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid().optional(), projectId: z.string().uuid().optional() }).optional())
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+          if (membershipError) throw new Error(membershipError.message);
+          const organizationIds = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+          if (!organizationIds.length) return [];
+          let query = client.from("storage_buckets").select("id,organization_id,project_id,name,visibility,status,region,adapter_ref,error_message,created_by,created_at,updated_at").in("organization_id", organizationIds).order("created_at", { ascending: false }).limit(100);
+          if (input?.projectId) query = query.eq("project_id", input.projectId);
+          const { data, error } = await query;
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      provision: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), name: z.string().trim().min(1).max(120), visibility: z.enum(["private", "public"]), region: z.string().trim().min(1).max(80).nullable().optional() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          if (input.projectId) {
+            const { data: project, error: projectError } = await client.from("projects").select("id").eq("id", input.projectId).eq("organization_id", input.organizationId).maybeSingle();
+            if (projectError) throw new Error(projectError.message);
+            if (!project) throw new Error("Project does not belong to this organization");
+          }
+          const { data: bucket, error } = await client.from("storage_buckets").insert({ organization_id: input.organizationId, project_id: input.projectId ?? null, name: input.name, visibility: input.visibility, region: input.region ?? null, created_by: ctx.identity.supabaseId, status: "pending" }).select("id,organization_id,project_id,name,visibility,status,region,adapter_ref,error_message,created_by,created_at,updated_at").single();
+          if (error) throw new Error(error.message);
+          const adapter = getStorageAdapter();
+          const result = await adapter.provisionBucket({ bucketId: bucket.id, organizationId: bucket.organization_id, projectId: bucket.project_id, name: bucket.name, visibility: bucket.visibility, region: bucket.region });
+          if (!result.configured) {
+            const { data: updated, error: updateError } = await client.from("storage_buckets").update({ status: "failed", error_message: result.reason, updated_at: new Date().toISOString() }).eq("id", bucket.id).select("id,organization_id,project_id,name,visibility,status,region,adapter_ref,error_message,created_by,created_at,updated_at").single();
+            if (updateError) throw new Error(updateError.message);
+            await client.from("audit_logs").insert({ organization_id: bucket.organization_id, actor_id: ctx.identity.supabaseId, action: "storage_bucket.provision", resource_type: "storage_bucket", resource_id: bucket.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason } });
+            return { configured: false as const, reason: result.reason, bucket: updated };
+          }
+          const { data: updated, error: updateError } = await client.from("storage_buckets").update({ status: result.status, adapter_ref: result.adapterRef, updated_at: new Date().toISOString() }).eq("id", bucket.id).select("id,organization_id,project_id,name,visibility,status,region,adapter_ref,error_message,created_by,created_at,updated_at").single();
+          if (updateError) throw new Error(updateError.message);
+          await client.from("audit_logs").insert({ organization_id: bucket.organization_id, actor_id: ctx.identity.supabaseId, action: "storage_bucket.provision", resource_type: "storage_bucket", resource_id: bucket.id, metadata: { adapter: adapter.name, adapterRef: result.adapterRef } });
+          return { configured: true as const, bucket: updated };
+        }),
+    }),
+
+    backups: router({
+      list: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid().optional(), resourceType: z.enum(["database", "storage"]).optional() }).optional())
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+          if (membershipError) throw new Error(membershipError.message);
+          const organizationIds = (memberships ?? []).map(row => row.organization_id).filter(id => !input?.organizationId || id === input.organizationId);
+          if (!organizationIds.length) return [];
+          let query = client.from("backups").select("id,organization_id,resource_type,database_instance_id,storage_bucket_id,status,adapter_ref,size_bytes,error_message,started_at,completed_at,created_by,created_at").in("organization_id", organizationIds).order("created_at", { ascending: false }).limit(100);
+          if (input?.resourceType) query = query.eq("resource_type", input.resourceType);
+          const { data, error } = await query;
+          if (error) throw new Error(error.message);
+          return data ?? [];
+        }),
+      create: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), resourceType: z.enum(["database", "storage"]), resourceId: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const resourceTable = input.resourceType === "database" ? "database_instances" : "storage_buckets";
+          const { data: resource, error: resourceError } = await client.from(resourceTable).select("id,organization_id").eq("id", input.resourceId).eq("organization_id", input.organizationId).maybeSingle();
+          if (resourceError) throw new Error(resourceError.message);
+          if (!resource) throw new Error("Resource not found in this organization");
+          const resourceFields = input.resourceType === "database" ? { database_instance_id: input.resourceId, storage_bucket_id: null } : { database_instance_id: null, storage_bucket_id: input.resourceId };
+          const { data: backup, error } = await client.from("backups").insert({ organization_id: input.organizationId, resource_type: input.resourceType, ...resourceFields, created_by: ctx.identity.supabaseId, status: "pending" }).select("id,organization_id,resource_type,database_instance_id,storage_bucket_id,status,adapter_ref,size_bytes,error_message,started_at,completed_at,created_by,created_at").single();
+          if (error) throw new Error(error.message);
+          const adapter = input.resourceType === "database" ? getDatabaseAdapter() : getStorageAdapter();
+          const result = await adapter.createBackup({ backupId: backup.id, organizationId: backup.organization_id, resourceType: input.resourceType, resourceId: input.resourceId });
+          if (!result.configured) {
+            const { data: updated, error: updateError } = await client.from("backups").update({ status: "failed", error_message: result.reason }).eq("id", backup.id).select("id,organization_id,resource_type,database_instance_id,storage_bucket_id,status,adapter_ref,size_bytes,error_message,started_at,completed_at,created_by,created_at").single();
+            if (updateError) throw new Error(updateError.message);
+            await client.from("audit_logs").insert({ organization_id: backup.organization_id, actor_id: ctx.identity.supabaseId, action: "backup.create", resource_type: "backup", resource_id: backup.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason, resourceType: input.resourceType } });
+            return { configured: false as const, reason: result.reason, backup: updated };
+          }
+          const { data: updated, error: updateError } = await client.from("backups").update({ status: result.status, adapter_ref: result.adapterRef, size_bytes: result.sizeBytes ?? null }).eq("id", backup.id).select("id,organization_id,resource_type,database_instance_id,storage_bucket_id,status,adapter_ref,size_bytes,error_message,started_at,completed_at,created_by,created_at").single();
+          if (updateError) throw new Error(updateError.message);
+          await client.from("audit_logs").insert({ organization_id: backup.organization_id, actor_id: ctx.identity.supabaseId, action: "backup.create", resource_type: "backup", resource_id: backup.id, metadata: { adapter: adapter.name, adapterRef: result.adapterRef, resourceType: input.resourceType } });
+          return { configured: true as const, backup: updated };
+        }),
+    }),
   }),
 
   account: router({
