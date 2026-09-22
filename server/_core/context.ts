@@ -1,5 +1,6 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
-import { authenticateApiKeyRequest, authenticateSupabaseRequest, type SupabaseIdentity } from "./supabaseAuth";
+import { TRPCError } from "@trpc/server";
+import { authenticateApiKeyRequest, authenticateSupabaseRequest, hasApiKeyHeader, type SupabaseIdentity } from "./supabaseAuth";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -17,8 +18,14 @@ export async function createContext(
     identity = await authenticateApiKeyRequest(opts.req);
     if (!identity) identity = await authenticateSupabaseRequest(opts.req);
   } catch {
-    // Authentication is optional for public procedures.
+    if (hasApiKeyHeader(opts.req)) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid or expired API key" });
+    }
     identity = null;
+  }
+
+  if (hasApiKeyHeader(opts.req) && !identity) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid or expired API key" });
   }
 
   return {

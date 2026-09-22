@@ -60,6 +60,10 @@ function readApiKey(req: Request): string | null {
   return null;
 }
 
+export function hasApiKeyHeader(req: Request): boolean {
+  return readApiKey(req) !== null;
+}
+
 export async function authenticateApiKeyRequest(req: Request): Promise<SupabaseIdentity | null> {
   const rawKey = readApiKey(req);
   if (!rawKey || !supabaseAdmin) return null;
