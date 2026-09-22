@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { Bell, ChevronDown, ChevronRight, CircleHelp, Menu, MoreHorizontal, X } from "lucide-react";
 import "@/styles/control-plane.css";
+import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from "@/components/ui/command";
 import {
   dashboardHref,
   dashboardItemFromSlug,
@@ -35,11 +36,31 @@ function SectionTabs({ item, childPath, navigate }: { item: DashboardNavItem; ch
   </nav>;
 }
 
+function CommandPalette({ open, onOpenChange, navigate }: { open: boolean; onOpenChange: (open: boolean) => void; navigate: (href: string) => void }) {
+  return <CommandDialog open={open} onOpenChange={onOpenChange}>
+    <CommandInput placeholder="Search Cloud Wai…" />
+    <CommandList>
+      <CommandEmpty>No matching route.</CommandEmpty>
+      <CommandGroup heading="Navigate">
+        {dashboardNav.flatMap(item => [
+          <CommandItem key={item.path} value={item.label} onSelect={() => { navigate(dashboardHref(item)); onOpenChange(false); }}>
+            <item.icon size={15} /><span>{item.label}</span><CommandShortcut>Section</CommandShortcut>
+          </CommandItem>,
+          ...item.children.map(child => <CommandItem key={`${item.path}/${child.path}`} value={`${item.label} ${child.label}`} onSelect={() => { navigate(dashboardHref(item, child)); onOpenChange(false); }}>
+            <ChevronRight size={14} /><span>{item.label} / {child.label}</span>
+          </CommandItem>),
+        ])}
+      </CommandGroup>
+    </CommandList>
+  </CommandDialog>;
+}
+
 export default function VercelControlPlane({ user, logout }: Props) {
   const [location, setLocation] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [expanded, setExpanded] = useState<string[]>(["Overview"]);
   const parts = routeParts(location);
   const item = dashboardItemFromSlug(parts[0]);
@@ -47,6 +68,16 @@ export default function VercelControlPlane({ user, logout }: Props) {
   const page = dashboardPageFromSlug(parts[0]);
   const go = (target: DashboardPage) => { setLocation(`/dashboard/${dashboardPath(target)}`); setMobile(false); window.scrollTo({ top: 0 }); };
   const navigate = (href: string) => { setLocation(href); setMobile(false); window.scrollTo({ top: 0 }); };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(value => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const toggleGroup = (label: string) => setExpanded(value => value.includes(label) ? value.filter(entry => entry !== label) : [...value, label]);
   const content: ReactNode = page === "Overview" ? <Overview onProjects={() => go("Projects")} onOpenProject={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
     : page === "Projects" ? <Projects onOpen={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
@@ -64,6 +95,7 @@ export default function VercelControlPlane({ user, logout }: Props) {
       <div className="vc-nav-bottom"><span className="vc-nav-note">Connected control plane</span></div>
       <div className="vc-account-wrap"><button className="vc-account" onClick={() => setAccountOpen(value => !value)}><span>{initials}</span><div><strong>{user?.name || "Account"}</strong><small>Account menu</small></div><MoreHorizontal size={15} /></button>{accountOpen && <div className="vc-account-menu"><button onClick={() => go("Settings")}>Account Settings</button><button onClick={logout}>Sign out</button></div>}</div>
     </aside>
-    <main className="vc-main"><header className="vc-topbar"><button className="vc-mobile-menu" onClick={() => setMobile(true)} aria-label="Open menu"><Menu size={19} /></button><div className="vc-top-crumb"><button onClick={() => go("Overview")}>Cloud Wai</button><ChevronRight size={13} /><button onClick={() => go(page)}>{page}</button>{child && <><ChevronRight size={13} /><strong>{child.label}</strong></>}</div><div className="vc-top-actions"><button className="vc-top-icon" aria-label="Notifications"><Bell size={16} /></button><button className="vc-top-icon" onClick={() => go("Settings")} aria-label="Help"><CircleHelp size={16} /></button><button className="vc-avatar" onClick={() => setAccountOpen(value => !value)}>{initials}</button></div></header><div className="vc-content"><SectionTabs item={item} childPath={child?.path} navigate={navigate} />{content}</div></main>
+    <main className="vc-main"><header className="vc-topbar"><button className="vc-mobile-menu" onClick={() => setMobile(true)} aria-label="Open menu"><Menu size={19} /></button><div className="vc-top-crumb"><button onClick={() => go("Overview")}>Cloud Wai</button><ChevronRight size={13} /><button onClick={() => go(page)}>{page}</button>{child && <><ChevronRight size={13} /><strong>{child.label}</strong></>}</div><div className="vc-top-actions"><button className="vc-top-icon" onClick={() => setCommandOpen(true)} aria-label="Open command palette"><span className="vc-command-hint">⌘K</span></button><button className="vc-top-icon" aria-label="Notifications"><Bell size={16} /></button><button className="vc-top-icon" onClick={() => go("Settings")} aria-label="Help"><CircleHelp size={16} /></button><button className="vc-avatar" onClick={() => setAccountOpen(value => !value)}>{initials}</button></div></header><div className="vc-content"><SectionTabs item={item} childPath={child?.path} navigate={navigate} />{content}</div></main>
+    <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} navigate={navigate} />
   </div>;
 }
