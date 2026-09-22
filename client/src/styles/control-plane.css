@@ -22,3 +22,24 @@
   .vc-shell.collapsed .vc-team,.vc-shell.collapsed .vc-find input,.vc-shell.collapsed .vc-find kbd,.vc-shell.collapsed .vc-nav-item span,.vc-shell.collapsed .vc-nav-chevron,.vc-shell.collapsed .vc-nav-bottom,.vc-shell.collapsed .vc-account div,.vc-shell.collapsed .vc-account>svg{display:block}
   .vc-shell.collapsed .vc-nav-item{justify-content:flex-start;padding:0 9px}
 }
+
+.vc-subnav{padding:2px 0 5px 28px;border-left:1px solid #ececec;margin:0 8px 3px 14px}
+.vc-subnav button{width:100%;height:27px;border:0;background:transparent;color:#777;text-align:left;display:flex;align-items:center;justify-content:space-between;padding:0 8px;font:11px inherit;border-radius:4px;cursor:pointer}
+.vc-subnav button:hover{background:#f5f5f5;color:#111}
+.vc-account-wrap{position:relative}
+.vc-account-menu{position:absolute;left:8px;right:8px;bottom:47px;border:1px solid #ddd;border-radius:7px;background:#fff;box-shadow:0 8px 30px rgba(0,0,0,.10);padding:5px;z-index:60}
+.vc-account-menu button{width:100%;height:31px;border:0;background:#fff;border-radius:5px;text-align:left;padding:0 9px;font:12px inherit;cursor:pointer}
+.vc-account-menu button:hover{background:#f5f5f5}
+.vc-account-menu button:last-child{color:#b42318;border-top:1px solid #eee;margin-top:4px;padding-top:4px;height:35px}
+.vc-settings-tabs{display:flex;gap:3px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:14px}
+.vc-settings-tabs button{border:1px solid transparent;background:#fff;border-radius:5px;padding:7px 10px;font:12px inherit;color:#666;cursor:pointer}
+.vc-settings-tabs button:hover{background:#f7f7f7}
+.vc-settings-tabs button.active{border-color:#ddd;background:#f5f5f5;color:#111;font-weight:600}
+.vc-settings-editor{padding:22px}
+.vc-settings-editor h2{font-size:17px;margin:5px 0}
+.vc-settings-editor p{color:#666;line-height:1.6;max-width:680px}
+.vc-settings-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.vc-settings-fields label{font-size:11px;color:#666}
+.vc-settings-fields input{display:block;width:100%;height:34px;margin-top:6px;border:1px solid #ddd;border-radius:6px;padding:0 9px;font:12px inherit;background:#fafafa;box-sizing:border-box}
+.vc-settings-project nav button.active{background:#f0f0f0;color:#111;font-weight:600}
+@media(max-width:800px){.vc-settings-fields{grid-template-columns:1fr}.vc-subnav{padding-left:23px}}
