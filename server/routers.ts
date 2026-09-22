@@ -296,6 +296,55 @@ export const appRouter = router({
     }),
   }),
 
+  developer: router({
+    connections: protectedProcedure.query(async ({ ctx }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(row => row.organization_id);
+      if (!ids.length) return [];
+      const { data, error } = await client.from("developer_connections").select("id,organization_id,provider,status,account_ref,error_message,created_by,created_at,updated_at").in("organization_id", ids).order("provider");
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+    connect: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), provider: z.enum(["github", "gitlab", "bitbucket"]), accountRef: z.string().trim().min(1).max(255).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data, error } = await client.from("developer_connections").upsert({ organization_id: input.organizationId, provider: input.provider, account_ref: input.accountRef ?? null, status: "not_configured", error_message: "OAuth provider adapter is not configured; connection intent saved.", created_by: ctx.identity.supabaseId, updated_at: new Date().toISOString() }, { onConflict: "organization_id,provider" }).select("id,organization_id,provider,status,account_ref,error_message,created_by,created_at,updated_at").single();
+      if (error) throw new Error(error.message);
+      await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "developer.connection.create", resource_type: "developer_connection", resource_id: data.id, result: "success", metadata: { provider: input.provider } });
+      return data;
+    }),
+    repositories: protectedProcedure.query(async ({ ctx }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data: memberships, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", ctx.identity.supabaseId).limit(100);
+      if (membershipError) throw new Error(membershipError.message);
+      const ids = (memberships ?? []).map(row => row.organization_id);
+      if (!ids.length) return [];
+      const { data, error } = await client.from("developer_repositories").select("id,organization_id,connection_id,full_name,default_branch,webhook_status,webhook_ref,created_by,created_at,updated_at").in("organization_id", ids).order("updated_at", { ascending: false });
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    }),
+    addRepository: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), connectionId: z.string().uuid(), fullName: z.string().trim().min(1).max(255), defaultBranch: z.string().trim().min(1).max(255).default("main") })).mutation(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data, error } = await client.from("developer_repositories").insert({ organization_id: input.organizationId, connection_id: input.connectionId, full_name: input.fullName, default_branch: input.defaultBranch, webhook_status: "not_configured", created_by: ctx.identity.supabaseId }).select("id,organization_id,connection_id,full_name,default_branch,webhook_status,webhook_ref,created_by,created_at,updated_at").single();
+      if (error) throw new Error(error.message);
+      await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "developer.repository.add", resource_type: "developer_repository", resource_id: data.id, metadata: { fullName: input.fullName } });
+      return data;
+    }),
+    webhook: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+      const client = getSupabaseUserClient(ctx.req);
+      if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+      const { data, error } = await client.from("developer_repositories").update({ webhook_status: "not_configured", updated_at: new Date().toISOString() }).eq("id", input.id).select("id,organization_id,webhook_status,webhook_ref").single();
+      if (error) throw new Error(error.message);
+      await client.from("audit_logs").insert({ organization_id: data.organization_id, actor_id: ctx.identity.supabaseId, action: "developer.webhook.configure", resource_type: "developer_repository", resource_id: data.id, result: "failure", metadata: { reason: "Webhook adapter is not configured" } });
+      return { configured: false as const, reason: "Webhook adapter is not configured.", repository: data };
+    }),
+  }),
+
   billing: router({
     status: protectedProcedure.query(() => getBillingAdapter().status()),
   }),
