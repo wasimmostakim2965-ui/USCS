@@ -2,18 +2,18 @@ export type SecurityLevel = "none" | "normal" | "high" | "ultimate";
 
 export type EdgeEnforcementConfig = {
   level: SecurityLevel;
-  firewall: { enabled: boolean; denyPrivateNetworks: boolean };
+  firewall: { enabled: boolean; denyPrivateNetworks: boolean; rules: Array<{ field: "ip" | "country" | "path"; operator: "equals" | "contains" | "in"; value: string; action: "allow" | "deny" }> };
   waf: { enabled: boolean; owaspCoreRules: boolean; sensitivity: "off" | "balanced" | "strict" };
-  rateLimit: { enabled: boolean; requestsPerMinute: number };
+  rateLimit: { enabled: boolean; requestsPerMinute: number; rules: Array<{ path: string; method: "ANY" | "GET" | "POST" | "PUT" | "DELETE"; threshold: number; windowSeconds: number; action: "throttle" | "block" }> };
   botProtection: { enabled: boolean; challengeThreshold: "off" | "suspicious" | "aggressive" };
   tls: { minimumVersion: "TLSv1.2" | "TLSv1.3"; hsts: boolean; securityHeaders: boolean };
 };
 
 const configs: Record<SecurityLevel, EdgeEnforcementConfig> = {
-  none: { level: "none", firewall: { enabled: false, denyPrivateNetworks: false }, waf: { enabled: false, owaspCoreRules: false, sensitivity: "off" }, rateLimit: { enabled: false, requestsPerMinute: 0 }, botProtection: { enabled: false, challengeThreshold: "off" }, tls: { minimumVersion: "TLSv1.2", hsts: false, securityHeaders: false } },
-  normal: { level: "normal", firewall: { enabled: true, denyPrivateNetworks: true }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "balanced" }, rateLimit: { enabled: true, requestsPerMinute: 600 }, botProtection: { enabled: true, challengeThreshold: "suspicious" }, tls: { minimumVersion: "TLSv1.2", hsts: true, securityHeaders: true } },
-  high: { level: "high", firewall: { enabled: true, denyPrivateNetworks: true }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "strict" }, rateLimit: { enabled: true, requestsPerMinute: 240 }, botProtection: { enabled: true, challengeThreshold: "suspicious" }, tls: { minimumVersion: "TLSv1.3", hsts: true, securityHeaders: true } },
-  ultimate: { level: "ultimate", firewall: { enabled: true, denyPrivateNetworks: true }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "strict" }, rateLimit: { enabled: true, requestsPerMinute: 60 }, botProtection: { enabled: true, challengeThreshold: "aggressive" }, tls: { minimumVersion: "TLSv1.3", hsts: true, securityHeaders: true } },
+  none: { level: "none", firewall: { enabled: false, denyPrivateNetworks: false, rules: [] }, waf: { enabled: false, owaspCoreRules: false, sensitivity: "off" }, rateLimit: { enabled: false, requestsPerMinute: 0, rules: [] }, botProtection: { enabled: false, challengeThreshold: "off" }, tls: { minimumVersion: "TLSv1.2", hsts: false, securityHeaders: false } },
+  normal: { level: "normal", firewall: { enabled: true, denyPrivateNetworks: true, rules: [] }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "balanced" }, rateLimit: { enabled: true, requestsPerMinute: 600, rules: [] }, botProtection: { enabled: true, challengeThreshold: "suspicious" }, tls: { minimumVersion: "TLSv1.2", hsts: true, securityHeaders: true } },
+  high: { level: "high", firewall: { enabled: true, denyPrivateNetworks: true, rules: [] }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "strict" }, rateLimit: { enabled: true, requestsPerMinute: 240, rules: [] }, botProtection: { enabled: true, challengeThreshold: "suspicious" }, tls: { minimumVersion: "TLSv1.3", hsts: true, securityHeaders: true } },
+  ultimate: { level: "ultimate", firewall: { enabled: true, denyPrivateNetworks: true, rules: [] }, waf: { enabled: true, owaspCoreRules: true, sensitivity: "strict" }, rateLimit: { enabled: true, requestsPerMinute: 60, rules: [] }, botProtection: { enabled: true, challengeThreshold: "aggressive" }, tls: { minimumVersion: "TLSv1.3", hsts: true, securityHeaders: true } },
 };
 
 export function resolveSecurityPolicy(level: SecurityLevel): EdgeEnforcementConfig {

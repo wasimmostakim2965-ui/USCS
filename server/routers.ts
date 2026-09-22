@@ -12,7 +12,16 @@ import { resolveSecurityPolicy } from "./securityPolicy";
 import { getBillingAdapter } from "./adapters/billing";
 import { getSecurityEdgeAdapter } from "./adapters/securityEdge";
 import { getPlatformAdapters } from "./adapters/platform";
-import type { SecurityLevel } from "./securityPolicy";
+import type { EdgeEnforcementConfig, SecurityLevel } from "./securityPolicy";
+
+const edgeConfigSchema = z.object({
+  level: z.enum(["none", "normal", "high", "ultimate"]),
+  firewall: z.object({ enabled: z.boolean(), denyPrivateNetworks: z.boolean(), rules: z.array(z.object({ field: z.enum(["ip", "country", "path"]), operator: z.enum(["equals", "contains", "in"]), value: z.string().trim().min(1).max(255), action: z.enum(["allow", "deny"]) })).max(100) }),
+  waf: z.object({ enabled: z.boolean(), owaspCoreRules: z.boolean(), sensitivity: z.enum(["off", "balanced", "strict"]) }),
+  rateLimit: z.object({ enabled: z.boolean(), requestsPerMinute: z.number().int().min(0).max(1_000_000), rules: z.array(z.object({ path: z.string().trim().min(1).max(255), method: z.enum(["ANY", "GET", "POST", "PUT", "DELETE"]), threshold: z.number().int().positive().max(1_000_000), windowSeconds: z.number().int().positive().max(86400), action: z.enum(["throttle", "block"]) })).max(100) }),
+  botProtection: z.object({ enabled: z.boolean(), challengeThreshold: z.enum(["off", "suspicious", "aggressive"]) }),
+  tls: z.object({ minimumVersion: z.enum(["TLSv1.2", "TLSv1.3"]), hsts: z.boolean(), securityHeaders: z.boolean() }),
+});
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -180,6 +189,37 @@ export const appRouter = router({
         await client.from("security_policy_events").insert({ organization_id: input.organizationId, security_policy_id: policy.id, event_type: eventType, actor_id: ctx.identity.supabaseId, desired_config: policy.desired_config, applied_config: result.status === "ready" ? policy.desired_config : policy.applied_config, error_message: result.status === "ready" ? null : result.message });
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "security_policy.apply", resource_type: "security_policy", resource_id: policy.id, result: result.status === "error" ? "failure" : "success", metadata: { adapter: adapter.name, status, message: result.message } });
         return { policy: updated, adapter: adapter.name, status, message: result.message };
+      }),
+    updateConfig: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), config: edgeConfigSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin", "security"].includes(membership.role)) throw new Error("Security policy changes require owner, admin, or security role");
+        const { data: existing, error: existingError } = await client.from("security_policies").select("id,applied_config,enforcement_version").eq("organization_id", input.organizationId).is("project_id", input.projectId ?? null).maybeSingle();
+        if (existingError) throw new Error(existingError.message);
+        const desiredConfig = input.config as EdgeEnforcementConfig;
+        const payload = { organization_id: input.organizationId, project_id: input.projectId ?? null, security_level: input.config.level, desired_config: desiredConfig, auto_setup: true, updated_at: new Date().toISOString(), created_by: ctx.identity.supabaseId };
+        const query = existing ? client.from("security_policies").update(payload).eq("id", existing.id) : client.from("security_policies").insert(payload);
+        const { data: policy, error } = await query.select("id,organization_id,project_id,security_level,auto_setup,enforcement_version,desired_config,applied_config,last_applied_at,last_apply_status,last_apply_error,created_by,created_at,updated_at").single();
+        if (error) throw new Error(error.message);
+        await client.from("security_policy_events").insert({ organization_id: input.organizationId, security_policy_id: policy.id, event_type: "previewed", actor_id: ctx.identity.supabaseId, desired_config: desiredConfig, applied_config: existing?.applied_config ?? {} });
+        await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "security_policy.update_config", resource_type: "security_policy", resource_id: policy.id, metadata: { level: input.config.level, firewallRules: input.config.firewall.rules.length, rateLimitRules: input.config.rateLimit.rules.length } });
+        return policy;
+      }),
+    edgeEvents: protectedProcedure
+      .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid().nullable().optional(), eventType: z.enum(["waf", "firewall", "rate_limit", "bot", "ddos", "tls"]).optional() }))
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        let query = client.from("security_edge_events").select("id,organization_id,project_id,event_type,action,source,path,metadata,created_at").eq("organization_id", input.organizationId).order("created_at", { ascending: false }).limit(100);
+        if (input.projectId) query = query.eq("project_id", input.projectId);
+        if (input.eventType) query = query.eq("event_type", input.eventType);
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return data ?? [];
       }),
   }),
 

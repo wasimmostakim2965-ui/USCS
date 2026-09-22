@@ -21,5 +21,10 @@ describe("security foundation", () => {
     expect(migration).toContain("security_policy_events");
     expect(router).toContain('action: "security_policy.set_level"');
     expect(router).toContain('action: "security_policy.apply"');
+    expect(router).toContain('action: "security_policy.update_config"');
+    expect(router).toContain("security_edge_events");
+    const edgeEventsMigration = readFileSync(new URL("../supabase/migrations/20260922200000_security_edge_events.sql", import.meta.url), "utf8");
+    expect(edgeEventsMigration).toContain("alter table public.security_edge_events enable row level security");
+    expect(edgeEventsMigration).toContain("event_type in ('waf', 'firewall', 'rate_limit', 'bot', 'ddos', 'tls')");
   });
 });
