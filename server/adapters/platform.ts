@@ -5,13 +5,14 @@ export type DeploymentRequest = ProjectRef & { sourceRef: string; environment: "
 export type DatabaseRequest = ProjectRef & { name: string; engine: "postgres" };
 export type StorageRequest = ProjectRef & { name: string; visibility: "private" | "public" };
 export type SecurityEdgeConfig = ProjectRef & { desiredConfig: Record<string, unknown> };
+export type SecurityEdgeArtifactSet = Record<string, string>;
 
 export interface HostingAdapter { deploy(input: DeploymentRequest): Promise<AdapterResult<{ deploymentId: string }>>; rollback(input: ProjectRef & { deploymentId: string }): Promise<AdapterResult<{ deploymentId: string }>>; }
 export interface DatabaseAdapter { provision(input: DatabaseRequest): Promise<AdapterResult<{ instanceId: string; endpoint: string }>>; }
 export interface StorageAdapter { provision(input: StorageRequest): Promise<AdapterResult<{ bucketId: string }>>; }
 export interface DnsAdapter { listRecords(input: { domainId: string }): Promise<AdapterResult<Array<{ type: string; name: string; value: string }>>>; applyRecords(input: { domainId: string; records: Array<{ type: string; name: string; value: string; ttl?: number }> }): Promise<AdapterResult<{ applied: number }>>; }
 export interface EmailAdapter { send(input: { to: string; subject: string; text: string }): Promise<AdapterResult<{ messageId: string }>>; }
-export interface SecurityEdgeAdapter { preview(input: SecurityEdgeConfig): Promise<AdapterResult<{ diff: Array<{ path: string; before: unknown; after: unknown }> }>>; apply(input: SecurityEdgeConfig): Promise<AdapterResult<{ appliedAt: string; version: number }>>; }
+export interface SecurityEdgeAdapter { render(input: SecurityEdgeConfig): Promise<AdapterResult<SecurityEdgeArtifactSet>>; preview(input: SecurityEdgeConfig): Promise<AdapterResult<{ diff: Array<{ path: string; before: unknown; after: unknown }>; artifacts?: SecurityEdgeArtifactSet }>>; apply(input: SecurityEdgeConfig): Promise<AdapterResult<{ appliedAt: string; version: number }>>; }
 
 class NotConfiguredBase {
   constructor(public readonly name: string) {}
@@ -35,6 +36,7 @@ export class NotConfiguredEmailAdapter extends NotConfiguredBase implements Emai
   async send(_input: { to: string; subject: string; text: string }) { return this.notConfigured<{ messageId: string }>("Self-hosted email engine is not configured."); }
 }
 export class NotConfiguredSecurityEdgeAdapter extends NotConfiguredBase implements SecurityEdgeAdapter {
+  async render(_input: SecurityEdgeConfig) { return this.notConfigured<SecurityEdgeArtifactSet>("Self-hosted security edge is not configured."); }
   async preview(_input: SecurityEdgeConfig) { return this.notConfigured<{ diff: Array<{ path: string; before: unknown; after: unknown }> }>("Self-hosted security edge is not configured."); }
   async apply(_input: SecurityEdgeConfig) { return this.notConfigured<{ appliedAt: string; version: number }>("Self-hosted security edge is not configured."); }
 }
