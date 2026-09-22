@@ -76,8 +76,25 @@ export class OpenSourceSecurityEdgeAdapter implements SecurityEdgeAdapter {
 
   async apply(input: SecurityEdgeRequest) {
     const artifacts = renderSecurityEdgeArtifacts(input);
+    const edgeApiUrl = process.env.EDGE_API_URL;
+    const edgeApiToken = process.env.EDGE_API_TOKEN;
+    if (edgeApiUrl && edgeApiToken) {
+      try {
+        const response = await fetch(`${edgeApiUrl.replace(/\/$/, "")}/v1/apply`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${edgeApiToken}` },
+          body: JSON.stringify({ organizationId: input.organizationId, projectId: input.projectId, artifacts }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) return { status: "error" as const, data: null, message: `Edge API rejected configuration (${response.status}).` };
+        const body = await response.json() as { version?: number };
+        return { status: "ready" as const, data: { appliedAt: new Date().toISOString(), version: body.version ?? 1 }, message: "Rendered edge artifacts applied through the configured edge API." };
+      } catch (error) {
+        return { status: "error" as const, data: null, message: `Edge API apply failed: ${error instanceof Error ? error.message : "unknown error"}` };
+      }
+    }
     if (!process.env.EDGE_HOST) {
-      return { status: "not_configured" as const, data: null, message: "Security edge artifacts are rendered, but EDGE_HOST is not configured; no remote mutation was attempted." };
+      return { status: "not_configured" as const, data: null, message: "Security edge artifacts are rendered, but EDGE_API_URL/EDGE_HOST is not configured; no remote mutation was attempted." };
     }
     // Remote application is deliberately gated behind an explicitly provisioned
     // edge host. The concrete SSH/API transport is the only code that may mutate
