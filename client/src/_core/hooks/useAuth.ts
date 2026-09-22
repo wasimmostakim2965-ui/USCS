@@ -108,6 +108,15 @@ export function useAuth(options?: UseAuthOptions) {
     };
   }, []);
 
+  // Provision the tenant/workspace outside Supabase's auth-state callback.
+  // This is a recovery path for accounts created before the auth trigger
+  // completed successfully; the database function derives identity from the
+  // caller's JWT and cannot provision another user.
+  useEffect(() => {
+    if (!browserUser || !supabase) return;
+    void supabase.rpc("ensure_current_user_workspace");
+  }, [browserUser?.id]);
+
   // Invalidate the server-auth query only after the Supabase callback has
   // returned. This avoids starting another Supabase-backed request while the
   // auth state lock is held.
