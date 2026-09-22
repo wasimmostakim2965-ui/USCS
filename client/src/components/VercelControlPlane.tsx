@@ -50,7 +50,7 @@ export default function VercelControlPlane({ user, logout }: Props) {
   const toggleGroup = (label: string) => setExpanded(value => value.includes(label) ? value.filter(entry => entry !== label) : [...value, label]);
   const content: ReactNode = page === "Overview" ? <Overview onProjects={() => go("Projects")} onOpenProject={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
     : page === "Projects" ? <Projects onOpen={id => navigate(`/dashboard/projects/${id ?? "new"}`)} />
-    : page === "Deployments" ? <Deployments onOpen={id => navigate(`/dashboard/deployments/${id ?? "current"}`)} />
+    : page === "Deployments" ? <Deployments routeParts={parts} onNavigate={navigate} onOpen={id => navigate(`/dashboard/deployments/${id ?? "current"}`)} />
     : page === "Domains" ? <Domains /> : page === "Data" ? <Data /> : page === "Security" ? <Security />
     : page === "Observability" ? <Observability /> : page === "Developer" ? <Developer /> : page === "Billing" ? <Billing /> : <Settings />;
   const initials = (user?.name || user?.email || "U").trim().slice(0, 1).toUpperCase();

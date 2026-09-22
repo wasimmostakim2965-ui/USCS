@@ -1,8 +1,47 @@
-import { Rocket } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, Check, GitBranch, LockKeyhole, Rocket, RotateCcw, TerminalSquare } from "lucide-react";
+import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Empty, Header, Status } from "./shared";
-export default function Deployments({ onOpen }: { onOpen?: (id?: string) => void }) {
+import { ComingSoon, Empty, Header, Stat, Status } from "./shared";
+
+const environments = ["all", "production", "preview", "development"] as const;
+type DeploymentTab = "summary" | "build-logs" | "source" | "rollback-history";
+const isUuid = (value: string | undefined): value is string => Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+
+export default function Deployments({ routeParts, onNavigate, onOpen }: { routeParts?: string[]; onNavigate?: (href: string) => void; onOpen?: (id?: string) => void }) {
+  const deploymentId = routeParts?.[1];
+  if (isUuid(deploymentId)) return <DeploymentDetail id={deploymentId} tab={(routeParts?.[2] as DeploymentTab | undefined) ?? "summary"} onNavigate={onNavigate} />;
+  return <DeploymentList selectedEnvironment={routeParts?.[1] as typeof environments[number] | undefined} onOpen={onOpen} onNavigate={onNavigate} />;
+}
+
+function DeploymentList({ selectedEnvironment, onOpen, onNavigate }: { selectedEnvironment?: string; onOpen?: (id?: string) => void; onNavigate?: (href: string) => void }) {
+  const environment = environments.includes(selectedEnvironment as typeof environments[number]) ? selectedEnvironment : "all";
   const query = trpc.deployments.list.useQuery(undefined, { retry: false });
-  const items = query.data ?? [];
-  return <><Header title="Deployments" /><div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div>{query.isLoading ? <div className="vc-loading-row">Loading deployment records…</div> : items.length ? items.map(item => <button className="vc-list-row" key={item.id} onClick={() => onOpen?.(item.id)}><Rocket size={16} /><span><strong>{item.commit_sha || item.source_branch || item.id.slice(0, 8)}</strong><small>{item.source_repository || "Source not configured"}</small></span><span>{item.environment}</span><Status good={item.status === "ready"}>{item.status}</Status><small>{new Date(item.created_at).toLocaleString()}</small></button>) : <Empty title="No deployments yet" body="Deployment records will appear after a real hosting adapter is configured." />}</div></>;
+  const items = (query.data ?? []).filter(item => environment === "all" || item.environment === environment);
+  return <><Header title="Deployments" action={<button className="vc-btn primary" onClick={() => onNavigate?.("/dashboard/developer/git-connections")}><Rocket size={14} /> New deployment</button>} />
+    <div className="vc-filterbar">{environments.map(value => <button key={value} className={environment === value ? "active" : ""} onClick={() => onNavigate?.(`/dashboard/deployments/${value}`)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+    <div className="vc-grid-3"><Stat label="Visible deployments" value={query.isLoading ? "—" : String(items.length)} /><Stat label="Production" value={query.isLoading ? "—" : String((query.data ?? []).filter(item => item.environment === "production").length)} /><Stat label="Ready" value={query.isLoading ? "—" : String((query.data ?? []).filter(item => item.status === "ready").length)} /></div>
+    <div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div>{query.isLoading ? <div className="vc-loading-row">Loading deployment records…</div> : query.error ? <Empty title="Unable to load deployments" body={query.error.message} /> : items.length ? items.map(item => <button className="vc-list-row" key={item.id} onClick={() => onOpen?.(item.id)}><Rocket size={16} /><span><strong>{item.commit_sha || item.source_branch || item.id.slice(0, 8)}</strong><small>{item.source_repository || "Source not configured"}</small></span><span>{item.environment}</span><Status good={item.status === "ready"}>{item.status}</Status><small>{new Date(item.created_at).toLocaleString()}</small></button>) : <Empty title="No deployments in this environment" body="A deployment record will appear after a real hosting adapter accepts a deployment intent. No infrastructure state is fabricated." />}</div>
+  </>;
+}
+
+function DeploymentDetail({ id, tab, onNavigate }: { id: string; tab: DeploymentTab; onNavigate?: (href: string) => void }) {
+  const query = trpc.deployments.get.useQuery({ id, includeLogs: true }, { retry: false });
+  const protectionQuery = trpc.deployments.protection.get.useQuery({ organizationId: query.data?.deployment.organization_id ?? "00000000-0000-0000-0000-000000000000", projectId: query.data?.deployment.project_id ?? "00000000-0000-0000-0000-000000000000" }, { enabled: Boolean(query.data?.deployment), retry: false });
+  const historyQuery = trpc.deployments.rollbackHistory.useQuery({ deploymentId: id }, { enabled: tab === "rollback-history", retry: false });
+  const rollback = trpc.deployments.rollback.useMutation({ onSuccess: result => result.configured ? toast.success("Rollback completed") : toast.info(result.reason), onError: error => toast.error(error.message) });
+  const protection = trpc.deployments.protection.set.useMutation({ onSuccess: () => { void protectionQuery.refetch(); toast.success("Deployment protection saved"); }, onError: error => toast.error(error.message) });
+  const deployment = query.data?.deployment;
+  const navigateTab = (next: DeploymentTab) => onNavigate?.(`/dashboard/deployments/${id}/${next}`);
+  if (query.isLoading) return <div className="vc-loading-row">Loading deployment details…</div>;
+  if (query.error || !deployment) return <Empty title="Deployment unavailable" body={query.error?.message ?? "The deployment could not be found in an organization you can access."} />;
+  const logs = query.data?.logs ?? [];
+  const protectionState = protectionQuery.data ?? (protectionQuery.isError ? null : { enabled: false, require_authentication: true, preview_access: "public" as const });
+  return <><Header title="Deployment detail" crumb={`${deployment.environment} / ${deployment.commit_sha?.slice(0, 8) ?? deployment.id.slice(0, 8)}`} action={<button className="vc-btn" onClick={() => onNavigate?.("/dashboard/deployments/list")}><ArrowLeft size={14} /> Back to deployments</button>} />
+    <div className="vc-subtabs">{(["summary", "build-logs", "source", "rollback-history"] as DeploymentTab[]).map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => navigateTab(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>
+    {tab === "summary" && <><div className="vc-grid-3"><Stat label="Status" value={deployment.status} /><Stat label="Environment" value={deployment.environment} /><Stat label="Created" value={new Date(deployment.created_at).toLocaleString()} /></div><div className="vc-card vc-settings-editor"><div className="vc-card-heading"><div><span className="vc-eyebrow">Deployment protection</span><h3>Preview access boundary</h3></div><Status good={Boolean(protectionState?.enabled)}>{protectionState?.enabled ? "Enabled" : "Not configured"}</Status></div><p>Protection settings are persisted per project. Enforcement remains honest until the hosting provider is connected.</p><button className="vc-btn" disabled={protection.isPending || !protectionState} onClick={() => protectionState && protection.mutate({ organizationId: deployment.organization_id, projectId: deployment.project_id, enabled: !protectionState.enabled, requireAuthentication: protectionState.require_authentication, previewAccess: protectionState.preview_access as "public" | "team" | "private" })}><LockKeyhole size={14} /> {protectionState?.enabled ? "Disable protection" : "Enable protection"}</button></div><div className="vc-actions"><button className="vc-btn" disabled={rollback.isPending || deployment.status !== "ready"} onClick={() => rollback.mutate({ id })}><RotateCcw size={14} /> {rollback.isPending ? "Rolling back…" : "Rollback"}</button>{deployment.deployment_url && <a className="vc-btn" href={deployment.deployment_url} target="_blank" rel="noreferrer">Visit deployment</a>}</div></>}
+    {tab === "build-logs" && <div className="vc-card"><div className="vc-list-row"><TerminalSquare size={16} /><span><strong>Build and runtime logs</strong><small>Logs are append-only and organization-scoped.</small></span><Status>{deployment.status}</Status></div>{logs.length ? logs.map(log => <div className="vc-list-row" key={log.id}><span><strong>{log.message}</strong><small>{log.source} · {new Date(log.created_at).toLocaleString()}</small></span><Status good={log.level === "info"}>{log.level}</Status></div>) : <Empty title="No build logs" body="The connected hosting adapter has not emitted logs for this deployment." />}</div>}
+    {tab === "source" && <div className="vc-card"><div className="vc-list-row"><GitBranch size={16} /><span><strong>{deployment.source_branch || "Branch not configured"}</strong><small>{deployment.source_repository || "Repository not configured"}</small></span></div><div className="vc-list-row"><span><strong>Commit</strong><small>{deployment.commit_sha || "Commit not configured"}</small></span></div><ComingSoon title="Source provider actions" body="Repository connection and redeploy actions remain gated until a Git provider is connected." /></div>}
+    {tab === "rollback-history" && <div className="vc-card">{historyQuery.isLoading ? <div className="vc-loading-row">Loading rollback history…</div> : historyQuery.data?.length ? historyQuery.data.map(entry => <div className="vc-list-row" key={entry.id}><RotateCcw size={16} /><span><strong>{entry.result}</strong><small>{entry.adapter_name} · {new Date(entry.created_at).toLocaleString()}</small></span><Status good={entry.result === "completed"}>{entry.reason || "Diff recorded"}</Status></div>) : <Empty title="No rollback history" body="Rollback attempts will appear here with adapter result and status diff." />}</div>}
+  </>;
 }

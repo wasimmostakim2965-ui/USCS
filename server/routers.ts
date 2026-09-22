@@ -323,6 +323,7 @@ export const appRouter = router({
         const result = await adapter.rollbackDeployment(deployment.id);
         if (!result.configured) {
           await client.from("deployment_logs").insert({ deployment_id: deployment.id, organization_id: deployment.organization_id, level: "warn", message: result.reason, source: adapter.name });
+          await client.from("deployment_rollback_history").insert({ deployment_id: deployment.id, organization_id: deployment.organization_id, project_id: deployment.project_id, previous_status: deployment.status, result: "failed", adapter_name: adapter.name, reason: result.reason, diff: { requestedStatus: "rolled_back", actualStatus: deployment.status }, created_by: ctx.identity.supabaseId });
           await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, result: "failure", metadata: { adapter: adapter.name, reason: result.reason } });
           return { configured: false as const, reason: result.reason };
         }
@@ -333,9 +334,56 @@ export const appRouter = router({
           .select("id,organization_id,project_id,environment,status,source_branch,commit_sha,source_repository,deployment_url,provider_ref,error_message,created_by,started_at,completed_at,created_at,updated_at")
           .single();
         if (updateError) throw new Error(updateError.message);
+        await client.from("deployment_rollback_history").insert({ deployment_id: deployment.id, organization_id: deployment.organization_id, project_id: deployment.project_id, previous_status: deployment.status, result: "completed", adapter_name: adapter.name, diff: { requestedStatus: "rolled_back", actualStatus: updated.status }, created_by: ctx.identity.supabaseId });
         if (result.logs?.length) await client.from("deployment_logs").insert(result.logs.map(log => ({ deployment_id: deployment.id, organization_id: deployment.organization_id, level: log.level, message: log.message, source: adapter.name })));
         await client.from("audit_logs").insert({ organization_id: deployment.organization_id, actor_id: ctx.identity.supabaseId, action: "deployment.rollback", resource_type: "deployment", resource_id: deployment.id, metadata: { adapter: adapter.name } });
         return { configured: true as const, deployment: updated };
+      }),
+
+    protection: router({
+      get: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid() }))
+        .query(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client
+            .from("deployment_protection")
+            .select("id,organization_id,project_id,enabled,require_authentication,preview_access,updated_by,created_at,updated_at")
+            .eq("organization_id", input.organizationId)
+            .eq("project_id", input.projectId)
+            .maybeSingle();
+          if (error) throw new Error(error.message);
+          return data;
+        }),
+      set: protectedProcedure
+        .input(z.object({ organizationId: z.string().uuid(), projectId: z.string().uuid(), enabled: z.boolean(), requireAuthentication: z.boolean(), previewAccess: z.enum(["public", "team", "private"]) }))
+        .mutation(async ({ ctx, input }) => {
+          const client = getSupabaseUserClient(ctx.req);
+          if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+          const { data, error } = await client
+            .from("deployment_protection")
+            .upsert({ organization_id: input.organizationId, project_id: input.projectId, enabled: input.enabled, require_authentication: input.requireAuthentication, preview_access: input.previewAccess, updated_by: ctx.identity.supabaseId, updated_at: new Date().toISOString() }, { onConflict: "organization_id,project_id" })
+            .select("id,organization_id,project_id,enabled,require_authentication,preview_access,updated_by,created_at,updated_at")
+            .single();
+          if (error) throw new Error(error.message);
+          await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "deployment.protection.update", resource_type: "project", resource_id: input.projectId, metadata: { enabled: input.enabled, requireAuthentication: input.requireAuthentication, previewAccess: input.previewAccess } });
+          return data;
+        }),
+    }),
+
+    rollbackHistory: protectedProcedure
+      .input(z.object({ deploymentId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const client = getSupabaseUserClient(ctx.req);
+        if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data, error } = await client
+          .from("deployment_rollback_history")
+          .select("id,organization_id,project_id,deployment_id,previous_status,result,adapter_name,reason,diff,created_by,created_at")
+          .eq("deployment_id", input.deploymentId)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (error) throw new Error(error.message);
+        return data ?? [];
       }),
   }),
 
