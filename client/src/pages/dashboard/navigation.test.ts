@@ -29,9 +29,10 @@ describe("dashboard navigation", () => {
     }
   });
 
-  it("uses implementation-safe slugs for labels containing punctuation or legacy aliases", () => {
+  it("uses implementation-safe slugs for nested sections", () => {
     expect(dashboardHref(dashboardNav.find(item => item.path === "domains")!, dashboardNav.find(item => item.path === "domains")!.children.find(child => child.label === "SSL/TLS"))).toBe("/dashboard/domains/ssl-tls");
-    expect(dashboardHref(dashboardNav.find(item => item.path === "developer")!, dashboardNav.find(item => item.path === "developer")!.children[0])).toBe("/dashboard/developer/connections");
+    expect(dashboardHref(dashboardNav.find(item => item.path === "database")!, dashboardNav.find(item => item.path === "database")!.children[0])).toBe("/dashboard/database/instances");
+    expect(dashboardHref(dashboardNav.find(item => item.path === "security")!, dashboardNav.find(item => item.path === "security")!.children[0])).toBe("/dashboard/security/overview");
     expect(dashboardHref(dashboardNav.find(item => item.path === "settings")!, dashboardNav.find(item => item.path === "settings")!.children[0])).toBe("/dashboard/settings/workspace");
     expect(new Set(dashboardRoutes).size).toBe(dashboardRoutes.length);
   });
