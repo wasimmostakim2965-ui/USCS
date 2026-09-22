@@ -6,18 +6,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { AuthCallback } from "./pages/Home";
-
-const dashboardRoutes = [
-  "/dashboard/overview",
-  "/dashboard/projects",
-  "/dashboard/deployments",
-  "/dashboard/domains",
-  "/dashboard/data",
-  "/dashboard/security",
-  "/dashboard/observability",
-  "/dashboard/developer",
-  "/dashboard/settings",
-] as const;
+import { dashboardRoutes } from "./pages/dashboard/navigation";
 
 function Router() {
   return (

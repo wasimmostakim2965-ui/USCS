@@ -10,49 +10,20 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { dashboardNav, dashboardPageFromSlug, dashboardPath, type DashboardPage } from "@/pages/dashboard/navigation";
 
-type Page =
-  | "Overview" | "Projects" | "Deployments" | "Logs" | "Analytics" | "Speed Insights"
-  | "Observability" | "Security" | "Firewall" | "CDN" | "Environment Variables" | "Domains"
-  | "Connect" | "Integrations" | "Storage" | "Flags" | "Agent" | "AI Gateway"
-  | "Sandboxes" | "Workflows" | "Images" | "Usage" | "Support" | "Settings";
+type Page = DashboardPage | "Connect" | "Storage" | "Usage" | "Support";
 type Icon = typeof LayoutDashboard;
 type ProjectTab = "Overview" | "Deployments" | "Domains" | "Logs" | "Observability" | "Firewall" | "Settings";
 type DeploymentTab = "Deployment" | "Logs" | "Resources" | "Source" | "Open Graph";
 
-const nav: {label: Page; icon: Icon; children?: {label: string; page: Page}[]}[] = [
-  {label:"Overview",icon:LayoutDashboard},
-  {label:"Projects",icon:Box},
-  {label:"Deployments",icon:Rocket},
-  {label:"Logs",icon:FileCode2,children:[{label:"Runtime Logs",page:"Logs"}]},
-  {label:"Analytics",icon:BarChart3},
-  {label:"Speed Insights",icon:Activity},
-  {label:"Observability",icon:Eye,children:[{label:"Overview",page:"Observability"},{label:"Logs",page:"Logs"},{label:"Metrics",page:"Observability"},{label:"Errors",page:"Observability"},{label:"Requests",page:"Observability"}]},
-  {label:"Security",icon:LockKeyhole,children:[{label:"Overview",page:"Security"},{label:"Security Analytics",page:"Security"},{label:"Web Assets",page:"Security"},{label:"Security Rules",page:"Security"},{label:"WAF / Managed Rules",page:"Security"},{label:"DDoS Protection",page:"Security"},{label:"Bot Traffic",page:"Security"},{label:"API Shield",page:"Security"},{label:"Client-side Security",page:"Security"},{label:"SSL / TLS",page:"Security"},{label:"DNSSEC",page:"Security"},{label:"Security Insights",page:"Security"}]},
-  {label:"Firewall",icon:ShieldCheck,children:[{label:"Overview",page:"Firewall"},{label:"Rules",page:"Firewall"},{label:"Rate Limiting",page:"Firewall"},{label:"Bot Protection",page:"Firewall"},{label:"DDoS Protection",page:"Firewall"}]},
-  {label:"CDN",icon:Network,children:[{label:"Overview",page:"CDN"},{label:"Caches",page:"CDN"},{label:"Routing",page:"CDN"}]},
-  {label:"Environment Variables",icon:KeyRound},
-  {label:"Domains",icon:Globe2},
-  {label:"Connect",icon:Link2,children:[{label:"GitHub",page:"Connect"},{label:"GitLab",page:"Connect"},{label:"Repositories",page:"Connect"}]},
-  {label:"Integrations",icon:Store},
-  {label:"Storage",icon:HardDrive},
-  {label:"Flags",icon:Flag,children:[{label:"All Flags",page:"Flags"},{label:"Environments",page:"Flags"}]},
-  {label:"Agent",icon:Sparkles,children:[{label:"Chat",page:"Agent"},{label:"Investigations",page:"Agent"},{label:"Tasks",page:"Agent"}]},
-  {label:"AI Gateway",icon:Bot},
-  {label:"Sandboxes",icon:TerminalSquare},
-  {label:"Workflows",icon:Workflow},
-  {label:"Images",icon:Images},
-  {label:"Usage",icon:BarChart3},
-];
-
 const projectSettings = ["General","Build & Deployment","Environment Variables","Git","Integrations","Deployment Protection","Functions","Cron Jobs","Members","Webhooks","Drains","Security","Advanced"];
 
-const pageSlug = (page: Page) => page.toLowerCase().replace(/\s+/g, "-").replace(/\//g, "-");
 const pageFromSlug = (slug: string | undefined): Page => {
   if (slug === "data") return "Storage";
   if (slug === "developer") return "Connect";
-  const match = nav.flatMap(item => [item, ...(item.children ?? [])]).find(item => pageSlug(item.label as Page) === slug || ("page" in item && pageSlug(item.page) === slug));
-  return (match && ("page" in match ? match.page : match.label)) || "Overview";
+  if (slug === "billing") return "Usage";
+  return dashboardPageFromSlug(slug);
 };
 
 function Status({children,good=false}:{children:ReactNode;good?:boolean}) {
@@ -86,7 +57,7 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
   const page = pageFromSlug(routeParts[0]);
   const project = page === "Projects" && routeParts.length > 1;
   const deploymentOpen = page === "Deployments" && routeParts.length > 1;
-  const go=(p:Page)=>{setLocation(`/dashboard/${pageSlug(p)}`);setMobile(false);window.scrollTo({top:0});};
+  const go=(p:Page)=>{setLocation(`/dashboard/${dashboardPath((p === "Storage" ? "Data" : p === "Connect" ? "Developer" : p === "Usage" ? "Billing" : p) as DashboardPage)}`);setMobile(false);window.scrollTo({top:0});};
   const openProject=(id?:string)=>{setLocation(`/dashboard/projects/${id ?? "new"}`);setProjectTab("Overview");setMobile(false);};
   const toggleGroup=(label:string)=>setOpenGroups(v=>v.includes(label)?v.filter(x=>x!==label):[...v,label]);
 
@@ -95,26 +66,12 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
     : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onOpenProject={openProject}/>
     : page==="Projects" ? <Projects onOpen={openProject}/>
     : page==="Deployments" ? (deploymentOpen?<GlobalDeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab} onBack={()=>go("Deployments")}/>:<Deployments onOpen={(id)=>{setDeploymentTab("Deployment");setLocation(`/dashboard/deployments/${id ?? "current"}`)}}/>)
-    : page==="Logs" ? <Logs/>
-    : page==="Analytics" ? <Analytics title="Analytics"/>
-    : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
     : page==="Observability" ? <Observability/>
     : page==="Security" ? <SecurityCenter/>
-    : page==="Firewall" ? <Firewall/>
-    : page==="CDN" ? <CDN/>
-    : page==="Environment Variables" ? <EnvVars/>
     : page==="Domains" ? <Domains/>
     : page==="Connect" ? <Connect/>
-    : page==="Integrations" ? <Integrations/>
     : page==="Storage" ? <Storage/>
-    : page==="Flags" ? <Flags/>
-    : page==="Agent" ? <Agent/>
-    : page==="AI Gateway" ? <AIGateway/>
-    : page==="Sandboxes" ? <Simple title="Sandboxes" icon={TerminalSquare} text="Isolated execution environments for builds, tests and agent workloads."/>
-    : page==="Workflows" ? <Workflows/>
-    : page==="Images" ? <Simple title="Images" icon={Images} text="Image optimization, transformations, cache and delivery."/>
     : page==="Usage" ? <Usage/>
-    : page==="Support" ? <Support/>
     : <WorkspaceSettings/>;
 
   return <div className={`vc-shell ${collapsed?"collapsed":""}`}>
@@ -127,16 +84,14 @@ export default function VercelControlPlane({user,logout}:{user:{id?:string|null;
       </div>
       <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>Ctrl K</kbd></div>
       <div className="vc-nav">
-        {nav.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,children})=><div key={label}>
-          <button className={`vc-nav-item ${page===label?"active":""}`} onClick={()=>children?toggleGroup(label):go(label)}>
-            <Icon size={15}/><span>{label}</span>{children&&<ChevronRight className="vc-nav-chevron" size={13} style={{transform:openGroups.includes(label)?"rotate(90deg)":undefined}}/>}
+        {dashboardNav.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon})=><div key={label}>
+          <button className={`vc-nav-item ${page===label || (label === "Data" && page === "Storage") || (label === "Developer" && page === "Connect") || (label === "Billing" && page === "Usage") ? "active":""}`} onClick={()=>go(label)}>
+            <Icon size={15}/><span>{label}</span>
           </button>
-          {children&&openGroups.includes(label)&&<div className="vc-subnav">{children.map(c=><button key={c.label} onClick={()=>go(c.page)}>{c.label}<ChevronRight size={11}/></button>)}</div>}
         </div>)}
       </div>
       <div className="vc-nav-bottom">
-        <button className={`vc-nav-item ${page==="Support"&&!project?"active":""}`} onClick={()=>go("Support")}><CircleHelp size={15}/><span>Support</span></button>
-        <button className={`vc-nav-item ${page==="Settings"&&!project?"active":""}`} onClick={()=>go("Settings")}><Settings2 size={15}/><span>Settings</span><ChevronRight className="vc-nav-chevron" size={13}/></button>
+        <span className="vc-nav-note">Connected control plane</span>
       </div>
       <div className="vc-account-wrap">
         <button className="vc-account" onClick={()=>setAccountOpen(v=>!v)}><span>{initials}</span><div><strong>{user?.name||"Account"}</strong><small>Account menu</small></div><MoreHorizontal size={15}/></button>
