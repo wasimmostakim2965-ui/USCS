@@ -462,6 +462,9 @@ export const appRouter = router({
       invite: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), email: z.string().email(), role: z.enum(["admin", "member", "viewer", "billing", "security"]).default("member") })).mutation(async ({ ctx, input }) => {
         const client = getSupabaseUserClient(ctx.req);
         if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin"].includes(membership.role)) throw new Error("Inviting members requires owner or admin role");
         const { data, error } = await client.from("workspace_invitations").insert({ organization_id: input.organizationId, email: input.email.toLowerCase(), role: input.role, invited_by: ctx.identity.supabaseId }).select("id,organization_id,email,role,status,invited_by,created_at,expires_at").single();
         if (error) throw new Error(error.message);
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "workspace.member.invite", resource_type: "workspace_invitation", resource_id: data.id, metadata: { email: input.email, role: input.role } });
@@ -470,6 +473,11 @@ export const appRouter = router({
       updateRole: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), userId: z.string().uuid(), role: z.enum(["owner", "admin", "member", "viewer", "billing", "security"]) })).mutation(async ({ ctx, input }) => {
         const client = getSupabaseUserClient(ctx.req);
         if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin"].includes(membership.role)) throw new Error("Changing member roles requires owner or admin role");
+        if (input.userId === ctx.identity.supabaseId) throw new Error("You cannot change your own role");
+        if (input.role === "owner") throw new Error("Owner transfer is not supported by this control plane");
         const { data, error } = await client.from("organization_members").update({ role: input.role }).eq("organization_id", input.organizationId).eq("user_id", input.userId).select("organization_id,user_id,role,created_at").single();
         if (error) throw new Error(error.message);
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "workspace.member.role_update", resource_type: "organization_member", resource_id: input.userId, metadata: { role: input.role } });
@@ -478,6 +486,14 @@ export const appRouter = router({
       remove: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), userId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
         const client = getSupabaseUserClient(ctx.req);
         if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin"].includes(membership.role)) throw new Error("Removing members requires owner or admin role");
+        if (input.userId === ctx.identity.supabaseId) throw new Error("You cannot remove yourself from the workspace");
+        const { data: target, error: targetError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", input.userId).maybeSingle();
+        if (targetError) throw new Error(targetError.message);
+        if (!target) throw new Error("Workspace member not found");
+        if (target.role === "owner") throw new Error("Owners cannot be removed");
         const { error } = await client.from("organization_members").delete().eq("organization_id", input.organizationId).eq("user_id", input.userId);
         if (error) throw new Error(error.message);
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "workspace.member.remove", resource_type: "organization_member", resource_id: input.userId });
@@ -495,6 +511,9 @@ export const appRouter = router({
       update: protectedProcedure.input(z.object({ organizationId: z.string().uuid(), deploymentFailures: z.boolean(), securityEvents: z.boolean(), billingUpdates: z.boolean(), observabilityAlerts: z.boolean() })).mutation(async ({ ctx, input }) => {
         const client = getSupabaseUserClient(ctx.req);
         if (!client || !ctx.identity?.supabaseId) throw new Error("Supabase session unavailable");
+        const { data: membership, error: membershipError } = await client.from("organization_members").select("role").eq("organization_id", input.organizationId).eq("user_id", ctx.identity.supabaseId).maybeSingle();
+        if (membershipError) throw new Error(membershipError.message);
+        if (!membership || !["owner", "admin"].includes(membership.role)) throw new Error("Notification settings require owner or admin role");
         const { data, error } = await client.from("workspace_notification_preferences").upsert({ organization_id: input.organizationId, deployment_failures: input.deploymentFailures, security_events: input.securityEvents, billing_updates: input.billingUpdates, observability_alerts: input.observabilityAlerts, updated_by: ctx.identity.supabaseId, updated_at: new Date().toISOString() }).select("organization_id,deployment_failures,security_events,billing_updates,observability_alerts,updated_by,updated_at").single();
         if (error) throw new Error(error.message);
         await client.from("audit_logs").insert({ organization_id: input.organizationId, actor_id: ctx.identity.supabaseId, action: "workspace.notifications.update", resource_type: "notification_preferences", resource_id: input.organizationId });
