@@ -61,9 +61,10 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
   const [search,setSearch]=useState("");
   const [projectTab,setProjectTab]=useState<"Overview"|"Deployments"|"Domains"|"Settings">("Overview");
   const [deploymentTab,setDeploymentTab]=useState<"Deployment"|"Logs"|"Resources"|"Source"|"Open Graph">("Deployment");
+  const [globalDeployment,setGlobalDeployment]=useState(false);
 
-  const go=(p:Page)=>{setPage(p);setProject(null);setMobile(false);window.scrollTo({top:0})};
-  const openProject=(name:string)=>{setProject(name);setProjectTab("Overview");setPage("Projects");setMobile(false)};
+  const go=(p:Page)=>{setPage(p);setProject(null);setGlobalDeployment(false);setMobile(false);window.scrollTo({top:0})};
+  const openProject=(name:string)=>{setProject(name);setProjectTab("Overview");setGlobalDeployment(false);setPage("Projects");setMobile(false)};
   const initials=(user?.name||"U").trim().slice(0,1).toUpperCase();
 
   const content = project
@@ -94,7 +95,7 @@ export default function VercelControlPlane({user,logout}:{user:{name?:string|nul
 
   return <div className={`vc-shell ${collapsed?"collapsed":""}`}>
     <aside className={`vc-sidebar ${mobile?"mobile":""}`}>
-      <div className="vc-brand"><div className="vc-brand-dot">V</div><button className="vc-team"><strong>wasimmostaki...</strong><span>Hobby</span><ChevronDown size={11}/></button><button className="vc-close" onClick={()=>setMobile(false)}><X size={18}/></button></div>
+      <div className="vc-brand"><div className="vc-brand-dot">U</div><button className="vc-team"><strong>USCS</strong><span>Workspace</span><ChevronDown size={11}/></button><button className="vc-collapse" onClick={()=>setCollapsed(v=>!v)} aria-label="Toggle sidebar"><ChevronRight size={15}/></button><button className="vc-close" onClick={()=>setMobile(false)}><X size={18}/></button></div>
       <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>⌘ K</kbd></div>
       <div className="vc-nav">
         {items.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,chevron})=><button key={label} className={`vc-nav-item ${page===label&&!project?"active":""}`} onClick={()=>go(label)}><Icon size={15}/><span>{label}</span>{chevron&&<ChevronRight className="vc-nav-chevron" size={13}/>}</button>)}
@@ -152,6 +153,14 @@ function DeploymentDetail({deploymentTab,setDeploymentTab}:{deploymentTab:any;se
 }
 function Resources(){return <div><Header title="Resources" crumb="Deployment / Resources"/><div className="vc-card"><Row icon={Code2} title="Functions" detail="Runtime, size, region and invocation details"/><Row icon={FileCode2} title="Middleware" detail="Request middleware resources"/><Row icon={HardDrive} title="Static Assets" detail="Generated assets and sizes"/></div></div>}
 function Deployments({onOpen}:{onOpen:()=>void}){return <><Header title="Deployments" action={<button className="vc-btn primary"><Plus size={14}/> New Deployment</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Failed</button></div><div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div><button className="vc-deployment-row" onClick={onOpen}><Rocket size={16}/><span><strong>uscs-git-main</strong><small>main · GitHub</small></span><span>Production</span><Status good>Ready</Status><span>—</span></button><Empty title="No additional deployments" body="Deployment history, preview URLs, resources and rollback actions appear here." action="Connect GitHub"/></div></>}
+function GlobalDeploymentDetail({deploymentTab,setDeploymentTab,onBack}:{deploymentTab:any;setDeploymentTab:(x:any)=>void;onBack:()=>void}) {
+  return <><Header title="Deployment" crumb="Deployments / uscs-git-main" action={<div className="vc-actions"><button className="vc-btn" onClick={onBack}>Back</button><button className="vc-btn">Share</button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div>}/>
+    <div className="vc-deployment-detail vc-card"><div className="vc-subtabs">{(["Deployment","Logs","Resources","Source","Open Graph"] as const).map(t=><button className={deploymentTab===t?"active":""} key={t} onClick={()=>setDeploymentTab(t)}>{t}</button>)}</div>
+      {deploymentTab==="Deployment"&&<><div className="vc-detail-actions"><span>Deployment Details</span><div><button className="vc-btn">Share</button><button className="vc-btn" onClick={()=>setDeploymentTab("Logs")}>Logs</button><button className="vc-btn">Visit <ChevronDown size={12}/></button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div></div><div className="vc-preview"><div><strong>USCS deployment preview</strong><small>Production deployment preview</small></div></div><div className="vc-meta-grid"><Meta k="Created" v="Latest deployment"/><Meta k="Status" v="Ready · Latest" good/><Meta k="Duration" v="—"/><Meta k="Environment" v="Production"/><Meta k="Domains" v="uscs-ashy.vercel.app"/><Meta k="Source" v="main · GitHub"/></div>{["Deployment Settings","Build Logs","Deployment Summary","Deployment Checks","Assigning Custom Domains"].map((x,i)=><button className="vc-accordion" key={x}><ChevronRight size={15}/><span>{x}</span><small>{i===1?"View logs":i===4?"Assign domain":"View details"}</small></button>)}<div className="vc-detail-cards"><Row icon={FileCode2} title="Runtime Logs" detail="View build and runtime logs & errors" onClick={()=>setDeploymentTab("Logs")}/><Row icon={Eye} title="Observability" detail="Monitor app health & performance"/><Row icon={Activity} title="Speed Insights" detail="Performance metrics from real users"/><Row icon={BarChart3} title="Web Analytics" detail="Analyze visitors and traffic"/></div></>}
+      {deploymentTab==="Logs"&&<Logs/>}{deploymentTab==="Resources"&&<Resources/>}{deploymentTab==="Source"&&<Simple title="Source" icon={FolderGit2} text="Repository, branch, commit and deployment source metadata."/>}{deploymentTab==="Open Graph"&&<Simple title="Open Graph" icon={Images} text="Social preview metadata and generated image."/>}
+    </div></>;
+}
+
 
 function Logs(){return <><Header title="Logs" action={<button className="vc-btn">Live <span className="vc-live-dot"/></button>}/><div className="vc-filterbar"><button className="active">All</button><button>Errors</button><button>Warnings</button><button>Info</button><button>Search</button></div><div className="vc-card vc-log-empty"><Empty title="No logs yet" body="Logs will stream here when a deployment or runtime produces events." action="Connect a deployment"/></div></>}
 function Analytics({title}:{title:string}){return <><Header title={title}/><div className="vc-grid-3"><Stat label="Visitors" value="—"/><Stat label="Requests" value="—"/><Stat label="Performance" value="—"/></div><div className="vc-card vc-chart"><div className="vc-chart-line"/><span>No data for selected range</span></div></>}
