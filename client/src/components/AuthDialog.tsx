@@ -75,12 +75,12 @@ export default function AuthDialog({
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-logo">
           <span className="brand-mark auth-logo-mark"><span /></span>
-          <span className="auth-logo-wordmark">USCS</span>
+          <span className="auth-logo-wordmark">Cloud Wai</span>
         </div>
 
         <div className="auth-copy">
           <h1 id="auth-title">{isSignup ? "Create your account" : "Sign in"}</h1>
-          <p>{isSignup ? "Create your USCS account using a provider you already trust." : "Sign in to your USCS account."}</p>
+          <p>{isSignup ? "Create your Cloud Wai account using a provider you already trust." : "Sign in to your Cloud Wai account."}</p>
         </div>
 
         <div className="auth-provider-list" aria-label={isSignup ? "Create account with a provider" : "Sign in with a provider"}>
@@ -117,8 +117,8 @@ export default function AuthDialog({
 
         <p className="auth-legal">
           {isSignup
-            ? "By continuing, you agree to create a USCS account."
-            : "Use the provider you originally used to create your USCS account."}
+            ? "By continuing, you agree to create a Cloud Wai account."
+            : "Use the provider you originally used to create your Cloud Wai account."}
         </p>
       </section>
 
