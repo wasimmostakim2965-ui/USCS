@@ -1,424 +1,169 @@
 import { useState, type ReactNode } from "react";
 import "@/styles/control-plane.css";
 import {
-  Activity, AlertTriangle, BarChart3, Bell, Box, ChevronDown, ChevronRight, CircleHelp,
-  Cloud, Code2, Database, ExternalLink, FileCode2, FolderGit2, Globe2, HardDrive,
-  KeyRound, LayoutDashboard, LockKeyhole, Menu, MoreHorizontal, Network, Plus,
-  Search, Server, Settings2, ShieldCheck, TerminalSquare, UserRound, Users, X, Zap
+  Activity, BarChart3, Bell, Bot, Box, ChevronDown, ChevronRight, CircleHelp,
+  Cloud, Code2, Database, ExternalLink, Eye, FileCode2, Flag, FolderGit2,
+  Globe2, HardDrive, Images, KeyRound, LayoutDashboard, Link2, ListFilter,
+  LockKeyhole, Menu, MoreHorizontal, Network, Plus, Rocket, Search, Server,
+  Settings2, ShieldCheck, Sparkles, Store, TerminalSquare, Users, Workflow, X, Zap
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Page =
-  | "Overview" | "Projects" | "Deployments" | "Domains" | "Security"
-  | "Observability" | "Firewall" | "Usage" | "Storage" | "Functions" | "Team" | "Billing" | "Settings" | "Help";
+  | "Overview" | "Projects" | "Deployments" | "Logs" | "Analytics" | "Speed Insights"
+  | "Observability" | "Firewall" | "CDN" | "Environment Variables" | "Domains"
+  | "Connect" | "Integrations" | "Storage" | "Flags" | "Agent" | "AI Gateway"
+  | "Sandboxes" | "Workflows" | "Images" | "Usage" | "Support" | "Settings";
 
-type SecurityPage = "Overview" | "Firewall" | "WAF" | "DDoS Protection" | "Bot Protection" | "Rate Limiting" | "Access Control" | "Secrets" | "API Security" | "Audit Log";
+type Icon = typeof LayoutDashboard;
 
-const nav: { label: string; icon: typeof LayoutDashboard; children?: string[] }[] = [
-  { label: "Overview", icon: LayoutDashboard },
-  { label: "Projects", icon: Box },
-  { label: "Deployments", icon: Cloud },
-  { label: "Domains", icon: Globe2 },
-  { label: "Security", icon: ShieldCheck, children: ["Overview", "Firewall", "WAF", "DDoS Protection", "Bot Protection", "Rate Limiting", "Access Control", "Secrets", "API Security", "Audit Log"] },
-  { label: "Observability", icon: Activity },
-  { label: "Storage", icon: HardDrive },
-  { label: "Functions", icon: TerminalSquare },
+const items: {label: Page; icon: Icon; chevron?: boolean}[] = [
+  {label:"Overview",icon:LayoutDashboard},
+  {label:"Projects",icon:Box},
+  {label:"Deployments",icon:Rocket},
+  {label:"Logs",icon:FileCode2,chevron:true},
+  {label:"Analytics",icon:BarChart3},
+  {label:"Speed Insights",icon:Activity},
+  {label:"Observability",icon:Eye,chevron:true},
+  {label:"Firewall",icon:ShieldCheck,chevron:true},
+  {label:"CDN",icon:Network,chevron:true},
+  {label:"Environment Variables",icon:KeyRound},
+  {label:"Domains",icon:Globe2},
+  {label:"Connect",icon:Link2,chevron:true},
+  {label:"Integrations",icon:Store},
+  {label:"Storage",icon:HardDrive},
+  {label:"Flags",icon:Flag,chevron:true},
+  {label:"Agent",icon:Sparkles,chevron:true},
+  {label:"AI Gateway",icon:Bot},
+  {label:"Sandboxes",icon:TerminalSquare},
+  {label:"Workflows",icon:Workflow},
+  {label:"Images",icon:Images},
 ];
 
-const utilityNav = [
-  { label: "Team", icon: Users },
-  { label: "Billing", icon: BarChart3 },
-  { label: "Settings", icon: Settings2 },
-];
-
-function Status({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "good" | "warn" }) {
-  return <span className={`cp-status cp-status-${tone}`}><i />{children}</span>;
+function Status({children,good=false}:{children:ReactNode;good?:boolean}) {
+  return <span className={`vc-status ${good?"good":""}`}><i/>{children}</span>;
+}
+function Header({title,crumb,action}:{title:string;crumb?:string;action?:ReactNode}) {
+  return <div className="vc-page-head"><div><div className="vc-crumb">{crumb||title}</div><h1>{title}</h1></div>{action}</div>;
+}
+function Empty({title,body,action}:{title:string;body:string;action?:string}) {
+  return <div className="vc-empty"><div className="vc-empty-mark"><Box size={20}/></div><h3>{title}</h3><p>{body}</p>{action&&<button className="vc-btn primary" onClick={()=>toast.info(action+" is ready for provider integration.")}>{action}<ChevronRight size={14}/></button>}</div>;
+}
+function Row({icon:Icon,title,detail,onClick}:{icon:Icon;title:string;detail?:string;onClick?:()=>void}) {
+  return <button className="vc-list-row" onClick={onClick}><Icon size={16}/><span><strong>{title}</strong>{detail&&<small>{detail}</small>}</span><ChevronRight size={14}/></button>;
 }
 
-function Metric({ label, value, detail, onClick }: { label: string; value: string; detail: string; onClick?: () => void }) {
-  return <button className="cp-metric" onClick={onClick}>
-    <span>{label}</span><strong>{value}</strong><small>{detail}</small>
-  </button>;
-}
+export default function VercelControlPlane({user,logout}:{user:{name?:string|null}|null;logout:()=>void}) {
+  const [page,setPage]=useState<Page>("Overview");
+  const [project,setProject]=useState<string|null>(null);
+  const [collapsed,setCollapsed]=useState(false);
+  const [mobile,setMobile]=useState(false);
+  const [search,setSearch]=useState("");
+  const [projectTab,setProjectTab]=useState<"Overview"|"Deployments"|"Domains"|"Settings">("Overview");
+  const [deploymentTab,setDeploymentTab]=useState<"Deployment"|"Logs"|"Resources"|"Source"|"Open Graph">("Deployment");
 
-function Empty({ icon: Icon, title, body, action, onAction }: { icon: typeof Box; title: string; body: string; action?: string; onAction?: () => void }) {
-  return <div className="cp-empty">
-    <div className="cp-empty-icon"><Icon size={19} /></div>
-    <h3>{title}</h3><p>{body}</p>
-    {action && <button className="cp-button cp-button-primary" onClick={onAction}>{action}<ChevronRight size={15} /></button>}
-  </div>;
-}
+  const go=(p:Page)=>{setPage(p);setProject(null);setMobile(false);window.scrollTo({top:0})};
+  const openProject=(name:string)=>{setProject(name);setProjectTab("Overview");setPage("Projects");setMobile(false)};
+  const initials=(user?.name||"U").trim().slice(0,1).toUpperCase();
 
-export default function VercelControlPlane({ user, logout }: { user: { name?: string | null } | null; logout: () => void }) {
-  const [page, setPage] = useState<Page>("Overview");
-  const [securityPage, setSecurityPage] = useState<SecurityPage>("Overview");
-  const [securityOpen, setSecurityOpen] = useState(false);
-  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
-  const [projectSetting, setProjectSetting] = useState("General");
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [project, setProject] = useState<string | null>(null);
+  const content = project
+    ? <ProjectView project={project} tab={projectTab} setTab={setProjectTab} deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>
+    : page==="Overview" ? <Overview onProjects={()=>go("Projects")} onDeployments={()=>go("Deployments")}/>
+    : page==="Projects" ? <Projects onOpen={openProject}/>
+    : page==="Deployments" ? <Deployments onOpen={()=>setDeploymentTab("Deployment")}/>
+    : page==="Logs" ? <Logs/>
+    : page==="Analytics" ? <Analytics title="Analytics"/>
+    : page==="Speed Insights" ? <Analytics title="Speed Insights"/>
+    : page==="Observability" ? <Observability/>
+    : page==="Firewall" ? <Firewall/>
+    : page==="CDN" ? <Simple title="CDN" icon={Network} text="Edge delivery, cache behavior and traffic routing."/>
+    : page==="Environment Variables" ? <EnvVars/>
+    : page==="Domains" ? <Domains/>
+    : page==="Connect" ? <Simple title="Connect" icon={Link2} text="Git providers, deployment sources and connected repositories."/>
+    : page==="Integrations" ? <Simple title="Integrations" icon={Store} text="Marketplace and third-party integrations."/>
+    : page==="Storage" ? <Simple title="Storage" icon={HardDrive} text="Persistent storage and provider-backed resources."/>
+    : page==="Flags" ? <Simple title="Flags" icon={Flag} text="Feature flags and controlled rollouts."/>
+    : page==="Agent" ? <Agent/>
+    : page==="AI Gateway" ? <Simple title="AI Gateway" icon={Bot} text="Model routing, usage and AI infrastructure."/>
+    : page==="Sandboxes" ? <Simple title="Sandboxes" icon={TerminalSquare} text="Isolated execution environments."/>
+    : page==="Workflows" ? <Simple title="Workflows" icon={Workflow} text="Background workflows and scheduled automation."/>
+    : page==="Images" ? <Simple title="Images" icon={Images} text="Image optimization and delivery."/>
+    : page==="Usage" ? <Usage/>
+    : page==="Support" ? <Simple title="Support" icon={CircleHelp} text="Documentation, support and incident communication."/>
+    : <Settings/>;
 
-  const go = (next: Page) => { setPage(next); setMobileOpen(false); window.scrollTo({ top: 0 }); };
-  const initials = (user?.name || "U").trim().slice(0, 1).toUpperCase();
-  const projectMode = Boolean(project);
-  const title = projectSettingsOpen ? "Project Settings" : securityPage !== "Overview" && page === "Security" ? securityPage : page;
-
-  const workspaceItems: { label: Page; icon: typeof LayoutDashboard }[] = [
-    { label: "Overview", icon: LayoutDashboard },
-    { label: "Projects", icon: FolderGit2 },
-    { label: "Deployments", icon: Cloud },
-    { label: "Domains", icon: Globe2 },
-    { label: "Observability", icon: Activity },
-    { label: "Firewall", icon: ShieldCheck },
-    { label: "Usage", icon: BarChart3 },
-  ];
-
-  const projectItems: { label: Page; icon: typeof LayoutDashboard }[] = [
-    { label: "Overview", icon: LayoutDashboard },
-    { label: "Deployments", icon: Cloud },
-    { label: "Domains", icon: Globe2 },
-    { label: "Observability", icon: Activity },
-    { label: "Firewall", icon: ShieldCheck },
-  ];
-
-  const projectSettings = [
-    ["General", "Project identity and runtime defaults"],
-    ["Build & Deployment", "Framework, build command and deployment behavior"],
-    ["Environment Variables", "Environment-scoped configuration and secrets"],
-    ["Git", "Repository, branches, hooks and deploy rules"],
-    ["Integrations", "Connected apps and providers"],
-    ["Deployment Protection", "Preview and production access controls"],
-    ["Functions", "Runtime, memory, timeout and regions"],
-    ["Cron Jobs", "Scheduled jobs and execution policy"],
-    ["Members", "Project access and roles"],
-    ["Webhooks", "Project event delivery"],
-    ["Drains", "Logs, traces and analytics destinations"],
-    ["Security", "Fork protection, retention and visibility"],
-    ["Advanced", "Directory, skew and advanced runtime controls"],
-  ];
-
-  return <div className={`cp-shell ${collapsed ? "cp-collapsed" : ""} ${projectMode ? "cp-project-mode" : ""}`}>
-    <aside className={`cp-sidebar ${mobileOpen ? "cp-mobile-open" : ""}`}>
-      <div className="cp-brand">
-        <div className="cp-brand-mark"><span /></div>
-        {!collapsed && <button className="cp-brand-workspace" onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Overview"); }}>
-          <strong>USCS</strong><span>Workspace</span><ChevronDown size={12} />
-        </button>}
-        <button className="cp-collapse-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed(v => !v)}>{collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}</button>
-        <button className="cp-mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button>
+  return <div className={`vc-shell ${collapsed?"collapsed":""}`}>
+    <aside className={`vc-sidebar ${mobile?"mobile":""}`}>
+      <div className="vc-brand"><div className="vc-brand-dot">V</div><button className="vc-team"><strong>wasimmostaki...</strong><span>Hobby</span><ChevronDown size={11}/></button><button className="vc-close" onClick={()=>setMobile(false)}><X size={18}/></button></div>
+      <div className="vc-find"><Search size={14}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find"/><kbd>⌘ K</kbd></div>
+      <div className="vc-nav">
+        {items.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(({label,icon:Icon,chevron})=><button key={label} className={`vc-nav-item ${page===label&&!project?"active":""}`} onClick={()=>go(label)}><Icon size={15}/><span>{label}</span>{chevron&&<ChevronRight className="vc-nav-chevron" size={13}/>}</button>)}
       </div>
-
-      <div className="cp-sidebar-scroll">
-        {!collapsed && projectMode ? <div className="cp-project-switcher">
-          <button onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Projects"); }}>
-            <span className="cp-project-dot" /><span className="cp-project-name">{project}</span><ChevronDown size={12} />
-          </button>
-        </div> : !collapsed && <div className="cp-workspace-row"><span>Workspace</span><strong>Personal</strong><ChevronDown size={12} /></div>}
-
-        <div className="cp-nav-label">{collapsed ? "" : projectMode ? "Project" : "Workspace"}</div>
-        <nav className="cp-nav">
-          {(projectMode ? projectItems : workspaceItems).map(item => {
-            const Icon = item.icon;
-            const active = page === item.label && !projectSettingsOpen;
-            return <button key={item.label} className={`cp-nav-item ${active ? "is-active" : ""}`} onClick={() => { setProjectSettingsOpen(false); go(item.label); }}>
-              <Icon size={16} /><span>{!collapsed && item.label}</span>
-            </button>;
-          })}
-        </nav>
-
-        {projectMode && !collapsed && <>
-          <div className="cp-nav-divider" />
-          <div className="cp-nav-label">Project Settings</div>
-          <nav className="cp-nav cp-settings-nav">
-            {projectSettings.map(([label, detail]) => <button key={label} className={`cp-nav-item cp-nav-settings-item ${projectSettingsOpen && title === label ? "is-active" : ""}`} title={detail}
-              onClick={() => { setProjectSetting(label); setProjectSettingsOpen(true); setPage("Settings"); setSecurityPage("Overview"); setMobileOpen(false); }}>
-              <Settings2 size={15} /><span>{label}</span>
-            </button>)}
-          </nav>
-        </>}
-
-        {!collapsed && <div className="cp-nav-divider" />}
-        <div className="cp-nav-label">{collapsed ? "" : "Manage"}</div>
-        <nav className="cp-nav">
-          {(projectMode
-            ? [{ label: "Team", icon: Users }, { label: "Settings", icon: Settings2 }]
-            : [{ label: "Team", icon: Users }, { label: "Settings", icon: Settings2 }]
-          ).map(item => {
-            const Icon = item.icon;
-            return <button key={item.label} className={`cp-nav-item ${page === item.label && !projectSettingsOpen ? "is-active" : ""}`} onClick={() => { setProjectSettingsOpen(false); go(item.label as Page); }}>
-              <Icon size={16} /><span>{!collapsed && item.label}</span>
-            </button>;
-          })}
-        </nav>
+      <div className="vc-nav-bottom">
+        <button className={`vc-nav-item ${page==="Usage"&&!project?"active":""}`} onClick={()=>go("Usage")}><BarChart3 size={15}/><span>Usage</span></button>
+        <button className={`vc-nav-item ${page==="Support"&&!project?"active":""}`} onClick={()=>go("Support")}><CircleHelp size={15}/><span>Support</span></button>
+        <button className={`vc-nav-item ${page==="Settings"&&!project?"active":""}`} onClick={()=>go("Settings")}><Settings2 size={15}/><span>Settings</span><ChevronRight className="vc-nav-chevron" size={13}/></button>
       </div>
-
-      <div className="cp-sidebar-bottom">
-        <button className="cp-help" onClick={() => go("Help")}><CircleHelp size={16} />{!collapsed && "Help"}</button>
-        <button className="cp-account" onClick={logout}>
-          <span className="cp-avatar">{initials}</span>{!collapsed && <span className="cp-account-copy"><strong>{user?.name || "Account"}</strong><small>Sign out</small></span>}
-          {!collapsed && <MoreHorizontal size={15} />}
-        </button>
-      </div>
+      <button className="vc-account" onClick={logout}><span>{initials}</span><div><strong>{user?.name||"Account"}</strong><small>Sign out</small></div><MoreHorizontal size={15}/></button>
     </aside>
-
-    <main className="cp-main">
-      <header className="cp-topbar">
-        <div className="cp-top-left">
-          <button className="cp-mobile-menu" onClick={() => setMobileOpen(true)}><Menu size={19} /></button>
-          <div className="cp-breadcrumb">
-            <button onClick={() => { setProject(null); setProjectSettingsOpen(false); go("Overview"); }}>{project ? "Personal" : "USCS"}</button>
-            {project && <><ChevronRight size={13} /><button className="cp-crumb-project" onClick={() => go("Overview")}>{project}</button></>}
-            <ChevronRight size={13} /><strong>{title}</strong>
-          </div>
-        </div>
-        <div className="cp-top-actions">
-          <button className="cp-search" onClick={() => setSearchOpen(true)}><Search size={15} /><span>Search</span><kbd>Ctrl K</kbd></button>
-          <button className="cp-icon-button" aria-label="Notifications" onClick={() => toast.info("No new notifications.")}><Bell size={16} /></button>
-          <button className="cp-avatar cp-top-avatar" onClick={logout}>{initials}</button>
-        </div>
-      </header>
-
-      <div className="cp-content">
-        {projectSettingsOpen ? <ProjectSettingsPanel project={project || "Project"} settings={projectSettings} selected={projectSetting} onSelect={setProjectSetting} /> :
-          page === "Overview" && <Overview onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} project={project} /> }
-        {page === "Projects" && !projectSettingsOpen && <Projects onGo={go} onProject={(name) => { setProject(name); go("Overview"); }} />}
-        {page === "Deployments" && !projectSettingsOpen && <Deployments onGo={go} />}
-        {page === "Domains" && !projectSettingsOpen && <Domains />}
-        {page === "Security" && !projectSettingsOpen && <Security page={securityPage} onPage={setSecurityPage} />}
-        {page === "Observability" && !projectSettingsOpen && <Observability />}
-        {page === "Firewall" && !projectSettingsOpen && <Security page="Firewall" onPage={setSecurityPage} />}
-        {page === "Usage" && !projectSettingsOpen && <Billing />}
-        {page === "Team" && !projectSettingsOpen && <Team />}
-        {page === "Settings" && !projectSettingsOpen && <Settings />}
-        {page === "Help" && !projectSettingsOpen && <Help />}
-      </div>
+    <main className="vc-main">
+      <header className="vc-topbar"><button className="vc-mobile-menu" onClick={()=>setMobile(true)}><Menu size={19}/></button><div className="vc-top-crumb"><button onClick={()=>go("Overview")}>wasimmostakim2965-ui</button>{project&&<><ChevronRight size={13}/><strong>{project}</strong></>}</div><div className="vc-top-actions"><button className="vc-top-icon"><Bell size={16}/></button><button className="vc-top-icon"><CircleHelp size={16}/></button><button className="vc-avatar" onClick={logout}>{initials}</button></div></header>
+      <div className="vc-content">{content}</div>
     </main>
-
-    {searchOpen && <CommandSearch onClose={() => setSearchOpen(false)} onGo={go} />}
   </div>;
 }
 
-function ProjectSettingsPanel({ project, settings, selected, onSelect }: { project: string; settings: string[][]; selected: string; onSelect: (name: string) => void }) {
-  const current = settings.find(([name]) => name === selected) || settings[0];
-  return <><PageHeader eyebrow={`Project / ${project}`} title={current[0]} description={current[1]} action={<button className="cp-button cp-button-primary" onClick={() => toast.info(`${current[0]} changes will be persisted through the project settings API.`)}>Save changes</button>} />
-    <div className="cp-settings-layout">
-      <nav className="cp-settings-sidebar">{settings.map(([name, detail]) => <button key={name} className={selected === name ? "active" : ""} onClick={() => onSelect(name)}><span>{name}</span><small>{detail}</small></button>)}</nav>
-      <section className="cp-panel cp-settings-editor">
-        <div className="cp-panel-head"><div><span>Configuration</span><h2>{current[0]}</h2></div><Status>Not configured</Status></div>
-        <div className="cp-settings-body">
-          <div className="cp-form-row"><div><strong>Project scope</strong><small>All settings are scoped to the selected project.</small></div><span className="cp-value">{project}</span></div>
-          <div className="cp-form-row"><div><strong>Provider state</strong><small>USCS will only display verified provider-backed configuration.</small></div><Status tone="warn">Provider required</Status></div>
-          <div className="cp-form-row"><div><strong>{current[0]} controls</strong><small>Configure this surface after its backend provider and audit path are connected.</small></div><button className="cp-button cp-button-secondary" onClick={() => toast.info("This control is staged for the provider integration phase.")}>Configure</button></div>
-        </div>
-      </section>
+function Overview({onProjects,onDeployments}:{onProjects:()=>void;onDeployments:()=>void}) {
+  return <><Header title="Overview" action={<button className="vc-btn primary" onClick={onProjects}><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/>
+    <div className="vc-card vc-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div>
+      <Row icon={ShieldCheck} title="Stop tracking .env (contains DB password)" detail="Preview · #17 · just now"/>
+      <Row icon={Rocket} title="feat: replace categories (48 new) + clean job detail layout" detail="Preview · #4 · recently"/>
     </div>
+    <div className="vc-section-title">Projects</div>
+    <div className="vc-project-card" onClick={()=>onProjects()}><div className="vc-project-logo">V</div><div><strong>uscs</strong><small>uscs-ashy.vercel.app</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good/></div>
+    <div className="vc-project-card"><div className="vc-project-logo">V</div><div><strong>workergigbd-site</strong><small>workergigbd.site</small><p><GitHubMark/> wasimmostakim2965-ui/workergigbd.site · Sep 15</p></div><Status/></div>
   </>;
 }
 
-function Help() {
-  return <><PageHeader eyebrow="Help" title="Help & documentation" description="Find product documentation, API references and operational guidance." />
-    <div className="cp-three"><Info title="Documentation" text="Guides for projects, deployments, domains, security and providers." icon={FileCode2} /><Info title="API reference" text="Programmatic access to projects, deployments and infrastructure." icon={Code2} /><Info title="Support" text="Workspace support and incident communication." icon={CircleHelp} /></div>
+function Projects({onOpen}:{onOpen:(name:string)=>void}) {
+  return <><Header title="Projects" crumb="All Projects" action={<button className="vc-btn primary"><Plus size={14}/> Add New <ChevronDown size={13}/></button>}/><div className="vc-project-toolbar"><div className="vc-search-input"><Search size={15}/><input placeholder="Search Projects"/></div><button className="vc-icon-btn"><ListFilter size={15}/></button></div>
+    <div className="vc-card vc-project-recent"><div className="vc-tabs"><button className="active">Recents</button><button>Usage</button><button>Alerts</button></div><Row icon={ShieldCheck} title="Stop tracking .env (contains DB password)" detail="Preview · #17"/><Row icon={Rocket} title="feat: replace categories (48 new) + clean job detail layout" detail="Preview · #4"/></div>
+    <div className="vc-section-title">Projects</div>
+    <div className="vc-project-card" onClick={()=>onOpen("uscs")}><div className="vc-project-logo">V</div><div><strong>uscs</strong><small>uscs-ashy.vercel.app</small><p><GitHubMark/> wasimmostakim2965-ui/USCS · main</p></div><Status good/></div>
+    <div className="vc-project-card"><div className="vc-project-logo">V</div><div><strong>workergigbd-site</strong><small>workergigbd.site</small><p><GitHubMark/> wasimmostakim2965-ui/workergigbd.site · Sep 15</p></div><Status/></div>
   </>;
 }
 
-function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
-  return <div className="cp-page-header"><div><div className="cp-eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
-}
-
-function Overview({ onGo, onProject, project }: { onGo: (p: Page) => void; onProject: (name: string) => void; project: string | null }) {
-  if (project) return <>
-    <PageHeader eyebrow={`Project / ${project}`} title={project} description="Project overview, production status, recent deployments, resources and project configuration."
-      action={<><button className="cp-button cp-button-secondary" onClick={() => onGo("Deployments")}>View deployments</button><button className="cp-button cp-button-primary" onClick={() => toast.info("Import and deployment actions will be connected to the provider API.")}><Plus size={15} /> Deploy</button></>} />
-    <div className="cp-scopebar">
-      <div><span>Project</span><strong>{project}</strong></div>
-      <div><span>Production</span><strong>Not deployed</strong></div>
-      <div><span>Environment</span><strong>Preview / Production</strong></div>
-      <Status tone="warn">Setup required</Status>
-    </div>
-    <div className="cp-metrics">
-      <Metric label="Deployments" value="0" detail="No deployments yet" onClick={() => onGo("Deployments")} />
-      <Metric label="Domains" value="0" detail="Add a custom domain" onClick={() => onGo("Domains")} />
-      <Metric label="Requests" value="—" detail="No production traffic" onClick={() => onGo("Observability")} />
-      <Metric label="Functions" value="0" detail="View deployment resources" onClick={() => toast.info("Functions appear here after a deployment is connected.")} />
-    </div>
-    <div className="cp-grid cp-grid-main">
-      <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Production</span><h2>Latest deployment</h2></div><button className="cp-text-button" onClick={() => onGo("Deployments")}>Deployments <ArrowIcon /></button></div>
-        <Empty icon={Cloud} title="No production deployment" body="Connect a Git repository or deploy with the API/CLI. Production promotion remains an explicit project action." action="Configure Git" onAction={() => { setTimeout(() => {}, 0); toast.info("Git configuration is available in Project Settings → Git."); }} />
-      </section>
-      <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Project configuration</span><h2>Quick settings</h2></div><Settings2 size={16} className="muted-icon" /></div>
-        <div className="cp-checks">
-          <CheckRow label="Environment Variables" detail="Configure per environment" />
-          <CheckRow label="Deployment Protection" detail="Preview and production access" />
-          <CheckRow label="Custom Domains" detail="Attach domains to this project" />
-          <CheckRow label="Git integration" detail="Connect repository and branches" />
-        </div>
-      </section>
-    </div>
-    <div className="cp-three">
-      <Info title="Resources" text="Deployment resources include middleware, static assets and functions with runtime details." icon={Server} />
-      <Info title="Observability" text="Inspect logs, errors, requests, metrics and runtime behavior for this project." icon={Activity} />
-      <Info title="Security" text="Project protection, firewall rules and deployment access controls stay in project context." icon={ShieldCheck} />
-    </div>
-  </>;
-
-  return <>
-    <PageHeader eyebrow="Workspace" title="Overview" description="Everything important about your cloud workspace, in one place."
-      action={<button className="cp-button cp-button-primary" onClick={() => onGo("Projects")}><Plus size={15} /> New project</button>} />
-    <div className="cp-scopebar">
-      <div><span>Workspace</span><strong>Personal</strong></div>
-      <div><span>Region</span><strong>Global</strong></div>
-      <div><span>Environment</span><strong><i className="cp-live-dot" /> Production</strong></div>
-      <Status tone="warn">Setup required</Status>
-    </div>
-    <div className="cp-metrics">
-      <Metric label="Projects" value="0" detail="Create your first project" onClick={() => onGo("Projects")} />
-      <Metric label="Deployments" value="0" detail="No releases yet" onClick={() => onGo("Deployments")} />
-      <Metric label="Domains" value="0" detail="Connect a domain" onClick={() => onGo("Domains")} />
-      <Metric label="Requests" value="—" detail="Waiting for traffic" onClick={() => onGo("Observability")} />
-    </div>
-    <div className="cp-grid cp-grid-main">
-      <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Projects</span><h2>Your projects</h2></div><button className="cp-text-button" onClick={() => onGo("Projects")}>View all <ArrowIcon /></button></div>
-        <Empty icon={Box} title="Create your first project" body="Import a repository, configure its environment, and get a preview deployment." action="New project" onAction={() => onGo("Projects")} />
-      </section>
-      <section className="cp-panel">
-        <div className="cp-panel-head"><div><span>Security</span><h2>Protection status</h2></div><button className="cp-text-button" onClick={() => onGo("Security")}>Open security <ArrowIcon /></button></div>
-        <div className="cp-checks">
-          <CheckRow label="Origin protection" detail="Waiting for deployment" />
-          <CheckRow label="WAF" detail="Not configured" />
-          <CheckRow label="DDoS protection" detail="Ready for provider" />
-          <CheckRow label="Audit trail" detail="Available for workspace actions" good />
-        </div>
-      </section>
-    </div>
-    <section className="cp-panel cp-activity-panel">
-      <div className="cp-panel-head"><div><span>Activity</span><h2>Recent workspace activity</h2></div><button className="cp-text-button" onClick={() => toast.info("Activity will populate from the audit log.")}>View activity <ArrowIcon /></button></div>
-      <Empty icon={Activity} title="No activity yet" body="Deployments, domain changes, security events and workspace actions will appear here." />
-    </section>
-  </>;
-}
-function ArrowIcon() { return <ExternalLink size={13} />; }
-
-function CheckRow({ label, detail, good = false }: { label: string; detail: string; good?: boolean }) {
-  return <div className="cp-check-row"><span className={good ? "cp-check cp-check-good" : "cp-check"}>{good ? "✓" : "—"}</span><div><strong>{label}</strong><small>{detail}</small></div><ChevronRight size={14} /></div>;
-}
-
-function Projects({ onGo, onProject }: { onGo: (p: Page) => void; onProject: (name: string) => void }) {
-  return <><PageHeader eyebrow="Projects" title="Projects" description="Applications are the core unit of deployments, domains, environments and runtime configuration."
-    action={<button className="cp-button cp-button-primary" onClick={() => toast.info("Repository import will be connected to GitHub.")}><FolderGit2 size={15} /> Import Git repository</button>} />
-    <div className="cp-toolbar"><div className="cp-input"><Search size={15} /><input placeholder="Search projects" /></div><button className="cp-filter">All <ChevronDown size={13} /></button><button className="cp-filter">Updated <ChevronDown size={13} /></button></div>
-    <section className="cp-panel cp-large-empty"><Empty icon={Box} title="No projects yet" body="Connect GitHub to import a repository. Each project gets deployments, preview environments, domains, logs and settings in context." action="Connect GitHub" onAction={() => toast.info("GitHub connection will be connected here.")} /></section>
-    <div className="cp-three"><Info title="Git integration" text="Branches and pull requests become preview deployments." icon={FolderGit2} /><Info title="Project domains" text="Production and preview domains stay attached to the project." icon={Globe2} /><Info title="Environment variables" text="Secrets are scoped by environment and never exposed in client code." icon={KeyRound} /></div>
+function ProjectView({project,tab,setTab,deploymentTab,setDeploymentTab}:{project:string;tab:"Overview"|"Deployments"|"Domains"|"Settings";setTab:(x:any)=>void;deploymentTab:any;setDeploymentTab:(x:any)=>void}) {
+  return <><Header title={project} crumb={`Projects / ${project}`} action={<div className="vc-actions"><button className="vc-btn">Share</button><button className="vc-btn primary" onClick={()=>toast.info("Deploy action will connect to the deployment provider.")}>Deploy</button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div>}/>
+    <div className="vc-project-tabs">{(["Overview","Deployments","Domains","Settings"] as const).map(t=><button key={t} className={tab===t?"active":""} onClick={()=>setTab(t)}>{t}</button>)}</div>
+    {tab==="Overview"&&<><div className="vc-card vc-deploy-hero"><div><span className="vc-eyebrow">Production</span><h2>No production deployment</h2><p>Connect GitHub or deploy with the CLI/API to create a release.</p></div><button className="vc-btn primary">Deploy</button></div><div className="vc-grid-3"><Stat label="Deployments" value="0"/><Stat label="Domains" value="0"/><Stat label="Requests" value="—"/></div><div className="vc-grid-2"><div className="vc-card"><h3>Latest deployment</h3><Empty title="No deployments yet" body="Your deployment history will appear here with commit, build logs, resources and rollback actions." action="Create deployment"/></div><div className="vc-card"><h3>Project configuration</h3><Row icon={KeyRound} title="Environment Variables" detail="Per environment"/><Row icon={ShieldCheck} title="Deployment Protection" detail="Access controls"/><Row icon={Globe2} title="Domains" detail="Custom domains"/></div></div></>}
+    {tab==="Deployments"&&<DeploymentDetail deploymentTab={deploymentTab} setDeploymentTab={setDeploymentTab}/>}
+    {tab==="Domains"&&<Domains project={project}/>}
+    {tab==="Settings"&&<ProjectSettings/>}
   </>;
 }
 
-function Deployments({ onGo }: { onGo: (p: Page) => void }) {
-  return <><PageHeader eyebrow="Deployments" title="Deployments" description="A release-centric view of production and preview environments."
-    action={<button className="cp-button cp-button-primary" onClick={() => onGo("Projects")}><Plus size={15} /> New deployment</button>} />
-    <div className="cp-tabs"><button className="active">All</button><button>Production</button><button>Preview</button><button>Failed</button></div>
-    <div className="cp-three"><Metric label="Production" value="—" detail="No production deployment" /><Metric label="Preview" value="0" detail="No preview deployments" /><Metric label="Build health" value="—" detail="Connect a repository" /></div>
-    <section className="cp-panel cp-table-panel"><div className="cp-panel-head"><div><span>Release history</span><h2>Deployments</h2></div><button className="cp-filter">Last 30 days <ChevronDown size={13} /></button></div>
-      <div className="cp-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div>
-      <Empty icon={Cloud} title="No deployments yet" body="When a project is connected, every release will appear here with commit, build logs, preview URL and rollback controls." action="Open projects" onAction={() => onGo("Projects")} />
-    </section>
-  </>;
+function DeploymentDetail({deploymentTab,setDeploymentTab}:{deploymentTab:any;setDeploymentTab:(x:any)=>void}) {
+  return <div className="vc-card vc-deployment-detail"><div className="vc-subtabs">{(["Deployment","Logs","Resources","Source","Open Graph"] as const).map(t=><button className={deploymentTab===t?"active":""} key={t} onClick={()=>setDeploymentTab(t)}>{t}</button>)}</div>
+    {deploymentTab==="Deployment"&&<><div className="vc-detail-actions"><span>Deployment Details</span><div><button className="vc-btn">Share</button><button className="vc-btn">Logs</button><button className="vc-btn">Visit <ChevronDown size={12}/></button><button className="vc-icon-btn"><MoreHorizontal size={15}/></button></div></div><div className="vc-preview">Deployment preview</div><div className="vc-meta-grid"><Meta k="Created" v="Not available"/><Meta k="Status" v="Ready · Latest" good/><Meta k="Duration" v="—"/><Meta k="Environment" v="Production"/><Meta k="Domains" v="None"/><Meta k="Source" v="main · GitHub"/></div>{["Deployment Settings","Build Logs","Deployment Summary","Deployment Checks","Assigning Custom Domains"].map((x,i)=><button className="vc-accordion" key={x}><ChevronRight size={15}/><span>{x}</span><small>{i===1?"No logs yet":i===4?"0 domains":"View details"}</small></button>)}<div className="vc-detail-cards"><Row icon={FileCode2} title="Runtime Logs" detail="View build and runtime logs & errors"/><Row icon={Eye} title="Observability" detail="Monitor app health & performance"/><Row icon={Activity} title="Speed Insights" detail="Performance metrics from real users"/><Row icon={BarChart3} title="Web Analytics" detail="Analyze visitors and traffic"/></div></>}
+    {deploymentTab==="Logs"&&<Logs/>}{deploymentTab==="Resources"&&<Resources/>}{deploymentTab==="Source"&&<Simple title="Source" icon={FolderGit2} text="Repository, branch, commit and deployment source metadata."/>}{deploymentTab==="Open Graph"&&<Simple title="Open Graph" icon={Images} text="Social preview metadata and generated image."/>}
+  </div>;
 }
+function Resources(){return <div><Header title="Resources" crumb="Deployment / Resources"/><div className="vc-card"><Row icon={Code2} title="Functions" detail="Runtime, size, region and invocation details"/><Row icon={FileCode2} title="Middleware" detail="Request middleware resources"/><Row icon={HardDrive} title="Static Assets" detail="Generated assets and sizes"/></div></div>}
+function Deployments({onOpen}:{onOpen:()=>void}){return <><Header title="Deployments" action={<button className="vc-btn primary"><Plus size={14}/> New Deployment</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Failed</button></div><div className="vc-card"><div className="vc-table-head"><span>Deployment</span><span>Environment</span><span>Status</span><span>Created</span></div><button className="vc-deployment-row" onClick={onOpen}><Rocket size={16}/><span><strong>uscs-git-main</strong><small>main · GitHub</small></span><span>Production</span><Status good>Ready</Status><span>—</span></button><Empty title="No additional deployments" body="Deployment history, preview URLs, resources and rollback actions appear here." action="Connect GitHub"/></div></>}
 
-function Domains() {
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<"market" | "mine">("market");
-  return <><PageHeader eyebrow="Domains" title={tab === "market" ? "Find a domain" : "My domains"} description={tab === "market" ? "Search, register, transfer and secure domains without leaving the control plane." : "Manage ownership, DNS, TLS, renewal and project attachment."}
-      action={tab === "market" ? <button className="cp-button cp-button-secondary" onClick={() => toast.info("Registrar connection will be added in the domain provider phase.")}>Connect registrar</button> : <button className="cp-button cp-button-primary" onClick={() => setTab("market")}><Plus size={15} /> Buy domain</button>} />
-    <div className="cp-tabs"><button className={tab === "market" ? "active" : ""} onClick={() => setTab("market")}>Market</button><button className={tab === "mine" ? "active" : ""} onClick={() => setTab("mine")}>My domains</button></div>
-    {tab === "market" ? <section className="cp-domain-search"><div><span>Domain market</span><h2>Find the name before you build.</h2><p>Live availability and pricing will come from the connected registrar. USCS never invents availability.</p></div>
-      <div className="cp-search-row"><div className="cp-input"><Globe2 size={16} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="example.com" /></div><button className="cp-button cp-button-primary" onClick={() => toast.info(query ? "Connect a registrar to search live availability." : "Enter a domain first.")}>Search</button></div>
-      <div className="cp-domain-features"><Info title="DNS & nameservers" text="Records, nameservers and DNSSEC stay with the domain context." icon={Network} /><Info title="TLS & renewal" text="Certificates, auto-renew and expiration become visible controls." icon={LockKeyhole} /><Info title="Project attachment" text="Attach production domains directly to the project they serve." icon={Box} /></div>
-    </section> : <section className="cp-panel"><div className="cp-panel-head"><div><span>Owned by this workspace</span><h2>My domains</h2></div><Status>0 domains</Status></div><Empty icon={Globe2} title="No domains yet" body="Domains purchased or transferred into this workspace will appear here." action="Browse market" onAction={() => setTab("market")} /></section>}
-  </>;
-}
-
-function Security({ page, onPage }: { page: SecurityPage; onPage: (p: SecurityPage) => void }) {
-  if (page === "Overview") return <SecurityOverview onPage={onPage} />;
-  const descriptions: Record<SecurityPage, [string, string]> = {
-    "Firewall": ["Firewall", "Create ordered request rules with explicit scope, action, preview and rollback."],
-    "WAF": ["Web application firewall", "Managed and custom protections for application traffic."],
-    "DDoS Protection": ["DDoS protection", "Traffic protection and mitigation controls at the edge."],
-    "Bot Protection": ["Bot protection", "Detect, challenge and control automated traffic."],
-    "Rate Limiting": ["Rate limiting", "Protect authentication and API endpoints from abusive request volume."],
-    "Access Control": ["Access control", "Manage trusted identities, roles and protected resources."],
-    "Secrets": ["Secrets", "Environment-scoped credentials with rotation and audit visibility."],
-    "API Security": ["API security", "Protect APIs with authentication, schema and token controls."],
-    "Audit Log": ["Security audit log", "Every security configuration change with actor, time and scope."],
-    "Overview": ["Security", "Security overview"],
-  };
-  const [title, desc] = descriptions[page];
-  return <><PageHeader eyebrow={`Security / ${page}`} title={title} description={desc} action={<button className="cp-button cp-button-primary" onClick={() => toast.info("This control will be enabled after the security provider layer is connected.")}><Plus size={15} /> Create rule</button>} />
-    <div className="cp-security-context"><Status tone="warn">Provider required</Status><span>Scope: workspace</span><span>Environment: production</span></div>
-    <section className="cp-panel cp-table-panel"><div className="cp-panel-head"><div><span>Configuration</span><h2>{title}</h2></div><button className="cp-filter">All status <ChevronDown size={13} /></button></div><div className="cp-table-head"><span>Name</span><span>Scope</span><span>Action</span><span>Status</span></div><Empty icon={ShieldCheck} title={`No ${page.toLowerCase()} configured`} body="USCS will show provider-backed state here. No simulated rules or fake security metrics." action="Open security overview" onAction={() => onPage("Overview")} /></section>
-  </>;
-}
-
-function SecurityOverview({ onPage }: { onPage: (p: SecurityPage) => void }) {
-  const findings = [
-    ["Origin protection", "Connect a deployment provider", LockKeyhole],
-    ["WAF baseline", "Managed rules not configured", ShieldCheck],
-    ["DDoS protection", "Ready for edge provider", Zap],
-    ["MFA enforcement", "Workspace security setting", KeyRound],
-  ] as const;
-  return <><PageHeader eyebrow="Security" title="Security overview" description="A control-plane view of protection, findings and security configuration."
-    action={<button className="cp-button cp-button-secondary" onClick={() => toast.info("Security checks will run against connected providers.")}>Run checks</button>} />
-    <div className="cp-security-hero"><div className="cp-security-score"><span>—</span><small>Not assessed</small></div><div><div className="cp-eyebrow">Workspace posture</div><h2>Build the protection boundary first.</h2><p>Security state is evidence-based. A control is only marked active when USCS can verify it.</p></div></div>
-    <section className="cp-panel"><div className="cp-panel-head"><div><span>Action items</span><h2>What needs attention</h2></div><Status tone="warn">4 items</Status></div>
-      <div className="cp-findings">{findings.map(([label, detail, Icon]) => <button key={label} onClick={() => onPage(label === "WAF baseline" ? "WAF" : label === "DDoS protection" ? "DDoS Protection" : label === "MFA enforcement" ? "Access Control" : "Firewall")}><span className="cp-finding-icon"><Icon size={16} /></span><span><strong>{label}</strong><small>{detail}</small></span><ChevronRight size={15} /></button>)}</div>
-    </section>
-    <div className="cp-three"><Info title="Firewall" text="Ordered request rules, IP controls and rate limits." icon={Network} onClick={() => onPage("Firewall")} /><Info title="WAF" text="Managed and custom web application protections." icon={ShieldCheck} onClick={() => onPage("WAF")} /><Info title="API security" text="Token, schema and endpoint protection." icon={Code2} onClick={() => onPage("API Security")} /></div>
-  </>;
-}
-
-function Observability() {
-  return <><PageHeader eyebrow="Observability" title="Observability" description="Understand requests, errors, logs and runtime health from one operational surface." action={<button className="cp-button cp-button-secondary" onClick={() => toast.info("Observability data will appear after a runtime is connected.")}>Refresh</button>} />
-    <div className="cp-tabs"><button className="active">Overview</button><button>Logs</button><button>Metrics</button><button>Errors</button><button>Requests</button><button>Uptime</button></div>
-    <div className="cp-three"><Metric label="Requests" value="—" detail="Waiting for traffic" /><Metric label="Errors" value="—" detail="No runtime data" /><Metric label="Latency" value="—" detail="No measurements" /></div>
-    <section className="cp-panel"><div className="cp-panel-head"><div><span>Event stream</span><h2>Logs</h2></div><button className="cp-filter">Last 30 minutes <ChevronDown size={13} /></button></div><Empty icon={Activity} title="No logs yet" body="Connect a deployment or runtime to see searchable logs with timestamp, level, source and request ID." /></section>
-  </>;
-}
-
-function ResourcePage({ title, icon: Icon, description }: { title: string; icon: typeof Box; description: string }) {
-  return <><PageHeader eyebrow={title} title={title} description={description} action={<button className="cp-button cp-button-primary" onClick={() => toast.info(`${title} provisioning will be connected in the provider phase.`)}><Plus size={15} /> Create</button>} />
-    <section className="cp-panel cp-large-empty"><Empty icon={Icon} title={`No ${title.toLowerCase()} yet`} body="Resources will appear here once the provider connection and server-side provisioning path are enabled." action="Configure provider" onAction={() => toast.info("Provider configuration will be added next.")} /></section>
-  </>;
-}
-
-function Team() {
-  return <><PageHeader eyebrow="Team" title="Members & roles" description="Control who can access the workspace and what they are allowed to change." action={<button className="cp-button cp-button-primary" onClick={() => toast.info("Member invitations will be connected to the RBAC backend.")}><Plus size={15} /> Invite member</button>} />
-    <section className="cp-panel"><div className="cp-panel-head"><div><span>Workspace access</span><h2>Members</h2></div><Status>1 owner</Status></div><div className="cp-member-row"><span className="cp-avatar">U</span><div><strong>{`${"Workspace owner"}`}</strong><small>Owner · full workspace access</small></div><span className="cp-role">Owner</span></div></section>
-  </>;
-}
-
-function Billing() {
-  return <><PageHeader eyebrow="Billing" title="Usage & billing" description="Understand consumption, invoices and payment configuration before production scale." action={<button className="cp-button cp-button-secondary" onClick={() => toast.info("Billing provider connection will be added later.")}>Billing settings</button>} />
-    <div className="cp-three"><Metric label="Current usage" value="—" detail="No billable resources" /><Metric label="This period" value="$0" detail="No charges" /><Metric label="Plan" value="Free" detail="Workspace plan" /></div>
-    <section className="cp-panel cp-large-empty"><Empty icon={BarChart3} title="No billing activity" body="Usage and invoices will appear here once billable providers and resources are connected." /></section>
-  </>;
-}
-
-function Settings() {
-  const items = ["General", "Security & Privacy", "Authentication", "Connected providers", "Notifications", "API keys", "Danger zone"];
-  return <><PageHeader eyebrow="Settings" title="Workspace settings" description="Configure account, security, integrations and operational preferences." />
-    <div className="cp-settings-list">{items.map((item, i) => <button key={item} onClick={() => toast.info(`${item} settings will be connected to the backend in the implementation phase.`)}><span><strong>{item}</strong><small>{i === 1 ? "MFA, sessions and security policy" : i === 2 ? "OAuth providers and authentication policy" : "Workspace configuration"}</small></span><ChevronRight size={15} /></button>)}</div>
-  </>;
-}
-
-function Info({ title, text, icon: Icon, onClick }: { title: string; text: string; icon: typeof Box; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return <Tag className="cp-info" onClick={onClick}><span className="cp-info-icon"><Icon size={17} /></span><strong>{title}</strong><p>{text}</p>{onClick && <ChevronRight size={14} />}</Tag>;
-}
-
-function CommandSearch({ onClose, onGo }: { onClose: () => void; onGo: (p: Page) => void }) {
-  const items: { label: string; page: Page }[] = [...nav.filter(x => x.label !== "Security").map(x => ({ label: x.label, page: x.label as Page })), ...utilityNav.map(x => ({ label: x.label, page: x.label as Page })), { label: "Security", page: "Security" }];
-  return <div className="cp-command-backdrop" onMouseDown={onClose}><div className="cp-command" onMouseDown={e => e.stopPropagation()}><div className="cp-command-input"><Search size={16} /><input autoFocus placeholder="Search USCS" /><kbd>ESC</kbd></div><div className="cp-command-list">{items.map(({ label, page }) => <button key={label} onClick={() => { onGo(page); onClose(); }}><span>{label}</span><ChevronRight size={14} /></button>)}</div></div></div>;
-}
+function Logs(){return <><Header title="Logs" action={<button className="vc-btn">Live <span className="vc-live-dot"/></button>}/><div className="vc-filterbar"><button className="active">All</button><button>Errors</button><button>Warnings</button><button>Info</button><button>Search</button></div><div className="vc-card vc-log-empty"><Empty title="No logs yet" body="Logs will stream here when a deployment or runtime produces events." action="Connect a deployment"/></div></>}
+function Analytics({title}:{title:string}){return <><Header title={title}/><div className="vc-grid-3"><Stat label="Visitors" value="—"/><Stat label="Requests" value="—"/><Stat label="Performance" value="—"/></div><div className="vc-card vc-chart"><div className="vc-chart-line"/><span>No data for selected range</span></div></>}
+function Observability(){return <><Header title="Observability" action={<button className="vc-btn">Refresh</button>}/><div className="vc-filterbar"><button className="active">Overview</button><button>Logs</button><button>Metrics</button><button>Errors</button><button>Requests</button><button>Uptime</button></div><div className="vc-grid-3"><Stat label="Requests" value="—"/><Stat label="Errors" value="—"/><Stat label="Latency" value="—"/></div><div className="vc-card"><h3>Event stream</h3><Empty title="No runtime data" body="Connect a deployment to populate searchable logs, metrics and request traces."/></div></>}
+function Firewall(){return <><Header title="Firewall" action={<button className="vc-btn primary"><Plus size={14}/> Add Rule</button>}/><div className="vc-card"><div className="vc-callout"><ShieldCheck size={18}/><div><strong>Protection boundary</strong><p>Rules are ordered, scoped and auditable. No simulated security state is shown.</p></div></div><div className="vc-table-head"><span>Rule</span><span>Scope</span><span>Action</span><span>Status</span></div><Empty title="No firewall rules" body="Create provider-backed custom rules, rate limits or managed protections."/></div></>}
+function EnvVars(){return <><Header title="Environment Variables" action={<button className="vc-btn primary"><Plus size={14}/> Add Variable</button>}/><div className="vc-filterbar"><button className="active">All</button><button>Production</button><button>Preview</button><button>Development</button></div><div className="vc-card"><Empty title="No environment variables" body="Secrets and configuration are scoped by environment and should remain server-side." action="Add Variable"/></div></>}
+function Domains({project}:{project?:string}){return <><Header title="Domains" action={<button className="vc-btn primary"><Plus size={14}/> Add Domain</button>}/><div className="vc-card"><div className="vc-domain-row"><Globe2 size={16}/><span><strong>{project?project+".example.com":"No domains connected"}</strong><small>{project?"Production domain":"Connect a domain to begin"}</small></span><Status>Not configured</Status></div><div className="vc-grid-3"><Stat label="DNS" value="—"/><Stat label="TLS" value="—"/><Stat label="Renewal" value="—"/></div></div></>}
+function Agent(){return <><Header title="Agent" action={<button className="vc-btn primary"><Sparkles size={14}/> New task</button>}/><div className="vc-card vc-agent"><Sparkles size={24}/><h2>Vercel-style operational agent</h2><p>Investigate deployments, logs, configuration and usage. Read-only by default; mutations require explicit approval.</p><button className="vc-btn primary">Start investigation</button></div></>}
+function Usage(){return <><Header title="Usage"/><div className="vc-grid-3"><Stat label="Current usage" value="—"/><Stat label="This period" value="$0"/><Stat label="Plan" value="Hobby"/></div><div className="vc-card"><h3>Usage breakdown</h3><Empty title="No billable activity" body="Usage and projected cost will appear once provider resources are connected."/></div></>}
+function Settings(){return <><Header title="Settings"/><div className="vc-settings"><button className="active"><strong>General</strong><small>Workspace identity and defaults</small></button><button><strong>Security</strong><small>MFA, sessions and security policy</small></button><button><strong>Authentication</strong><small>OAuth and sign-in policy</small></button><button><strong>Members</strong><small>Roles and access</small></button><button><strong>API Keys</strong><small>Programmatic access</small></button><button><strong>Connected Accounts</strong><small>Git and provider connections</small></button><button><strong>Danger Zone</strong><small>Destructive workspace actions</small></button></div></>}
+function ProjectSettings(){return <><div className="vc-settings-project"><nav>{["General","Build & Deployment","Environment Variables","Git","Integrations","Deployment Protection","Functions","Cron Jobs","Members","Webhooks","Drains","Security","Advanced"].map(x=><button key={x}>{x}<ChevronRight size={13}/></button>)}</nav><div className="vc-card"><h2>General</h2><p>Project identity, runtime defaults and deployment configuration.</p><Row icon={Box} title="Project name" detail="uscs"/><Row icon={Code2} title="Framework & build" detail="Configured from project settings"/><Row icon={KeyRound} title="Environment Variables" detail="Scoped by environment"/></div></div></>}
+function Simple({title,icon:Icon,text}:{title:string;icon:Icon;text:string}){return <><Header title={title}/><div className="vc-card"><Empty title={title+" is not configured"} body={text+" USCS will expose verified provider-backed state here."} action="Configure"/></div></>}
+function Stat({label,value}:{label:string;value:string}){return <div className="vc-stat"><small>{label}</small><strong>{value}</strong></div>}
+function Meta({k,v,good}:{k:string;v:string;good?:boolean}){return <div className="vc-meta"><small>{k}</small><strong className={good?"green":""}>{v}</strong></div>}
+function GitHubMark(){return <span className="vc-gh">◉</span>}
