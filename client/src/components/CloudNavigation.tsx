@@ -222,7 +222,7 @@ export function CloudNavigation({
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""} ${mobileOpen ? "sidebar-mobile-open" : ""}`}>
       <div className="brand">
         <div className="brand-mark"><span /></div>
-        {!collapsed && <div className="brand-wordmark"><strong>USCS</strong><small>Unified cloud platform</small></div>}
+        {!collapsed && <div className="brand-wordmark"><strong>Cloud Wai</strong><small>Unified cloud platform</small></div>}
         <button className="mobile-close icon-button" onClick={onCloseMobile} aria-label="Close navigation"><X size={18} /></button>
       </div>
       <div className="workspace-switcher">
