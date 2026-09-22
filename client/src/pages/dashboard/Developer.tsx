@@ -4,15 +4,25 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { ComingSoon, Empty, Header, Status } from "./shared";
 
-type DeveloperTab = "connections" | "repositories" | "api-docs";
-const tabs: DeveloperTab[] = ["connections", "repositories", "api-docs"];
+type DeveloperTab = "connections" | "repositories" | "webhooks" | "api-keys" | "api-docs";
+const tabs: DeveloperTab[] = ["connections", "repositories", "webhooks", "api-keys", "api-docs"];
 
 export default function Developer({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
   const tab = tabs.includes(routeParts?.[1] as DeveloperTab) ? routeParts?.[1] as DeveloperTab : "connections";
   const connections = trpc.developer.connections.useQuery(undefined, { retry: false });
   const repositories = trpc.developer.repositories.useQuery(undefined, { retry: false });
   const go = (next: DeveloperTab) => onNavigate?.(`/dashboard/developer/${next}`);
-  return <><Header title="Developer" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>{tab === "connections" ? <ConnectionPanel data={connections.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void connections.refetch()} /> : tab === "repositories" ? <RepositoryPanel connections={connections.data ?? []} data={repositories.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void repositories.refetch()} /> : <ApiDocs />}</>;
+  return <><Header title="Developer" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value.replaceAll("-", " ").replace(/\b\w/g, char => char.toUpperCase())}</button>)}</div>{tab === "connections" ? <ConnectionPanel data={connections.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void connections.refetch()} /> : tab === "repositories" ? <RepositoryPanel connections={connections.data ?? []} data={repositories.data ?? []} organizationId={connections.data?.[0]?.organization_id} onRefresh={() => void repositories.refetch()} /> : tab === "api-keys" ? <ApiKeysPanel /> : tab === "webhooks" ? <ComingSoon title="Webhooks" body="Webhook delivery remains not configured until a provider signing and delivery adapter is connected." /> : <ApiDocs />}</>;
+}
+
+function ApiKeysPanel() {
+  const keys = trpc.account.apiKeys.list.useQuery(undefined, { retry: false });
+  const [name, setName] = useState("");
+  const [newKey, setNewKey] = useState<string | null>(null);
+  const create = trpc.account.apiKeys.create.useMutation({ onSuccess: result => { setNewKey(result.key); setName(""); void keys.refetch(); toast.success("API token created; copy it now because it is shown once"); }, onError: error => toast.error(error.message) });
+  const revoke = trpc.account.apiKeys.revoke.useMutation({ onSuccess: () => { void keys.refetch(); toast.success("API token revoked"); }, onError: error => toast.error(error.message) });
+  const copy = async () => { if (!newKey) return; await navigator.clipboard.writeText(newKey); toast.success("API token copied"); };
+  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">API access</span><h3>Create API token</h3><p>Tokens are hashed server-side and the raw value is shown only once.</p><div className="vc-form-grid"><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="CI deployment token" /></label></div><button className="vc-btn primary" disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name })}><KeyRound size={14} /> Create token</button>{newKey && <div className="vc-list-row"><span><strong>Copy this token now</strong><small>{newKey}</small></span><button className="vc-btn" onClick={() => void copy()}>Copy</button></div>}</div><div className="vc-card"><span className="vc-eyebrow">Your tokens</span><h3>API tokens</h3>{keys.data?.length ? keys.data.map(key => <div className="vc-list-row" key={key.id}><KeyRound size={16} /><span><strong>{key.name}</strong><small>{key.key_prefix} · {key.revoked_at ? "Revoked" : `Created ${new Date(key.created_at).toLocaleDateString()}`}</small></span><Status good={!key.revoked_at}>{key.revoked_at ? "Revoked" : "Active"}</Status>{!key.revoked_at && <button className="vc-btn" onClick={() => revoke.mutate({ id: key.id })}>Revoke</button>}</div>) : <Empty title="No API tokens" body="Create a token for authenticated CLI or CI access." />}</div></>;
 }
 
 function ConnectionPanel({ data, organizationId, onRefresh }: { data: Array<{ id: string; organization_id: string; provider: string; status: string; account_ref?: string | null; error_message?: string | null }>; organizationId?: string; onRefresh: () => void }) {
