@@ -283,6 +283,7 @@
   backdrop-filter: blur(12px);
 }
 .ds-menu-btn { display: none; }
+.ds-mobile-close { display: none; }
 .ds-crumbs { min-width: 0; flex: 1; display: flex; align-items: center; gap: 7px; color: var(--ds-fg-muted); font-size: 13px; }
 .ds-crumbs b { color: var(--ds-fg-subtle); font-weight: 400; }
 .ds-crumbs strong { color: var(--ds-fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -571,6 +572,7 @@
   .ds-sidebar.is-collapsed { width: var(--ds-sidebar-w); }
   .ds-main, .ds-sidebar.is-collapsed + .ds-main { margin-left: 0; }
   .ds-menu-btn { display: grid; }
+  .ds-mobile-close { display: grid; }
   .ds-grid-2, .ds-grid-3 { grid-template-columns: 1fr; }
   .ds-topbar { padding: 0 14px; }
   .ds-content { padding: 24px 16px 64px; }
