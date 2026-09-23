@@ -4,7 +4,7 @@ import { projectNavigation, workspaceNavigation } from "./navigation";
 describe("control-plane navigation contract", () => {
   it("keeps workspace navigation in the product order", () => {
     expect(workspaceNavigation.map(item => item.label)).toEqual([
-      "Overview", "Projects", "Deployments", "Logs", "Analytics", "Observability",
+      "Overview", "Projects", "Deployments", "Logs", "Observability",
       "Domains", "Storage", "Database", "Security", "Connect", "Usage", "Settings",
     ]);
   });

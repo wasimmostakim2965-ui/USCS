@@ -1,6 +1,6 @@
 import {
-  Activity, BarChart3, Boxes, Database, Eye, Globe2, HardDrive, LayoutDashboard,
-  Link2, Rocket, Settings2, ShieldCheck, WalletCards, Variable, Zap,
+  Activity, Boxes, Database, Eye, Globe2, HardDrive, LayoutDashboard,
+  Link2, Rocket, Settings2, ShieldCheck, WalletCards, Variable,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -11,7 +11,6 @@ export const workspaceNavigation: NavItem[] = [
   { label: "Projects", slug: "projects", icon: Boxes, description: "All projects in this workspace" },
   { label: "Deployments", slug: "deployments", icon: Rocket, description: "Production and preview deployments" },
   { label: "Logs", slug: "logs", icon: Activity, description: "Runtime and build logs" },
-  { label: "Analytics", slug: "analytics", icon: BarChart3, description: "Traffic and product analytics" },
   { label: "Observability", slug: "observability", icon: Eye, description: "Metrics, errors and requests" },
   { label: "Domains", slug: "domains", icon: Globe2, description: "Domains and DNS" },
   { label: "Storage", slug: "storage", icon: HardDrive, description: "Buckets and backups" },
@@ -25,8 +24,6 @@ export const workspaceNavigation: NavItem[] = [
 export const projectNavigation: NavItem[] = [
   { label: "Overview", slug: "", icon: LayoutDashboard },
   { label: "Deployments", slug: "deployments", icon: Rocket },
-  { label: "Analytics", slug: "analytics", icon: BarChart3 },
-  { label: "Speed Insights", slug: "speed-insights", icon: Zap },
   { label: "Observability", slug: "observability", icon: Eye },
   { label: "Domains", slug: "domains", icon: Globe2 },
   { label: "Storage", slug: "storage", icon: HardDrive },
