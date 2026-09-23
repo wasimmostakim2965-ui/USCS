@@ -1,0 +1,70 @@
+/**
+ * Routing: a route must round-trip through a URL, and an unknown path must be a
+ * not-found rather than a silent fallback to the dashboard.
+ */
+import { describe, expect, it } from "vitest";
+import { parseRoute, toPath, type Route } from "@cloud-wai/web";
+
+describe("route parsing", () => {
+  it("maps the root to the organization list", () => {
+    expect(parseRoute("/")).toEqual({ name: "organizations" });
+    expect(parseRoute("")).toEqual({ name: "organizations" });
+  });
+
+  it("parses the organization routes", () => {
+    expect(parseRoute("/orgs/org-a")).toEqual({ name: "organization", organizationId: "org-a" });
+    expect(parseRoute("/orgs/org-a/projects")).toEqual({
+      name: "projects",
+      organizationId: "org-a",
+    });
+    expect(parseRoute("/orgs/org-a/projects/p-1")).toEqual({
+      name: "project",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(parseRoute("/orgs/org-a/projects/p-1/deployments")).toEqual({
+      name: "deployments",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(parseRoute("/orgs/org-a/audit")).toEqual({ name: "audit", organizationId: "org-a" });
+    expect(parseRoute("/orgs/org-a/settings")).toEqual({
+      name: "settings",
+      organizationId: "org-a",
+    });
+  });
+
+  it("tolerates a trailing slash", () => {
+    expect(parseRoute("/orgs/org-a/")).toEqual({ name: "organization", organizationId: "org-a" });
+  });
+
+  it("decodes percent-encoded segments", () => {
+    const route = parseRoute("/orgs/org%20a");
+    expect(route).toEqual({ name: "organization", organizationId: "org a" });
+  });
+
+  it("reports an unknown path instead of falling back", () => {
+    const route = parseRoute("/deployments/everything");
+    expect(route.name).toBe("not_found");
+  });
+
+  it("does not guess at a malformed organization path", () => {
+    expect(parseRoute("/orgs/org-a/unknown").name).toBe("not_found");
+    expect(parseRoute("/orgs/org-a/projects/p-1/extra/deep").name).toBe("not_found");
+  });
+
+  it("round-trips every route through its URL", () => {
+    const routes: Route[] = [
+      { name: "organizations" },
+      { name: "organization", organizationId: "org-a" },
+      { name: "projects", organizationId: "org-a" },
+      { name: "project", organizationId: "org-a", projectId: "p-1" },
+      { name: "deployments", organizationId: "org-a", projectId: "p-1" },
+      { name: "audit", organizationId: "org-a" },
+      { name: "settings", organizationId: "org-a" },
+    ];
+    for (const route of routes) {
+      expect(parseRoute(toPath(route))).toEqual(route);
+    }
+  });
+});

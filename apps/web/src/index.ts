@@ -4,6 +4,26 @@
 
 export const APP_NAME = "web" as const;
 
+export { parseRoute, toPath } from "./routes.js";
+export type { Route } from "./routes.js";
+export { ApiClient } from "./api-client.js";
+export type { ApiClientOptions, ApiResponse } from "./api-client.js";
+export {
+  loadOrganizations,
+  loadProjects,
+  loadDeployments,
+  loadAudit,
+  loadRoute,
+  sectionFrom,
+} from "./view-model.js";
+export type {
+  OrganizationSummary,
+  ProjectSummary,
+  DeploymentSummary,
+  AuditSummary,
+  DashboardModel,
+} from "./view-model.js";
+
 export interface AppDescriptor {
   readonly name: string;
   readonly role: string;
