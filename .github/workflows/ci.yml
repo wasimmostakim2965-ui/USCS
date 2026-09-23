@@ -1,0 +1,93 @@
+# Cloud Wai CI.
+#
+# Two jobs, because they verify different things and fail for different reasons:
+#
+#   * verify — build, typecheck and the unit/contract/isolation suite. Fast, and
+#     needs nothing but Node.
+#   * rls — applies the control-plane migrations to a real PostgreSQL and runs
+#     the isolation and job-queue probes. This is the job that proves the RLS
+#     matrix rather than asserting it; a mocked database would prove nothing.
+#
+# Neither job can be skipped: a release gate that only runs when convenient is
+# not a gate.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm format:check
+
+  rls:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cloudwai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # The auth shim provides auth.uid() and the Supabase roles the policies
+      # reference, so the RLS policies run exactly as they do against Supabase.
+      - name: Apply schema and policies
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f tests/isolation/rls/00_auth_shim.sql
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f supabase/migrations/0001_control_plane.sql
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f supabase/migrations/0002_rls.sql
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f supabase/migrations/0003_jobs_lease_and_idempotency.sql
+
+      - name: Isolation probe
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f tests/isolation/rls/10_isolation_probe.sql
+
+      - name: Job queue probe
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f tests/isolation/rls/11_jobs_probe.sql
