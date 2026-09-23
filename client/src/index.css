@@ -1,6 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
+/*
+ * Geist is used only inside the authenticated control plane, whose tokens are
+ * scoped to the `.ds` wrapper in `styles/dashboard.css`. Nothing here changes
+ * the marketing surface, which keeps its original DM Sans / IBM Plex Mono.
+ */
+@font-face { font-family: "Geist Variable"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Geist Mono Variable"; font-style: normal; font-display: swap; font-weight: 100 900; src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations"); }
+
 :root {
   --bg: #ffffff;
   --surface: #ffffff;

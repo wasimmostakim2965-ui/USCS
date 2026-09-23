@@ -1,53 +1,96 @@
-import { useState } from "react";
-import { Activity, BellRing, Clock3, FileWarning, Gauge, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, AlertTriangle, Bug, Gauge, Plus, Radio, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { Empty, Header, Stat, Status } from "./shared";
+import { Button, Card, CardBody, CardHead, EmptyState, ErrorState, Field, Input, LoadingBlock, PageHeader, Select, Stat, StatusBadge, Tabs } from "@/components/ui-kit";
+import { formatDate, toneForStatus, useOrganizationId } from "./shared";
 
-type ObserveTab = "logs" | "metrics" | "errors" | "requests" | "alerts";
-const tabs: ObserveTab[] = ["logs", "metrics", "errors", "requests", "alerts"];
-const categoryFor: Record<Exclude<ObserveTab, "metrics" | "alerts">, "log" | "error" | "request"> = { logs: "log", errors: "error", requests: "request" };
+type ObservabilityTab = "logs" | "metrics" | "errors" | "requests" | "alerts";
+const tabs: ObservabilityTab[] = ["logs", "metrics", "errors", "requests", "alerts"];
+const categoryFor: Record<ObservabilityTab, "log" | "metric" | "error" | "request" | undefined> = { logs: "log", metrics: "metric", errors: "error", requests: "request", alerts: undefined };
 
 export default function Observability({ routeParts, onNavigate }: { routeParts?: string[]; onNavigate?: (href: string) => void }) {
-  const tab = tabs.includes(routeParts?.[1] as ObserveTab) ? routeParts?.[1] as ObserveTab : "logs";
-  const events = trpc.observability.events.useQuery(tab === "metrics" || tab === "alerts" ? undefined : { category: categoryFor[tab as Exclude<ObserveTab, "metrics" | "alerts">] }, { retry: false, enabled: tab !== "alerts", refetchInterval: tab === "logs" ? 3000 : false });
-  const alerts = trpc.observability.alerts.list.useQuery(undefined, { retry: false, enabled: tab === "alerts" });
-  const errorGroups = trpc.observability.errorGroups.list.useQuery(undefined, { retry: false, enabled: tab === "errors", refetchInterval: tab === "errors" ? 5000 : false });
-  const go = (next: ObserveTab) => onNavigate?.(`/dashboard/observability/${next}`);
-  return <><Header title="Observability" /><div className="vc-subtabs">{tabs.map(value => <button key={value} className={tab === value ? "active" : ""} onClick={() => go(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div><div className="vc-grid-3"><Stat label="Requests" value={events.data?.filter(event => event.category === "request").length.toString() ?? "—"} /><Stat label="Errors" value={errorGroups.data?.length.toString() ?? events.data?.filter(event => event.category === "error").length.toString() ?? "—"} /><Stat label="Active alerts" value={alerts.data?.filter(alert => alert.enabled).length.toString() ?? "—"} /></div>{tab === "alerts" ? <AlertPanel data={alerts.data ?? []} /> : tab === "metrics" ? <MetricsPanel events={events.data ?? []} /> : tab === "errors" ? <><ErrorGroups groups={errorGroups.data ?? []} /><EventPanel events={events.data ?? []} loading={events.isLoading} category="error" /></> : <EventPanel events={events.data ?? []} loading={events.isLoading} category={categoryFor[tab as Exclude<ObserveTab, "metrics" | "alerts">]} />}</>;
+  const tab = tabs.includes(routeParts?.[1] as ObservabilityTab) ? routeParts![1] as ObservabilityTab : "logs";
+  const { organizationId, organization } = useOrganizationId();
+  const [live, setLive] = useState(true);
+
+  const events = trpc.observability.events.useQuery(organizationId ? { organizationId, category: categoryFor[tab] } : undefined, { enabled: Boolean(organizationId), retry: false, refetchInterval: live ? 5000 : false });
+  const alerts = trpc.observability.alerts.list.useQuery(undefined, { enabled: Boolean(organizationId), retry: false });
+  const errorGroups = trpc.observability.errorGroups.list.useQuery(organizationId ? { organizationId } : undefined, { enabled: Boolean(organizationId) && tab === "errors", retry: false });
+
+  useEffect(() => { if (tab === "alerts") setLive(false); }, [tab]);
+
+  return <>
+    <PageHeader
+      title="Observability"
+      crumb="Workspace / Observability"
+      description={organization?.name ? `Logs, metrics, errors and alerts for ${organization.name}.` : "Logs, metrics, errors, requests and alerts."}
+      action={<Button onClick={() => setLive(value => !value)}><Radio size={14} /> {live ? "Live: on" : "Live: off"}</Button>}
+    />
+    <Tabs items={tabs.map(value => ({ label: value[0].toUpperCase() + value.slice(1), value }))} active={tab} onChange={value => onNavigate?.(`/dashboard/observability/${value}`)} />
+
+    {tab === "alerts" ? <AlertsPanel organizationId={organizationId} alerts={alerts.data ?? []} refetch={() => void alerts.refetch()} isLoading={alerts.isLoading} error={alerts.error?.message} /> : <>
+      <div className="ds-grid-3" style={{ marginBottom: 16 }}>
+        <Stat label="Events" value={events.data?.length ?? 0} hint={live ? "Refreshing every 5s" : "Polling paused"} />
+        <Stat label="Errors" value={(events.data ?? []).filter((event: { severity?: string }) => event.severity === "error" || event.severity === "critical").length} />
+        <Stat label="Average latency" value={averageLatency(events.data ?? [])} />
+      </div>
+      {tab === "errors" && errorGroups.data?.length ? <Card style={{ marginBottom: 16 }}>
+        <CardHead eyebrow="Grouped" title="Error groups" description="Fingerprint-grouped occurrences with first and last seen timestamps." />
+        <div className="ds-list">{errorGroups.data.map((group: { id: string; fingerprint?: string; example_message?: string; occurrence_count?: number; status?: string; last_seen_at?: string }) => (
+          <div className="ds-row" key={group.id}><span className="ds-row-icon"><Bug size={15} /></span><span className="ds-row-main"><strong>{group.example_message ?? group.fingerprint}</strong><small>{group.occurrence_count} occurrences · last seen {formatDate(group.last_seen_at, true)}</small></span><StatusBadge tone={toneForStatus(group.status)}>{group.status}</StatusBadge></div>
+        ))}</div>
+      </Card> : null}
+      <Card>
+        <CardHead eyebrow={live ? "Streaming" : "Static"} title={tab === "logs" ? "Runtime logs" : tab === "metrics" ? "Metrics" : tab === "requests" ? "Requests" : "Errors"} action={<Button size="sm" onClick={() => void events.refetch()}><RefreshCw size={13} /> Refresh</Button>} />
+        {events.isLoading ? <LoadingBlock rows={4} /> : events.error ? <ErrorState message={events.error.message} /> : events.data?.length ? (
+          <div className="ds-log">{events.data.map((event: { id: string; severity?: string; message?: string; route?: string; status_code?: number; latency_ms?: number; occurred_at?: string }) => (
+            <div className="ds-log-row" key={event.id}>
+              <time>{formatDate(event.occurred_at, true)}</time>
+              <span className={`ds-log-level ${event.severity === "error" || event.severity === "critical" ? "is-error" : event.severity === "warning" ? "is-warn" : "is-info"}`}>{event.severity ?? "info"}</span>
+              <span>{event.message}{event.route ? ` — ${event.route}` : ""}{event.status_code ? ` [${event.status_code}]` : ""}{event.latency_ms ? ` ${event.latency_ms}ms` : ""}</span>
+            </div>
+          ))}</div>
+        ) : <EmptyState title="No events yet" body="Append-only events appear once the observability adapter ingests logs, metrics, errors or requests." />}
+      </Card>
+    </>}
+  </>;
 }
 
-function EventPanel({ events, loading, category }: { events: Array<{ id: string; category: string; severity: string; message: string; route?: string | null; status_code?: number | null; latency_ms?: number | null; occurred_at: string }>; loading: boolean; category: string }) {
-  const [search, setSearch] = useState("");
-  const filtered = events.filter(event => `${event.message} ${event.route ?? ""}`.toLowerCase().includes(search.toLowerCase()));
-  return <div className="vc-card"><div className="vc-filterbar"><Search size={14} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder={`Search ${category}s`} /></div>{loading ? <div className="vc-loading-row">Loading telemetry…</div> : filtered.length ? filtered.map(event => <div className="vc-list-row" key={event.id}><Activity size={16} /><span><strong>{event.message}</strong><small>{event.route || "No route"} · {event.status_code ?? "—"} · {event.latency_ms ?? "—"}ms · {new Date(event.occurred_at).toLocaleString()}</small></span><Status good={event.severity === "info"}>{event.severity}</Status></div>) : <Empty title={`No ${category} events`} body="Runtime telemetry is not configured, so the control plane will not invent logs, metrics, requests or errors." />}</div>;
+function averageLatency(events: Array<{ latency_ms?: number }>) {
+  const values = events.map(event => event.latency_ms).filter((value): value is number => typeof value === "number");
+  if (!values.length) return "—";
+  return `${Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)}ms`;
 }
 
-function MetricsPanel({ events }: { events: Array<{ latency_ms?: number | null; status_code?: number | null }> }) {
-  const latencies = events.map(event => event.latency_ms).filter((value): value is number => typeof value === "number");
-  const average = latencies.length ? Math.round(latencies.reduce((sum, value) => sum + value, 0) / latencies.length) : null;
-  const buckets = [0, 0, 0, 0, 0];
-  latencies.forEach(value => { buckets[Math.min(4, Math.floor(value / 100))] += 1; });
-  return <div className="vc-card"><div className="vc-list-row"><Gauge size={16} /><span><strong>Latency summary</strong><small>Computed only from ingested request telemetry.</small></span><Status>{average == null ? "Not configured" : `${average}ms avg`}</Status></div>{events.length ? <><div className="vc-list-row"><Clock3 size={16} /><span><strong>Samples</strong><small>{events.length} request samples available</small></span></div><div className="vc-metric-bars">{buckets.map((count, index) => <div className="vc-metric-bar" key={index} style={{ height: `${Math.max(8, count * 18)}px` }} title={`${index * 100}–${index === 4 ? "∞" : (index + 1) * 100}ms: ${count}`} />)}</div></> : <Empty title="No metric samples" body="Connect a runtime telemetry source before metrics can be calculated." />}</div>;
-}
-
-function ErrorGroups({ groups }: { groups: Array<{ id: string; fingerprint: string; example_message: string; occurrence_count: number; status: string; last_seen_at: string }> }) {
-  return <div className="vc-card"><span className="vc-eyebrow">Grouped errors</span><h3>Issue groups</h3>{groups.length ? groups.map(group => <div className="vc-list-row" key={group.id}><FileWarning size={16} /><span><strong>{group.example_message}</strong><small>{group.fingerprint} · {group.occurrence_count} occurrences · last seen {new Date(group.last_seen_at).toLocaleString()}</small></span><Status good={group.status === "resolved"}>{group.status}</Status></div>) : <Empty title="No error groups" body="Error grouping will appear after the telemetry source emits fingerprints." />}</div>;
-}
-
-function AlertPanel({ data }: { data: Array<{ id: string; name: string; metric: string; threshold: number; enabled: boolean; state: string; last_triggered_at?: string | null }> }) {
-  const organizations = trpc.workspace.organizations.useQuery(undefined, { retry: false });
+function AlertsPanel({ organizationId, alerts, refetch, isLoading, error }: { organizationId?: string; alerts: Array<Record<string, unknown>>; refetch: () => void; isLoading: boolean; error?: string }) {
   const [name, setName] = useState("");
   const [metric, setMetric] = useState<"error_rate" | "latency_p95" | "request_rate" | "uptime">("error_rate");
-  const [threshold, setThreshold] = useState("5");
-  const create = trpc.observability.alerts.create.useMutation({ onSuccess: () => { toast.success("Alert rule saved"); setName(""); }, onError: error => toast.error(error.message) });
-  return <><div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Alerting</span><h3>Create alert rule</h3><p>Rules are persisted now; triggering requires an ingested telemetry source.</p><div className="vc-form-grid"><label>Name<input value={name} onChange={event => setName(event.target.value)} placeholder="High error rate" /></label><label>Metric<select value={metric} onChange={event => setMetric(event.target.value as typeof metric)}><option value="error_rate">Error rate</option><option value="latency_p95">Latency P95</option><option value="request_rate">Request rate</option><option value="uptime">Uptime</option></select></label><label>Threshold<input type="number" value={threshold} onChange={event => setThreshold(event.target.value)} /></label></div><button className="vc-btn primary" disabled={!organizations.data?.[0]?.id || !name || create.isPending} onClick={() => organizations.data?.[0]?.id && create.mutate({ organizationId: organizations.data[0].id, name, metric, threshold: Number(threshold) })}><BellRing size={14} /> Save alert rule</button></div><div className="vc-card">{data.length ? data.map(alert => <div key={alert.id}><div className="vc-list-row"><FileWarning size={16} /><span><strong>{alert.name}</strong><small>{alert.metric} ≥ {alert.threshold}</small></span><Status good={alert.state === "triggered"}>{alert.state}</Status></div><AlertDestinationPanel alertId={alert.id} organizationId={organizations.data?.[0]?.id} /></div>) : <Empty title="No alert rules" body="Create a rule to persist an explicit threshold. It will remain unknown until telemetry ingestion is connected." />}</div></>;
-}
-
-function AlertDestinationPanel({ alertId, organizationId }: { alertId: string; organizationId?: string }) {
-  const destinations = trpc.observability.alertDestinations.list.useQuery({ alertId }, { retry: false });
-  const [destinationRef, setDestinationRef] = useState("");
-  const [destinationType, setDestinationType] = useState<"email" | "webhook" | "slack">("email");
-  const create = trpc.observability.alertDestinations.create.useMutation({ onSuccess: () => { setDestinationRef(""); void destinations.refetch(); toast.success("Alert destination saved"); }, onError: error => toast.error(error.message) });
-  return <div className="vc-card vc-settings-editor"><span className="vc-eyebrow">Destinations</span><div className="vc-form-grid"><label>Type<select value={destinationType} onChange={event => setDestinationType(event.target.value as typeof destinationType)}><option value="email">Email</option><option value="webhook">Webhook</option><option value="slack">Slack</option></select></label><label>Reference<input value={destinationRef} onChange={event => setDestinationRef(event.target.value)} placeholder="ops@example.com" /></label></div><button className="vc-btn" disabled={!organizationId || !destinationRef || create.isPending} onClick={() => organizationId && create.mutate({ organizationId, alertId, destinationType, destinationRef })}>Add destination</button>{destinations.data?.map(destination => <div className="vc-list-row" key={destination.id}><BellRing size={14} /><span><strong>{destination.destination_type}</strong><small>{destination.destination_ref}</small></span><Status good={destination.enabled}>{destination.enabled ? "Enabled" : "Disabled"}</Status></div>)}</div>;
+  const [threshold, setThreshold] = useState(1);
+  const create = trpc.observability.alerts.create.useMutation({ onSuccess: () => { refetch(); setName(""); toast.success("Alert created"); }, onError: mutationError => toast.error(mutationError.message) });
+  return <>
+    <Card style={{ marginBottom: 16 }}>
+      <CardHead eyebrow="Threshold" title="New alert" description="Alerts evaluate against real telemetry once the observability adapter is connected." />
+      <CardBody>
+        <div className="ds-form-grid">
+          <Field label="Name"><Input value={name} onChange={event => setName(event.target.value)} placeholder="High error rate" /></Field>
+          <Field label="Metric"><Select value={metric} onChange={event => setMetric(event.target.value as typeof metric)}><option value="error_rate">Error rate</option><option value="latency_p95">Latency p95</option><option value="request_rate">Request rate</option><option value="uptime">Uptime</option></Select></Field>
+          <Field label="Threshold"><Input type="number" value={threshold} onChange={event => setThreshold(Number(event.target.value) || 0)} /></Field>
+        </div>
+        <div style={{ marginTop: 14 }}><Button variant="primary" disabled={!organizationId || !name || create.isPending} onClick={() => organizationId && create.mutate({ organizationId, projectId: null, name, metric, threshold })}><Plus size={14} /> Create alert</Button></div>
+      </CardBody>
+    </Card>
+    <Card>
+      <CardHead eyebrow="Alerts" title="Configured alerts" />
+      {isLoading ? <LoadingBlock rows={3} /> : error ? <ErrorState message={error} /> : alerts.length ? (
+        <div className="ds-list">{alerts.map(alert => (
+          <div className="ds-row" key={String(alert.id)}>
+            <span className="ds-row-icon"><AlertTriangle size={15} /></span>
+            <span className="ds-row-main"><strong>{String(alert.name)}</strong><small>{String(alert.metric)} threshold {String(alert.threshold)} · {alert.last_triggered_at ? `last triggered ${formatDate(alert.last_triggered_at as string, true)}` : "never triggered"}</small></span>
+            <StatusBadge tone={toneForStatus(String(alert.state))}>{String(alert.state ?? "idle")}</StatusBadge>
+          </div>
+        ))}</div>
+      ) : <EmptyState title="No alerts configured" body="Create a threshold alert to monitor error rate, latency, request rate or uptime." />}
+    </Card>
+  </>;
 }
