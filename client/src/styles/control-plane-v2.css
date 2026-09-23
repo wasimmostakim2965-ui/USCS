@@ -24,3 +24,29 @@
 .cp-workspace-menu strong{font-size:11px}.cp-workspace-menu small{font-size:10px;color:var(--cp-muted);margin-top:3px}.cp-workspace-menu b{font-size:12px;font-weight:500}
 .cp-menu-avatar{width:24px;height:24px;display:grid;place-items:center;border-radius:6px;background:#111;color:#fff;font-size:11px;font-weight:700}.cp-menu-avatar.is-muted{background:#f0f0f0;color:#777;font-size:16px;font-weight:400}
 @media(max-width:800px){.cp-shell.is-collapsed .cp-sidebar{width:248px;padding:16px 12px}.cp-shell.is-collapsed .cp-workspace-switcher,.cp-shell.is-collapsed .cp-find span,.cp-shell.is-collapsed .cp-find kbd,.cp-shell.is-collapsed .cp-nav-item span,.cp-shell.is-collapsed .cp-back,.cp-shell.is-collapsed .cp-collapse{display:flex}.cp-shell.is-collapsed .cp-find{justify-content:flex-start;padding:0 10px}.cp-shell.is-collapsed .cp-nav-item{justify-content:flex-start;padding-left:10px;padding-right:10px}.cp-workspace-menu{position:fixed;top:61px;left:10px}}
+
+/* Mobile safety net: never preserve desktop sidebar width inside a narrow viewport */
+html,body,#root{width:100%;min-width:0;overflow-x:hidden}
+.cp-shell,.cp-main,.cp-page{min-width:0;width:100%;box-sizing:border-box}
+@media(max-width:1100px){
+  .cp-sidebar{position:fixed;inset:0 auto 0 0;z-index:15;transform:translateX(-105%);transition:transform .18s ease;box-shadow:10px 0 30px rgba(0,0,0,.10);overflow-y:auto}
+  .cp-sidebar.is-open{transform:translateX(0)}
+  .cp-mobile-close,.cp-mobile-menu{display:block}
+  .cp-mobile-close{margin-left:auto;border:0;background:transparent;font-size:24px;color:#777}
+  .cp-mobile-menu{border:0;background:transparent;margin-right:12px;cursor:pointer}
+  .cp-topbar{padding:0 18px}
+  .cp-page{max-width:none;padding:25px 18px 50px}
+  .cp-page-heading{align-items:flex-start;flex-direction:column}
+  .cp-grid-four{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cp-project-grid{grid-template-columns:1fr}
+  .cp-tabs{margin-left:0}
+  .cp-search{flex:1;min-width:160px}
+}
+@media(max-width:600px){
+  .cp-grid-four{grid-template-columns:1fr 1fr}
+  .cp-page h1{font-size:24px}
+  .cp-top-action{font-size:0}
+  .cp-production-top{flex-direction:column}
+  .cp-deployment-meta{gap:14px;flex-wrap:wrap}
+  .cp-section-card{align-items:flex-start;flex-direction:column}
+}
