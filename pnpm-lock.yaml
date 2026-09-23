@@ -172,6 +172,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@cloud-wai/authorization':
+        specifier: workspace:*
+        version: link:../authorization
       '@cloud-wai/contracts':
         specifier: workspace:*
         version: link:../contracts

@@ -22,6 +22,7 @@
     "check": "tsc -b"
   },
   "dependencies": {
-    "@cloud-wai/contracts": "workspace:*"
+    "@cloud-wai/contracts": "workspace:*",
+    "@cloud-wai/authorization": "workspace:*"
   }
 }

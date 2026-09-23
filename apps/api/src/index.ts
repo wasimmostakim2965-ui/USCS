@@ -4,6 +4,25 @@
 
 export const APP_NAME = "api" as const;
 
+export { ApiError, isApiError } from "./errors.js";
+export { buildContext } from "./context.js";
+export type { RequestContext, AuthenticatedRequest, ContextDeps } from "./context.js";
+export { allowed, requireCapability, roleFor } from "./guard.js";
+export { buildRouter } from "./router.js";
+export type { RouterDeps, RpcRequest, RpcResponse } from "./router.js";
+export {
+  listOrganizations,
+  createOrganization,
+  getOrganization,
+  listProjects,
+  getProject,
+  createProject,
+  mayReadProject,
+} from "./procedures/organizations.js";
+export type { OrgDeps } from "./procedures/organizations.js";
+export { listDeployments, listAuditEvents } from "./procedures/deployments.js";
+export type { DeploymentDeps } from "./procedures/deployments.js";
+
 export interface AppDescriptor {
   readonly name: string;
   readonly role: string;

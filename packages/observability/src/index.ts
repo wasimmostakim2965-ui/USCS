@@ -47,3 +47,49 @@ export function logRecord(
     fields: redact(fields),
   };
 }
+
+export interface Logger {
+  debug(event: string, fields?: Record<string, unknown>): void;
+  info(event: string, fields?: Record<string, unknown>): void;
+  warn(event: string, fields?: Record<string, unknown>): void;
+  error(event: string, fields?: Record<string, unknown>): void;
+}
+
+export interface LoggerOptions {
+  readonly service: string;
+  /** Sink for the serialized record. Defaults to stdout via `console.log`. */
+  readonly sink?: (record: Record<string, unknown>) => void;
+  readonly minLevel?: "debug" | "info" | "warn" | "error";
+  readonly base?: Record<string, unknown>;
+}
+
+const LEVEL_ORDER = { debug: 0, info: 1, warn: 2, error: 3 } as const;
+
+/**
+ * Create a redacting logger.
+ *
+ * Every field passes through `redact`, so a caller cannot accidentally log a
+ * token by handing over a raw request object.
+ */
+export function createLogger(options: LoggerOptions): Logger {
+  const sink = options.sink ?? ((record) => console.log(JSON.stringify(record)));
+  const min = LEVEL_ORDER[options.minLevel ?? "info"];
+
+  const emit =
+    (level: keyof typeof LEVEL_ORDER) =>
+    (event: string, fields = {}) => {
+      if (LEVEL_ORDER[level] < min) return;
+      sink({
+        ...logRecord(level, event, { ...options.base, ...fields }),
+        service: options.service,
+        time: new Date().toISOString(),
+      });
+    };
+
+  return {
+    debug: emit("debug"),
+    info: emit("info"),
+    warn: emit("warn"),
+    error: emit("error"),
+  };
+}

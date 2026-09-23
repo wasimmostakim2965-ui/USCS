@@ -2,7 +2,7 @@
   "name": "cloud-wai",
   "private": true,
   "version": "0.1.0",
-  "description": "Cloud Wai — multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
+  "description": "Cloud Wai \u2014 multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
@@ -16,7 +16,9 @@
     "test:watch": "vitest",
     "verify": "pnpm build && pnpm check && pnpm test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "verify:rls": "bash scripts/verify-rls.sh",
+    "verify:all": "pnpm verify && pnpm verify:rls"
   },
   "devDependencies": {
     "@cloud-wai/adapters": "workspace:*",
