@@ -6,7 +6,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home, { AuthCallback } from "./pages/Home";
-import { dashboardRoutes } from "./pages/dashboard/navigation";
+import { dashboardRoutes } from "./control-plane/navigation";
 
 function Router() {
   return (
