@@ -38,6 +38,7 @@ if [ -n "$DSN" ]; then
   run_sql "schema migration"     "$ROOT/supabase/migrations/0001_control_plane.sql"
   run_sql "rls policies"         "$ROOT/supabase/migrations/0002_rls.sql"
   run_sql "job lease/idempotency" "$ROOT/supabase/migrations/0003_jobs_lease_and_idempotency.sql"
+  run_sql "security policy events" "$ROOT/supabase/migrations/0004_security_policy_events.sql"
   run_sql "job queue probe"      "$ROOT/tests/isolation/rls/11_jobs_probe.sql"
   run_sql "isolation probe"      "$ROOT/tests/isolation/rls/10_isolation_probe.sql"
 
@@ -84,6 +85,7 @@ run_sql "auth shim"          "$ROOT/tests/isolation/rls/00_auth_shim.sql"
 run_sql "schema migration"   "$ROOT/supabase/migrations/0001_control_plane.sql"
 run_sql "rls policies"       "$ROOT/supabase/migrations/0002_rls.sql"
 run_sql "job lease/idempotency" "$ROOT/supabase/migrations/0003_jobs_lease_and_idempotency.sql"
+run_sql "security policy events" "$ROOT/supabase/migrations/0004_security_policy_events.sql"
 run_sql "job queue probe"    "$ROOT/tests/isolation/rls/11_jobs_probe.sql"
 run_sql "isolation probe"    "$ROOT/tests/isolation/rls/10_isolation_probe.sql"
 

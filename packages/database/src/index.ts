@@ -105,6 +105,150 @@ export interface DataStore {
   revokeApiKey(userId: UserId, organizationId: OrganizationId, keyId: ApiKeyId): Promise<boolean>;
 }
 
+/**
+ * The write operations a control plane needs beyond the reads above.
+ *
+ * Kept in its own interface so a caller that can only read (a report, a test
+ * double, a first deployment) does not have to implement a half-real version of
+ * a deployment request. A procedure that needs a write checks for this
+ * capability and reports `engine_unavailable` when it is absent, rather than
+ * writing nothing and answering `ok`.
+ */
+export interface ControlPlaneWrites {
+  /** Create a deployment row. Status is `pending`; only the worker advances it. */
+  createDeployment(input: DeploymentCreateInput): Promise<Deployment>;
+  /** The existing deployment for an idempotency key, or null. */
+  findDeploymentByIdempotencyKey(
+    userId: UserId,
+    organizationId: OrganizationId,
+    idempotencyKey: string,
+  ): Promise<Deployment | null>;
+  /** A deployment by id, scoped to a member's organization. */
+  getDeployment(userId: UserId, deploymentId: DeploymentId): Promise<Deployment | null>;
+
+  /** The organization's current security policy, or null when none exists. */
+  getSecurityPolicy(userId: UserId, organizationId: OrganizationId): Promise<SecurityPolicy | null>;
+  /** Insert or advance the policy. Version increases monotonically. */
+  saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
+  /** Record a policy state transition. Append-only. */
+  recordPolicyEvent(input: PolicyEventInput): Promise<SecurityPolicyEvent>;
+  listPolicyEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly SecurityPolicyEvent[]>;
+
+  /** Register a hostname. Always unverified: only the edge may verify it. */
+  createDomain(input: DomainCreateInput): Promise<Domain>;
+  /** Get a domain by id, scoped to a member's organization. */
+  getDomain(userId: UserId, domainId: DomainId): Promise<Domain | null>;
+
+  /** Register a tenant data resource handle. */
+  createDataResource(input: DataResourceCreateInput): Promise<DataResource>;
+  getDataResource(userId: UserId, resourceId: DataResourceId): Promise<DataResource | null>;
+  listDataBackups(userId: UserId, resourceId: DataResourceId): Promise<readonly DataBackup[]>;
+  /** Request a backup. The worker performs it; status starts `pending`. */
+  createDataBackup(input: DataBackupCreateInput): Promise<DataBackup>;
+}
+
+/** The full store a control-plane deployment needs. */
+export interface ControlPlaneStore extends DataStore, MembershipStore, ControlPlaneWrites {}
+
+export interface DeploymentCreateInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly idempotencyKey: string;
+  readonly requestedBy: UserId;
+  readonly status: EngineStatus;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  readonly url: string | null;
+  readonly failureReason: string | null;
+}
+
+export interface SecurityPolicy {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly name: string;
+  readonly riskLevel: "low" | "medium" | "high" | "critical";
+  readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
+  readonly state: "draft" | "compiled" | "distributed" | "active" | "rejected" | "degraded";
+  readonly version: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SecurityPolicyInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly name: string;
+  readonly riskLevel: SecurityPolicy["riskLevel"];
+  readonly action: SecurityPolicy["action"];
+  readonly state: SecurityPolicy["state"];
+  /** Monotonic per organization; the edge rejects a lower version. */
+  readonly version: number;
+  readonly createdBy: UserId;
+}
+
+export interface SecurityPolicyEvent {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly policyId: string;
+  readonly fromState: SecurityPolicy["state"] | null;
+  readonly toState: SecurityPolicy["state"];
+  readonly version: number;
+  readonly actorId: UserId | null;
+  readonly actorEmail: string | null;
+  readonly detail: string | null;
+  readonly createdAt: string;
+}
+
+export interface PolicyEventInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly policyId: string;
+  readonly fromState: SecurityPolicy["state"] | null;
+  readonly toState: SecurityPolicy["state"];
+  readonly version: number;
+  readonly actorId: UserId | null;
+  readonly actorEmail: string | null;
+  readonly detail: string | null;
+}
+
+export interface DomainCreateInput {
+  readonly id: DomainId;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId | null;
+  readonly hostname: string;
+}
+
+export interface DataResourceCreateInput {
+  readonly id: DataResourceId;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId | null;
+  readonly kind: DataResource["kind"];
+  readonly name: string;
+  readonly state: DataResource["state"];
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+}
+
+export interface DataBackup {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly dataResourceId: DataResourceId;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  readonly sizeBytes: number | null;
+  readonly status: EngineStatus;
+  readonly createdAt: string;
+  readonly finishedAt: string | null;
+}
+
+export interface DataBackupCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly dataResourceId: DataResourceId;
+  readonly provider: string | null;
+  readonly status: EngineStatus;
+}
+
 export interface Domain {
   readonly id: DomainId;
   readonly organizationId: OrganizationId;
@@ -187,3 +331,6 @@ export interface AuditEvent extends AuditEventInput {
   readonly id: AuditEventId;
   readonly createdAt: string;
 }
+
+export * from "./postgrest.js";
+export * from "./supabase-store.js";

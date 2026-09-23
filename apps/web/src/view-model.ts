@@ -86,6 +86,57 @@ export async function loadDeployments(
   return sectionFrom("Deployments", response);
 }
 
+/**
+ * Convert a single-object response to a section.
+ *
+ * Same rule as `sectionFrom`: a missing row, a failure and an unconfigured
+ * engine all produce a section that carries no item, so a detail page cannot
+ * render a blank object as if it had loaded.
+ */
+export function itemFrom<T>(
+  title: string,
+  response: ApiResponse<T | null | undefined>,
+  missingMessage = "Not found.",
+): Section<T> {
+  if (response.notConfigured) {
+    return {
+      title,
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored(title, response.error?.message ?? "Request failed.");
+  }
+  if (response.data === null || response.data === undefined) {
+    return errored(title, missingMessage);
+  }
+  return ready(title, [response.data]);
+}
+
+/** Load one project by id. */
+export async function loadProject(
+  client: ApiClient,
+  projectId: string,
+): Promise<Section<ProjectSummary>> {
+  const response = await client.call<ProjectSummary>("projects.get", { projectId });
+  return itemFrom("Project", response, "This project does not exist, or you are not a member.");
+}
+
+/** Load one organization by id. */
+export async function loadOrganization(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<OrganizationSummary>> {
+  const response = await client.call<OrganizationSummary>("organizations.get", {
+    organizationId,
+  });
+  return itemFrom(
+    "Organization",
+    response,
+    "This organization does not exist, or you are not a member.",
+  );
+}
+
 export interface DomainSummary {
   readonly id: string;
   readonly hostname: string;

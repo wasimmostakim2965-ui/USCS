@@ -2,7 +2,7 @@
   "name": "cloud-wai",
   "private": true,
   "version": "0.1.0",
-  "description": "Cloud Wai \u2014 multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
+  "description": "Cloud Wai — multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
@@ -34,8 +34,16 @@
     "@cloud-wai/ui": "workspace:*",
     "@cloud-wai/web": "workspace:*",
     "@cloud-wai/worker": "workspace:*",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^22.10.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^25.0.1",
     "prettier": "^3.4.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "5.9.3",
     "vitest": "^3.2.4"
   }

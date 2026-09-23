@@ -9,9 +9,16 @@ export type { Route } from "./routes.js";
 export { ApiClient } from "./api-client.js";
 export type { ApiClientOptions, ApiResponse } from "./api-client.js";
 export {
+  itemFrom,
   loadOrganizations,
+  loadOrganization,
   loadProjects,
+  loadProject,
   loadDeployments,
+  loadDomains,
+  loadDataResources,
+  loadApiKeys,
+  loadProviderHealth,
   loadAudit,
   loadRoute,
   sectionFrom,
@@ -20,9 +27,29 @@ export type {
   OrganizationSummary,
   ProjectSummary,
   DeploymentSummary,
+  DomainSummary,
+  DataResourceSummary,
+  ApiKeySummaryRow,
+  ProviderHealthRow,
   AuditSummary,
   DashboardModel,
 } from "./view-model.js";
+export {
+  backTargetFor,
+  navForRoute,
+  projectNav,
+  titleForRoute,
+  workspaceNav,
+} from "./navigation.js";
+export type { NavContext, NavItem } from "./navigation.js";
+export {
+  createSessionController,
+  sessionConfigFromEnv,
+  unconfiguredSessionController,
+} from "./session.js";
+export type { BrowserSession, SessionConfig, SessionController } from "./session.js";
+export { App } from "./App.js";
+export type { AppProps } from "./App.js";
 
 export interface AppDescriptor {
   readonly name: string;

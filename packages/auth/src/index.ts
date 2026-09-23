@@ -55,3 +55,4 @@ export async function resolvePrincipal(
 }
 
 export * from "./api-keys.js";
+export * from "./supabase-verifier.js";
