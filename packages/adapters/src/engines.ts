@@ -17,12 +17,15 @@ import {
   securityNotConfigured,
   storageNotConfigured,
   createCoolifyHosting,
+  createPostgresDatabase,
+  createMinioStorage,
   type CoolifyCredentials,
   type DatabaseAdapter,
   type HostingAdapter,
   type SecurityEdgeAdapter,
   type NotConfiguredBrand,
   type StorageAdapter,
+  type StorageCredentials,
 } from "./index.js";
 import type { OrganizationId } from "@cloud-wai/contracts";
 
@@ -31,8 +34,12 @@ export interface EngineConfig {
   readonly coolifyUrl?: string | undefined;
   /** Per-organization Coolify tokens, keyed by organization id. */
   readonly coolifyTokens?: Readonly<Record<string, string>> | undefined;
-  readonly databaseConfigured?: boolean | undefined;
-  readonly storageConfigured?: boolean | undefined;
+  /** S3-compatible endpoint for tenant object storage. */
+  readonly storageEndpoint?: string | undefined;
+  /** Per-organization storage credentials, keyed by organization id. */
+  readonly storageCredentials?:
+    Readonly<Record<string, { accessKey: string; secretKey: string }>> | undefined;
+  /** The security edge (Envoy) is not wired yet; it stays honestly unconfigured. */
   readonly securityEdgeConfigured?: boolean | undefined;
   /** Use in-memory engines. Only for tests and local development. */
   readonly useFakes?: boolean | undefined;
@@ -53,11 +60,27 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     const match = key.match(/^COOLIFY_TOKEN__(.+)$/);
     if (match && value && value.trim() !== "") tokens[match[1]!] = value;
   }
+
+  const accessKeys: Record<string, string> = {};
+  const secretKeys: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const access = key.match(/^STORAGE_ACCESS_KEY__(.+)$/);
+    if (access && value && value.trim() !== "") accessKeys[access[1]!] = value;
+    const secret = key.match(/^STORAGE_SECRET_KEY__(.+)$/);
+    if (secret && value && value.trim() !== "") secretKeys[secret[1]!] = value;
+  }
+
+  const credentials: Record<string, { accessKey: string; secretKey: string }> = {};
+  for (const org of Object.keys(accessKeys)) {
+    const secretKey = secretKeys[org];
+    if (secretKey) credentials[org] = { accessKey: accessKeys[org]!, secretKey };
+  }
+
   return {
     coolifyUrl: env.COOLIFY_URL,
     coolifyTokens: tokens,
-    databaseConfigured: Boolean(env.DATABASE_ENGINE_URL),
-    storageConfigured: Boolean(env.STORAGE_ENGINE_URL),
+    storageEndpoint: env.STORAGE_ENDPOINT,
+    storageCredentials: credentials,
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
     useFakes: env.CLOUD_WAI_USE_FAKE_ENGINES === "true",
   };
@@ -83,30 +106,55 @@ export function buildEngines(config: EngineConfig): Engines {
   const url = config.coolifyUrl?.trim();
   const tokens = config.coolifyTokens ?? {};
 
-  const hosting: HostingAdapter =
-    url && Object.keys(tokens).length > 0
-      ? createCoolifyHosting({
-          credentials: (organizationId: OrganizationId): CoolifyCredentials | null => {
-            const token = tokens[organizationId];
-            return token ? { baseUrl: url, token } : null;
+  const credentials = (organizationId: OrganizationId): CoolifyCredentials | null => {
+    if (!url) return null;
+    const token = tokens[organizationId];
+    return token ? { baseUrl: url, token } : null;
+  };
+  const anyCredential = url !== undefined && Object.keys(tokens).length > 0;
+
+  const hosting: HostingAdapter = anyCredential
+    ? createCoolifyHosting({ credentials })
+    : hostingNotConfigured(
+        "coolify",
+        "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
+      );
+
+  // Tenant databases run *inside* Coolify, so they share its credentials: there
+  // is no separate database engine to configure.
+  const database: DatabaseAdapter = anyCredential
+    ? createPostgresDatabase({ credentials })
+    : databaseNotConfigured(
+        "postgres",
+        "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
+      );
+
+  const endpoint = config.storageEndpoint?.trim();
+  const storageKeys = config.storageCredentials ?? {};
+  const storage: StorageAdapter =
+    endpoint && Object.keys(storageKeys).length > 0
+      ? createMinioStorage({
+          credentials: (organizationId: OrganizationId): StorageCredentials | null => {
+            const keys = storageKeys[organizationId];
+            return keys ? { endpoint, accessKey: keys.accessKey, secretKey: keys.secretKey } : null;
           },
         })
-      : hostingNotConfigured(
-          "coolify",
-          "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
+      : storageNotConfigured(
+          "minio",
+          "Set STORAGE_ENDPOINT and per-organization STORAGE_ACCESS_KEY__<organizationId> / STORAGE_SECRET_KEY__<organizationId>.",
         );
 
   return {
     hosting,
-    database: config.databaseConfigured
-      ? databaseNotConfigured("postgres", "Provisioning engine not yet implemented.")
-      : databaseNotConfigured("postgres", "Set DATABASE_ENGINE_URL."),
-    storage: config.storageConfigured
-      ? storageNotConfigured("minio", "Bucket API not yet implemented.")
-      : storageNotConfigured("minio", "Set STORAGE_ENGINE_URL."),
-    securityEdge: config.securityEdgeConfigured
-      ? securityNotConfigured("envoy", "Edge API not yet implemented.")
-      : securityNotConfigured("envoy", "Set SECURITY_EDGE_URL."),
+    database,
+    storage,
+    // The security edge adapter is not written yet; say so rather than pretend.
+    securityEdge: securityNotConfigured(
+      "envoy",
+      config.securityEdgeConfigured
+        ? "The security edge adapter is not implemented in this build."
+        : "Set SECURITY_EDGE_URL.",
+    ),
   };
 }
 

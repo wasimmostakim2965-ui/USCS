@@ -103,6 +103,8 @@ export interface DomainResellerAdapter extends NotConfiguredBrand {
 
 export * from "./http.js";
 export * from "./coolify.js";
+export * from "./postgres.js";
+export * from "./minio.js";
 export * from "./engines.js";
 export * from "./conformance.js";
 export * from "./fakes.js";
