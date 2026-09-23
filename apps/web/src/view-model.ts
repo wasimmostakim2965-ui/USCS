@@ -86,6 +86,76 @@ export async function loadDeployments(
   return sectionFrom("Deployments", response);
 }
 
+export interface DomainSummary {
+  readonly id: string;
+  readonly hostname: string;
+  readonly verified: boolean;
+}
+
+export interface DataResourceSummary {
+  readonly id: string;
+  readonly kind: "postgres" | "object_storage";
+  readonly name: string;
+  readonly state: "provisioning" | "ready" | "degraded" | "failed" | "destroying";
+}
+
+export interface ApiKeySummaryRow {
+  readonly id: string;
+  readonly name: string;
+  readonly keyPrefix: string;
+  readonly scopes: readonly string[];
+  readonly revokedAt: string | null;
+}
+
+/** An engine the dashboard shows, with the honest reason for its state. */
+export interface ProviderHealthRow {
+  readonly provider: string;
+  readonly state: "ready" | "not_configured";
+  readonly detail: string;
+}
+
+/** Load an organization's domains. */
+export async function loadDomains(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<DomainSummary>> {
+  const response = await client.call<readonly DomainSummary[]>("domains.list", { organizationId });
+  return sectionFrom("Domains", response);
+}
+
+/** Load an organization's data resources. */
+export async function loadDataResources(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<DataResourceSummary>> {
+  const response = await client.call<readonly DataResourceSummary[]>("data.list", {
+    organizationId,
+  });
+  return sectionFrom("Databases and storage", response);
+}
+
+/** Load an organization's API keys. The secret is never in this list. */
+export async function loadApiKeys(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<ApiKeySummaryRow>> {
+  const response = await client.call<readonly ApiKeySummaryRow[]>("apiKeys.list", {
+    organizationId,
+  });
+  return sectionFrom("API keys", response);
+}
+
+/** Load provider health. A not-configured engine renders as degraded, not ready. */
+export async function loadProviderHealth(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<ProviderHealthRow>> {
+  const response = await client.call<readonly ProviderHealthRow[]>("providers.health", {
+    organizationId,
+  });
+  return sectionFrom("Engine status", response);
+}
+
 /** Load the audit log of one organization. */
 export async function loadAudit(
   client: ApiClient,
@@ -124,14 +194,31 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
     case "deployments":
       return { title: "Deployments", sections: [await loadDeployments(client, route.projectId)] };
 
+    case "domains":
+      return { title: "Domains", sections: [await loadDomains(client, route.organizationId)] };
+
+    case "data":
+      return { title: "Data", sections: [await loadDataResources(client, route.organizationId)] };
+
+    case "security":
+      // Security shows policy and incident state through the same
+      // not-configured-or-ready lens as every other engine-backed view.
+      return {
+        title: "Security",
+        sections: [await loadProviderHealth(client, route.organizationId)],
+      };
+
     case "audit":
       return { title: "Activity", sections: [await loadAudit(client, route.organizationId)] };
 
     case "settings":
       return {
         title: "Settings",
-        sections: [loading("Engine status")],
+        sections: [await loadProviderHealth(client, route.organizationId)],
       };
+
+    case "apiKeys":
+      return { title: "API keys", sections: [await loadApiKeys(client, route.organizationId)] };
 
     case "not_found":
       return {

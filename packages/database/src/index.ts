@@ -6,8 +6,11 @@
  * from here — that happens through `@cloud-wai/adapters`.
  */
 import type {
+  ApiKeyId,
   AuditEventId,
+  DataResourceId,
   DeploymentId,
+  DomainId,
   EngineStatus,
   OrganizationId,
   ProjectId,
@@ -86,6 +89,63 @@ export interface DataStore {
   listAuditEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly AuditEvent[]>;
   /** Append-only: returns the recorded event. */
   recordAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
+
+  /** Domains belong to an organization, verified out of band by the edge. */
+  listDomains(userId: UserId, organizationId: OrganizationId): Promise<readonly Domain[]>;
+  /** Data resources are tenant database and bucket handles. */
+  listDataResources(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly DataResource[]>;
+  /** API keys, hash stripped — a list response can never contain a usable key. */
+  listApiKeys(userId: UserId, organizationId: OrganizationId): Promise<readonly ApiKeySummary[]>;
+  /** Persist a newly issued key. The secret is never part of this input. */
+  createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary>;
+  /** Revoke a key. Idempotent: revoking a revoked key succeeds. */
+  revokeApiKey(userId: UserId, organizationId: OrganizationId, keyId: ApiKeyId): Promise<boolean>;
+}
+
+export interface Domain {
+  readonly id: DomainId;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId | null;
+  readonly hostname: string;
+  readonly verified: boolean;
+  readonly createdAt: string;
+}
+
+export interface DataResource {
+  readonly id: DataResourceId;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId | null;
+  readonly kind: "postgres" | "object_storage";
+  readonly name: string;
+  readonly state: "provisioning" | "ready" | "degraded" | "failed" | "destroying";
+  readonly provider: string | null;
+  readonly createdAt: string;
+}
+
+/** An API key as it may leave the API: identity and scopes, never the hash. */
+export interface ApiKeySummary {
+  readonly id: ApiKeyId;
+  readonly organizationId: OrganizationId;
+  readonly name: string;
+  /** Short display prefix, not a usable credential. */
+  readonly keyPrefix: string;
+  readonly scopes: readonly string[];
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+}
+
+export interface ApiKeyCreateInput {
+  readonly id: ApiKeyId;
+  readonly organizationId: OrganizationId;
+  readonly name: string;
+  readonly keyHash: string;
+  readonly keyPrefix: string;
+  readonly ownerId: UserId;
+  readonly scopes: readonly string[];
 }
 
 export interface Organization {

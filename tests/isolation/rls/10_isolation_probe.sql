@@ -49,6 +49,14 @@ insert into api_keys (organization_id, name, key_hash, key_prefix, owner_id, sco
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'A key', 'hash-a-secret', 'cw_a', '11111111-1111-1111-1111-111111111111', '{project:read}'),
   ('bbbbbbbb-0000-0000-0000-00000000000b', 'B key', 'hash-b-secret', 'cw_b', '22222222-2222-2222-2222-222222222222', '{project:read}');
 
+insert into domains (organization_id, project_id, hostname, verified) values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1', 'alpha.example.com', true),
+  ('bbbbbbbb-0000-0000-0000-00000000000b', 'bbbbbbbb-0000-0000-0000-0000000000b1', 'beta.example.com', true);
+
+insert into data_resources (organization_id, project_id, kind, name, state) values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1', 'postgres', 'alpha-db', 'ready'),
+  ('bbbbbbbb-0000-0000-0000-00000000000b', 'bbbbbbbb-0000-0000-0000-0000000000b1', 'object_storage', 'beta-bucket', 'ready');
+
 insert into audit_logs (organization_id, actor_id, actor_email, event) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'alice@example.com', 'project.created'),
   ('bbbbbbbb-0000-0000-0000-00000000000b', '22222222-2222-2222-2222-222222222222', 'bob@example.com', 'project.created');
@@ -109,6 +117,36 @@ begin
   select count(*) into visible from api_keys where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
   if visible <> 0 then
     raise exception 'ISOLATION FAIL: Alice can read org B api keys';
+  end if;
+
+  select count(*) into visible from domains where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B domains';
+  end if;
+
+  select count(*) into visible from data_resources where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B data resources';
+  end if;
+
+  select count(*) into visible from data_backups where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B data backups';
+  end if;
+
+  select count(*) into visible from security_policies where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B security policies';
+  end if;
+
+  select count(*) into visible from domains where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if visible <> 1 then
+    raise exception 'ISOLATION FAIL: Alice cannot read her own domains';
+  end if;
+
+  select count(*) into visible from data_resources where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if visible <> 1 then
+    raise exception 'ISOLATION FAIL: Alice cannot read her own data resources';
   end if;
 end;
 $$;

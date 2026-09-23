@@ -53,3 +53,5 @@ export async function resolvePrincipal(
   if (!session) throw new UnauthenticatedError();
   return toPrincipal(session);
 }
+
+export * from "./api-keys.js";

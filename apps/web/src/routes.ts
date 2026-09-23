@@ -13,8 +13,12 @@ export type Route =
   | { readonly name: "projects"; readonly organizationId: string }
   | { readonly name: "project"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "deployments"; readonly organizationId: string; readonly projectId: string }
+  | { readonly name: "domains"; readonly organizationId: string; readonly projectId: string }
+  | { readonly name: "data"; readonly organizationId: string; readonly projectId: string }
+  | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "audit"; readonly organizationId: string }
   | { readonly name: "settings"; readonly organizationId: string }
+  | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "not_found"; readonly path: string };
 
 export function parseRoute(path: string): Route {
@@ -40,6 +44,24 @@ export function parseRoute(path: string): Route {
   ) {
     return { name: "deployments", organizationId: segments[1]!, projectId: segments[3]! };
   }
+  if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 5) {
+    const section = segments[4];
+    if (section === "domains" || section === "data" || section === "security") {
+      return {
+        name: section,
+        organizationId: segments[1]!,
+        projectId: segments[3]!,
+      };
+    }
+  }
+  if (
+    segments[0] === "orgs" &&
+    segments[2] === "settings" &&
+    segments[3] === "api-keys" &&
+    segments.length === 4
+  ) {
+    return { name: "apiKeys", organizationId: segments[1]! };
+  }
   if (segments[0] === "orgs" && segments[2] === "audit" && segments.length === 3) {
     return { name: "audit", organizationId: segments[1]! };
   }
@@ -62,6 +84,14 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}`;
     case "deployments":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/deployments`;
+    case "domains":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/domains`;
+    case "data":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/data`;
+    case "security":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`;
+    case "apiKeys":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/settings/api-keys`;
     case "audit":
       return `/orgs/${encodeURIComponent(route.organizationId)}/audit`;
     case "settings":

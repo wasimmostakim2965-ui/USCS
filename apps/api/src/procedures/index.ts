@@ -9,7 +9,15 @@
  * memberships.
  */
 import type { DataStore, Organization, Project } from "@cloud-wai/database";
-import type { OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { ApiKeyId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import {
+  databaseNotConfigured,
+  hostingNotConfigured,
+  securityNotConfigured,
+  storageNotConfigured,
+  type Engines,
+} from "@cloud-wai/adapters";
+import { ApiError } from "../errors.js";
 import type { Procedure } from "../router.js";
 import {
   createOrganization,
@@ -21,6 +29,15 @@ import {
   type OrgDeps,
 } from "./organizations.js";
 import { listAuditEvents, listDeployments, type DeploymentDeps } from "./deployments.js";
+import {
+  createApiKey,
+  listApiKeys,
+  listDataResources,
+  listDomains,
+  revokeApiKey,
+  type SettingsDeps,
+} from "./settings.js";
+import { providerHealth, type HealthDeps } from "./health.js";
 import type { RequestContext } from "../context.js";
 
 type WithInput<T> = (input: unknown) => T;
@@ -29,9 +46,46 @@ function inputOf<T>(input: unknown): T {
   return input as T;
 }
 
-export function buildProcedures(store: DataStore): readonly Procedure[] {
+/**
+ * Engines for a deployment with none wired.
+ *
+ * These are the real not-configured adapters, not empty objects: an empty engine
+ * set would be reported as *configured* by a  brand check and the
+ * dashboard would show four healthy providers that cannot do anything.
+ */
+const missingEngines: Engines = {
+  hosting: hostingNotConfigured("coolify"),
+  database: databaseNotConfigured("postgres"),
+  storage: storageNotConfigured("minio"),
+  securityEdge: securityNotConfigured("envoy"),
+};
+
+export interface ProcedureExtras {
+  /** Live engines, for the provider-health procedure. */
+  readonly engines?: HealthDeps["engines"];
+  /** Injected id source, so a new key gets a Cloud Wai UUID. */
+  readonly newId?: () => string;
+  readonly now?: () => Date;
+}
+
+export function buildProcedures(
+  store: DataStore,
+  extras: ProcedureExtras = {},
+): readonly Procedure[] {
   const orgDeps: OrgDeps = { store };
   const depDeps: DeploymentDeps = { store };
+  const settingsDeps: SettingsDeps = {
+    store,
+    newId:
+      extras.newId ??
+      (() => {
+        throw new ApiError("engine_unavailable", "This deployment cannot issue API keys yet.");
+      }),
+    ...(extras.now ? { now: extras.now } : {}),
+  };
+  const healthDeps: HealthDeps = {
+    engines: extras.engines ?? missingEngines,
+  };
 
   return [
     {
@@ -89,6 +143,62 @@ export function buildProcedures(store: DataStore): readonly Procedure[] {
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
     },
+    {
+      name: "domains.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listDomains(
+          ctx,
+          settingsDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "data.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listDataResources(
+          ctx,
+          settingsDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "apiKeys.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listApiKeys(
+          ctx,
+          settingsDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "apiKeys.create",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        createApiKey(
+          ctx,
+          settingsDeps,
+          inputOf<{ organizationId: OrganizationId; name: string; scopes: readonly string[] }>(
+            input,
+          ),
+        ),
+    },
+    {
+      name: "apiKeys.revoke",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        revokeApiKey(
+          ctx,
+          settingsDeps,
+          inputOf<{ organizationId: OrganizationId; keyId: ApiKeyId }>(input),
+        ),
+    },
+    {
+      name: "providers.health",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        providerHealth(
+          ctx,
+          healthDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
   ];
 }
 
@@ -109,6 +219,12 @@ export const ROUTE_SHAPES = {
   "projects.create": { organizationId: "OrganizationId", name: "string", slug: "string" },
   "deployments.list": { projectId: "ProjectId" },
   "audit.list": { organizationId: "OrganizationId" },
+  "domains.list": { organizationId: "OrganizationId" },
+  "data.list": { organizationId: "OrganizationId" },
+  "apiKeys.list": { organizationId: "OrganizationId" },
+  "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
+  "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },
+  "providers.health": { organizationId: "OrganizationId" },
 } as const;
 
 export type { Organization, Project };

@@ -9,15 +9,19 @@ import { describe, expect, it } from "vitest";
 import type { SessionVerifier, SupabaseSession } from "@cloud-wai/auth";
 import type { Membership } from "@cloud-wai/authorization";
 import type {
+  ApiKeyCreateInput,
+  ApiKeySummary,
   AuditEvent,
   AuditEventInput,
+  DataResource,
   DataStore,
   Deployment,
+  Domain,
   MembershipStore,
   Organization,
   Project,
 } from "@cloud-wai/database";
-import type { OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
+import type { ApiKeyId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 import { buildProcedures, buildRouter, procedureNames, type RouterDeps } from "@cloud-wai/api";
 
 const ALICE = "u-alice";
@@ -69,6 +73,9 @@ function makeStore() {
   ];
   const deployments: Deployment[] = [];
   const audit: AuditEvent[] = [];
+  const domains: Domain[] = [];
+  const dataResources: DataResource[] = [];
+  const apiKeys: ApiKeySummary[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -115,6 +122,37 @@ function makeStore() {
     async listAuditEvents(userId, org) {
       return isMember(userId, org) ? audit.filter((a) => a.organizationId === org) : [];
     },
+    async listDomains(userId, org) {
+      return isMember(userId, org) ? domains.filter((d) => d.organizationId === org) : [];
+    },
+    async listDataResources(userId, org) {
+      return isMember(userId, org) ? dataResources.filter((d) => d.organizationId === org) : [];
+    },
+    async listApiKeys(userId, org) {
+      return isMember(userId, org) ? apiKeys.filter((k) => k.organizationId === org) : [];
+    },
+    async createApiKey(input: ApiKeyCreateInput) {
+      const key: ApiKeySummary = {
+        id: input.id,
+        organizationId: input.organizationId,
+        name: input.name,
+        keyPrefix: input.keyPrefix,
+        scopes: input.scopes,
+        createdAt: "2026-01-01T00:00:00Z",
+        lastUsedAt: null,
+        revokedAt: null,
+      };
+      apiKeys.push(key);
+      return key;
+    },
+    async revokeApiKey(userId, org, keyId) {
+      if (!isMember(userId, org)) return false;
+      const key = apiKeys.find((k) => k.id === keyId && k.organizationId === org);
+      if (!key) return false;
+      const index = apiKeys.indexOf(key);
+      apiKeys[index] = { ...key, revokedAt: "2026-01-02T00:00:00Z" };
+      return true;
+    },
     async recordAuditEvent(input: AuditEventInput) {
       const e: AuditEvent = {
         ...input,
@@ -141,14 +179,20 @@ describe("the registered procedure table", () => {
   it("exposes exactly the documented procedures", () => {
     const { store } = makeStore();
     expect(procedureNames(store)).toEqual([
+      "apiKeys.create",
+      "apiKeys.list",
+      "apiKeys.revoke",
       "audit.list",
+      "data.list",
       "deployments.list",
+      "domains.list",
       "organizations.create",
       "organizations.get",
       "organizations.list",
       "projects.create",
       "projects.get",
       "projects.list",
+      "providers.health",
     ]);
   });
 
@@ -174,6 +218,12 @@ describe("the registered procedure table", () => {
       "projects.create": { organizationId: ORG_A, name: "Sneak", slug: "sneak" },
       "deployments.list": { projectId: "p-1" },
       "audit.list": { organizationId: ORG_A },
+      "domains.list": { organizationId: ORG_A },
+      "data.list": { organizationId: ORG_A },
+      "apiKeys.list": { organizationId: ORG_A },
+      "apiKeys.create": { organizationId: ORG_A, name: "Sneak", scopes: ["org:delete"] },
+      "apiKeys.revoke": { organizationId: ORG_A, keyId: "k-1" as ApiKeyId },
+      "providers.health": { organizationId: ORG_A },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {

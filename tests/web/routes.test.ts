@@ -48,6 +48,32 @@ describe("route parsing", () => {
     expect(route.name).toBe("not_found");
   });
 
+  it("parses the project-scoped settings routes", () => {
+    expect(parseRoute("/orgs/org-a/projects/p-1/domains")).toEqual({
+      name: "domains",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(parseRoute("/orgs/org-a/projects/p-1/data")).toEqual({
+      name: "data",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(parseRoute("/orgs/org-a/projects/p-1/security")).toEqual({
+      name: "security",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(parseRoute("/orgs/org-a/settings/api-keys")).toEqual({
+      name: "apiKeys",
+      organizationId: "org-a",
+    });
+  });
+
+  it("does not treat an unknown project sub-route as a section", () => {
+    expect(parseRoute("/orgs/org-a/projects/p-1/billing").name).toBe("not_found");
+  });
+
   it("does not guess at a malformed organization path", () => {
     expect(parseRoute("/orgs/org-a/unknown").name).toBe("not_found");
     expect(parseRoute("/orgs/org-a/projects/p-1/extra/deep").name).toBe("not_found");
@@ -60,8 +86,12 @@ describe("route parsing", () => {
       { name: "projects", organizationId: "org-a" },
       { name: "project", organizationId: "org-a", projectId: "p-1" },
       { name: "deployments", organizationId: "org-a", projectId: "p-1" },
+      { name: "domains", organizationId: "org-a", projectId: "p-1" },
+      { name: "data", organizationId: "org-a", projectId: "p-1" },
+      { name: "security", organizationId: "org-a", projectId: "p-1" },
       { name: "audit", organizationId: "org-a" },
       { name: "settings", organizationId: "org-a" },
+      { name: "apiKeys", organizationId: "org-a" },
     ];
     for (const route of routes) {
       expect(parseRoute(toPath(route))).toEqual(route);

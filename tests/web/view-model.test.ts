@@ -165,6 +165,62 @@ describe("loaders", () => {
     const model = await loadRoute(client, { name: "not_found", path: "/nope" });
     expect(model.sections[0]!.state.kind).toBe("error");
   });
+
+  it("builds the domains, data and security models from their own procedures", async () => {
+    const calls: string[] = [];
+    const recording = new ApiClient({
+      baseUrl: "https://api.test",
+      getAccessToken: () => "token",
+      fetchImpl: async (_url, init) => {
+        calls.push(JSON.parse(String(init?.body)).procedure);
+        return new Response(JSON.stringify({ ok: true, status: 200, data: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    await loadRoute(recording, { name: "domains", organizationId: "org-a", projectId: "p-1" });
+    await loadRoute(recording, { name: "data", organizationId: "org-a", projectId: "p-1" });
+    await loadRoute(recording, { name: "security", organizationId: "org-a", projectId: "p-1" });
+    await loadRoute(recording, { name: "apiKeys", organizationId: "org-a" });
+
+    expect(calls).toEqual(["domains.list", "data.list", "providers.health", "apiKeys.list"]);
+  });
+
+  it("carries each engine's state through to the row instead of collapsing it", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: [
+        { provider: "coolify", state: "not_configured", detail: "No credentials configured." },
+        { provider: "minio", state: "ready", detail: "Configured for this deployment." },
+      ],
+    });
+    const model = await loadRoute(client, { name: "settings", organizationId: "org-a" });
+    const section = model.sections[0]!;
+    expect(section.state.kind).toBe("ready");
+    if (section.state.kind === "ready") {
+      // The row keeps its own honest state; the section is not forced to
+      // degraded just because one engine is unconfigured.
+      expect(section.state.items.map((i) => i.state)).toEqual(["not_configured", "ready"]);
+    }
+  });
+
+  it("treats a not_configured procedure response as degraded, not empty", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      notConfigured: true,
+      data: [],
+    });
+    const model = await loadRoute(client, {
+      name: "domains",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+    expect(model.sections[0]!.state.kind).toBe("degraded");
+  });
 });
 
 describe("status presentation", () => {
