@@ -184,7 +184,18 @@ Project-এর `Environment Variables` page-এ production, preview এবং de
 
 প্রতিটি phase-এ `pnpm build`, `pnpm check`, `pnpm test` এবং `git diff --check` বাধ্যতামূলক। Phase শেষে আলাদা commit এবং push হবে।
 
+## Open-source implementation foundation
+
+USCS proprietary Vercel source code বা private assets কপি করবে না। Vercel-এর public interaction model—compact navigation, workspace-to-project context switch, dense resource tables, detail drawers, progressive disclosure এবং settings grouping—অনুসরণ করা হবে। Visual implementation-এর জন্য repository-তে থাকা open-source Radix UI primitives, `cmdk`, Lucide icons, `class-variance-authority` এবং existing React utility layer ব্যবহার করা হবে। এগুলো accessibility, keyboard interaction, focus management এবং composable behavior-এর ভিত্তি দেয়।
+
+Community Geist UI package-টি archived হওয়ায় সেটিকে নতুন runtime dependency হিসেবে যোগ করা হবে না। তার পরিবর্তে একই ধরনের neutral surface, 1px border, restrained radius, compact type scale এবং high-information-density token system repository-এর CSS-এ রাখা হবে। ফলে dependency maintenance ঝুঁকি কমবে এবং USCS-এর backend state-এর সঙ্গে UI behavior নির্ভুলভাবে মেলানো যাবে।
+
+একটি open-source component কোনো page-এর information architecture নির্ধারণ করবে না। Page contract আগে নির্ধারিত হবে, তারপর Radix primitive বা reusable component বেছে নেওয়া হবে। ফলে component template-এর কারণে অপ্রয়োজনীয় tabs, buttons বা fake controls যোগ হবে না।
+
 ## References
 
 [1]: https://vercel.com/docs/projects "Projects overview"
 [2]: https://vercel.com/docs/project-configuration/project-settings "Project settings"
+[3]: https://www.radix-ui.com/primitives "Radix UI open-source primitives"
+[4]: https://github.com/pacocoursey/cmdk "cmdk open-source command menu"
+[5]: https://github.com/lucide-icons/lucide "Lucide open-source icon library"
