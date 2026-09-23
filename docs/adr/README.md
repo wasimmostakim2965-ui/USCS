@@ -12,6 +12,7 @@
 | [0008](0008-adapter-conformance-and-job-semantics.md) | Adapter conformance, honest states and durable job semantics | accepted |
 | [0009](0009-real-engine-adapters.md) | Real engine adapters: per-tenant credentials and one wiring point | accepted |
 | [0010](0010-dashboard-honesty.md) | Dashboard: URL-driven routes and an honesty-in-the-type view model | accepted |
+| [0011](0011-data-engines-and-security-edge.md) | Data engines and the security edge: policy to engine syntax | accepted |
 
 Source of truth for this project:
 
