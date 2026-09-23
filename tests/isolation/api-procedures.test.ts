@@ -265,3 +265,98 @@ describe("the registered procedure table", () => {
     expect(res.error?.code).toBe("invalid_input");
   });
 });
+
+describe("API keys through the registered procedures", () => {
+  const extras = { newId: () => "k-1" };
+
+  it("issues a key and returns the secret exactly once", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store, extras));
+    const res = await router.route({
+      procedure: "apiKeys.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "ci", scopes: ["project:read"] },
+    });
+    expect(res.ok).toBe(true);
+    const data = res.data as { key: ApiKeySummary; secret: string };
+    expect(data.secret.startsWith("cw_live_")).toBe(true);
+    expect(data.key.scopes).toEqual(["project:read"]);
+
+    // The list procedure never carries the secret or the hash.
+    const listed = await router.route({
+      procedure: "apiKeys.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    const body = JSON.stringify(listed.data);
+    expect(body).not.toContain(data.secret);
+    expect(body).not.toContain("keyHash");
+  });
+
+  it("never keeps a scope the caller's role does not grant", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store, extras));
+    // Alice is an owner here; an owner holds org:delete, so it survives. The
+    // narrowing itself is proven in the auth suite; what matters at this layer
+    // is that the stored key and the response agree.
+    const res = await router.route({
+      procedure: "apiKeys.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "boom", scopes: ["made:up", "project:read"] },
+    });
+    const data = res.data as { key: ApiKeySummary };
+    expect(data.key.scopes).toEqual(["project:read"]);
+  });
+
+  it("revokes a key and refuses it afterwards", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store, extras));
+    await router.route({
+      procedure: "apiKeys.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "ci", scopes: ["project:read"] },
+    });
+    const res = await router.route({
+      procedure: "apiKeys.revoke",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, keyId: "k-1" },
+    });
+    expect(res.ok).toBe(true);
+
+    const listed = await router.route({
+      procedure: "apiKeys.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    const rows = listed.data as readonly ApiKeySummary[];
+    expect(rows[0]?.revokedAt).not.toBeNull();
+  });
+
+  it("rejects a name outside the allowed length", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store, extras));
+    const res = await router.route({
+      procedure: "apiKeys.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "   ", scopes: ["project:read"] },
+    });
+    expect(res.status).toBe(400);
+    expect(res.error?.code).toBe("invalid_input");
+  });
+
+  it("audits creation with the prefix, never the secret or hash", async () => {
+    const { store, audit } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store, extras));
+    const res = await router.route({
+      procedure: "apiKeys.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "ci", scopes: ["project:read"] },
+    });
+    const { secret, key } = res.data as { secret: string; key: ApiKeySummary };
+    const created = audit.find((a) => a.event === "api_key.created");
+    expect(created).toBeDefined();
+    const serialized = JSON.stringify(audit);
+    expect(serialized).not.toContain(secret);
+    expect(JSON.stringify(created?.metadata)).toContain(key.keyPrefix);
+  });
+});

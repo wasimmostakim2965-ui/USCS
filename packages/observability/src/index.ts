@@ -93,3 +93,95 @@ export function createLogger(options: LoggerOptions): Logger {
     error: emit("error"),
   };
 }
+
+// =============================================================================
+// Timing and load reporting
+// =============================================================================
+
+/**
+ * A sample of finished request durations, in milliseconds.
+ *
+ * The blueprint's load gate asks for p50/p95/p99 and throughput, so the report
+ * is built from raw samples rather than an average: an average hides the tail
+ * that a user actually feels, and the tail is where timeouts live.
+ */
+export interface LatencySample {
+  readonly count: number;
+  readonly min: number;
+  readonly p50: number;
+  readonly p95: number;
+  readonly p99: number;
+  readonly max: number;
+}
+
+/**
+ * Nearest-rank percentile over a copy of the samples.
+ *
+ * Nearest-rank is used deliberately: it always returns an observed duration, so
+ * a reported p99 cannot be a value that never actually happened. The input is
+ * not mutated, because the caller usually wants the raw list afterwards.
+ */
+export function percentiles(samples: readonly number[], percentile: number): number {
+  if (samples.length === 0) return 0;
+  if (percentile <= 0) return Math.min(...samples);
+  if (percentile >= 100) return Math.max(...samples);
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  const rank = Math.ceil((percentile / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(sorted.length - 1, rank))]!;
+}
+
+export function summarizeLatency(samples: readonly number[]): LatencySample {
+  if (samples.length === 0) {
+    return { count: 0, min: 0, p50: 0, p95: 0, p99: 0, max: 0 };
+  }
+  return {
+    count: samples.length,
+    min: Math.min(...samples),
+    p50: percentiles(samples, 50),
+    p95: percentiles(samples, 95),
+    p99: percentiles(samples, 99),
+    max: Math.max(...samples),
+  };
+}
+
+export interface LoadReport {
+  readonly total: number;
+  readonly ok: number;
+  readonly failed: number;
+  /** Requests per second over the measured wall-clock window. */
+  readonly throughput: number;
+  readonly latency: LatencySample;
+}
+
+/**
+ * Build a load report from a batch of observations.
+ *
+ * `elapsedMs` is wall-clock time for the whole batch, not the sum of the
+ * request durations, so `throughput` reflects the real degree of concurrency.
+ */
+export function summarizeLoad(
+  observations: readonly { readonly ok: boolean; readonly durationMs: number }[],
+  elapsedMs: number,
+): LoadReport {
+  const durations = observations.map((o) => o.durationMs);
+  const ok = observations.filter((o) => o.ok).length;
+  return {
+    total: observations.length,
+    ok,
+    failed: observations.length - ok,
+    throughput: elapsedMs > 0 ? (observations.length / elapsedMs) * 1000 : 0,
+    latency: summarizeLatency(durations),
+  };
+}
+
+/** One line a CI log or a dashboard can carry without further formatting. */
+export function formatLoadReport(label: string, report: LoadReport): string {
+  const { latency } = report;
+  return (
+    `${label}: ${report.total} requests, ${report.ok} ok, ${report.failed} failed, ` +
+    `${report.throughput.toFixed(1)} req/s, ` +
+    `p50=${latency.p50.toFixed(2)}ms p95=${latency.p95.toFixed(2)}ms ` +
+    `p99=${latency.p99.toFixed(2)}ms max=${latency.max.toFixed(2)}ms`
+  );
+}

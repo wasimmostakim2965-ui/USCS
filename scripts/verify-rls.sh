@@ -9,6 +9,11 @@
 # Requires a working Docker daemon. DOCKER may be overridden, e.g.
 # DOCKER="sudo docker" ./scripts/verify-rls.sh in environments where the socket
 # is root-owned.
+#
+# If Docker is unavailable, point the script at an existing empty PostgreSQL
+# with CLOUDWAI_RLS_DSN (a libpq connection string). That path is used in CI
+# images and sandboxes where a daemon cannot run, and it runs the same SQL, so
+# it is the same proof — only the way the server is obtained differs.
 
 set -euo pipefail
 
@@ -17,8 +22,29 @@ CONTAINER="${CONTAINER:-cw-rls-verify}"
 IMAGE="${IMAGE:-postgres:17-alpine}"
 PORT="${PORT:-55432}"
 DB="${DB:-cloudwai}"
+DSN="${CLOUDWAI_RLS_DSN:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ -n "$DSN" ]; then
+  # Existing server: every statement is applied with psql, in order.
+  run_sql() {
+    local label="$1" file="$2"
+    echo "== $label =="
+    psql "$DSN" -v ON_ERROR_STOP=1 -q -f - <"$file"
+  }
+
+  run_sql "auth shim"            "$ROOT/tests/isolation/rls/00_auth_shim.sql"
+  run_sql "schema migration"     "$ROOT/supabase/migrations/0001_control_plane.sql"
+  run_sql "rls policies"         "$ROOT/supabase/migrations/0002_rls.sql"
+  run_sql "job lease/idempotency" "$ROOT/supabase/migrations/0003_jobs_lease_and_idempotency.sql"
+  run_sql "job queue probe"      "$ROOT/tests/isolation/rls/11_jobs_probe.sql"
+  run_sql "isolation probe"      "$ROOT/tests/isolation/rls/10_isolation_probe.sql"
+
+  echo
+  echo "RLS verification complete: migrations applied, isolation probe passed."
+  exit 0
+fi
 
 cleanup() {
   $DOCKER rm -f "$CONTAINER" >/dev/null 2>&1 || true
