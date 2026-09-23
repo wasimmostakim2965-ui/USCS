@@ -13,6 +13,16 @@ import type {
   OrganizationId,
 } from "@cloud-wai/contracts";
 
+/**
+ * Marked on every adapter that exists only to report `not_configured`.
+ *
+ * It lets the engine report say "this deployment cannot act on that engine"
+ * without calling it, and without guessing from the shape of the object.
+ */
+export interface NotConfiguredBrand {
+  readonly __notConfigured?: true;
+}
+
 /** Every adapter call carries the tenant it belongs to and an idempotency key. */
 export interface AdapterContext {
   readonly organizationId: OrganizationId;
@@ -32,7 +42,7 @@ export interface LogPage {
   readonly cursor: string | null;
 }
 
-export interface HostingAdapter {
+export interface HostingAdapter extends NotConfiguredBrand {
   createApplication(
     ctx: AdapterContext,
     input: { name: string },
@@ -52,7 +62,7 @@ export interface HostingAdapter {
   reconcile(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<DeploymentState>>;
 }
 
-export interface DatabaseAdapter {
+export interface DatabaseAdapter extends NotConfiguredBrand {
   provision(ctx: AdapterContext, input: { name: string }): Promise<AdapterResult<ProviderRef>>;
   rotateCredentials(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
   backup(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<ProviderRef>>;
@@ -63,12 +73,12 @@ export interface DatabaseAdapter {
   destroy(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
 }
 
-export interface StorageAdapter {
+export interface StorageAdapter extends NotConfiguredBrand {
   createBucket(ctx: AdapterContext, input: { name: string }): Promise<AdapterResult<ProviderRef>>;
   deleteBucket(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
 }
 
-export interface SecurityEdgeAdapter {
+export interface SecurityEdgeAdapter extends NotConfiguredBrand {
   publishRoute(
     ctx: AdapterContext,
     input: { routeRef: ProviderRef },
@@ -85,12 +95,15 @@ export interface SecurityEdgeAdapter {
   ): Promise<AdapterResult<{ healthy: boolean }>>;
 }
 
-export interface DomainResellerAdapter {
+export interface DomainResellerAdapter extends NotConfiguredBrand {
   search(ctx: AdapterContext, input: { query: string }): Promise<AdapterResult<readonly string[]>>;
   /** Registering requires credentials and legal approval; default is not_configured. */
   register(ctx: AdapterContext, input: { domain: string }): Promise<AdapterResult<OperationRef>>;
 }
 
+export * from "./http.js";
+export * from "./coolify.js";
+export * from "./engines.js";
 export * from "./conformance.js";
 export * from "./fakes.js";
 export * from "./queue.js";

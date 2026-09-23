@@ -78,6 +78,7 @@ export function hostingNotConfigured(engine: string, hint?: string): HostingAdap
       ),
     );
   return {
+    __notConfigured: true as const,
     createApplication: miss,
     deploy: miss,
     getDeployment: miss,
@@ -98,6 +99,7 @@ export function databaseNotConfigured(engine: string, hint?: string): DatabaseAd
       ),
     );
   return {
+    __notConfigured: true as const,
     provision: miss,
     rotateCredentials: miss,
     backup: miss,
@@ -114,7 +116,7 @@ export function storageNotConfigured(engine: string, hint?: string): StorageAdap
         `${engine} is not configured in this deployment.${hint ? ` ${hint}` : ""}`,
       ),
     );
-  return { createBucket: miss, deleteBucket: miss };
+  return { __notConfigured: true as const, createBucket: miss, deleteBucket: miss };
 }
 
 export function securityNotConfigured(engine: string, hint?: string): SecurityEdgeAdapter {
@@ -126,6 +128,7 @@ export function securityNotConfigured(engine: string, hint?: string): SecurityEd
       ),
     );
   return {
+    __notConfigured: true as const,
     publishRoute: miss,
     removeRoute: miss,
     applyPolicy: miss,
