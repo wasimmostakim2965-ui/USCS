@@ -1,0 +1,33 @@
+{
+  "name": "@cloud-wai/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "description": "Cloud Wai application: api",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "check": "tsc -b"
+  },
+  "dependencies": {
+    "@cloud-wai/contracts": "workspace:*",
+    "@cloud-wai/auth": "workspace:*",
+    "@cloud-wai/authorization": "workspace:*",
+    "@cloud-wai/database": "workspace:*",
+    "@cloud-wai/adapters": "workspace:*",
+    "@cloud-wai/observability": "workspace:*",
+    "@cloud-wai/security": "workspace:*"
+  }
+}

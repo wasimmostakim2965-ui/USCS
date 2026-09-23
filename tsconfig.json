@@ -1,0 +1,18 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/security" },
+    { "path": "packages/database" },
+    { "path": "packages/authorization" },
+    { "path": "packages/auth" },
+    { "path": "packages/adapters" },
+    { "path": "packages/observability" },
+    { "path": "packages/ui" },
+    { "path": "apps/api" },
+    { "path": "apps/orchestrator" },
+    { "path": "apps/worker" },
+    { "path": "apps/security-control" },
+    { "path": "apps/web" }
+  ]
+}

@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Engine reference clones — read-only inspection workspaces, never committed.
+# Each engine stays an independent, version-pinned service behind an adapter.
+/engines-src/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+*.log

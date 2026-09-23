@@ -1,0 +1,40 @@
+{
+  "name": "cloud-wai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloud Wai — multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "check": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "pnpm build && pnpm check && pnpm test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@cloud-wai/adapters": "workspace:*",
+    "@cloud-wai/api": "workspace:*",
+    "@cloud-wai/auth": "workspace:*",
+    "@cloud-wai/authorization": "workspace:*",
+    "@cloud-wai/contracts": "workspace:*",
+    "@cloud-wai/database": "workspace:*",
+    "@cloud-wai/observability": "workspace:*",
+    "@cloud-wai/orchestrator": "workspace:*",
+    "@cloud-wai/security": "workspace:*",
+    "@cloud-wai/security-control": "workspace:*",
+    "@cloud-wai/ui": "workspace:*",
+    "@cloud-wai/web": "workspace:*",
+    "@cloud-wai/worker": "workspace:*",
+    "@types/node": "^22.10.0",
+    "prettier": "^3.4.2",
+    "typescript": "5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
