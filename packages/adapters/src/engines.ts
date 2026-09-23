@@ -34,6 +34,25 @@ export interface EngineConfig {
   readonly coolifyUrl?: string | undefined;
   /** Per-organization Coolify tokens, keyed by organization id. */
   readonly coolifyTokens?: Readonly<Record<string, string>> | undefined;
+  /**
+   * Per-organization Coolify project/server/environment UUIDs. Coolify requires
+   * these to create an application, so a token without them is not a usable
+   * hosting configuration.
+   */
+  readonly coolifyInfra?:
+    | Readonly<
+        Record<
+          string,
+          {
+            projectUuid?: string | undefined;
+            serverUuid?: string | undefined;
+            environmentName?: string | undefined;
+            environmentUuid?: string | undefined;
+            destinationUuid?: string | undefined;
+          }
+        >
+      >
+    | undefined;
   /** S3-compatible endpoint for tenant object storage. */
   readonly storageEndpoint?: string | undefined;
   /** Per-organization storage credentials, keyed by organization id. */
@@ -61,6 +80,34 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     if (match && value && value.trim() !== "") tokens[match[1]!] = value;
   }
 
+  // Project/server/environment are per organization too. They are what makes a
+  // token usable: Coolify rejects a create without them.
+  const infra: Record<
+    string,
+    {
+      projectUuid?: string;
+      serverUuid?: string;
+      environmentName?: string;
+      environmentUuid?: string;
+      destinationUuid?: string;
+    }
+  > = {};
+  const infraFields = {
+    COOLIFY_PROJECT_UUID__: "projectUuid",
+    COOLIFY_SERVER_UUID__: "serverUuid",
+    COOLIFY_ENVIRONMENT_NAME__: "environmentName",
+    COOLIFY_ENVIRONMENT_UUID__: "environmentUuid",
+    COOLIFY_DESTINATION_UUID__: "destinationUuid",
+  } as const;
+  for (const [key, value] of Object.entries(env)) {
+    for (const [prefix, field] of Object.entries(infraFields)) {
+      if (key.startsWith(prefix) && value && value.trim() !== "") {
+        const org = key.slice(prefix.length);
+        infra[org] = { ...infra[org], [field]: value };
+      }
+    }
+  }
+
   const accessKeys: Record<string, string> = {};
   const secretKeys: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
@@ -79,6 +126,7 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
   return {
     coolifyUrl: env.COOLIFY_URL,
     coolifyTokens: tokens,
+    coolifyInfra: infra,
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
@@ -105,11 +153,22 @@ export function buildEngines(config: EngineConfig): Engines {
 
   const url = config.coolifyUrl?.trim();
   const tokens = config.coolifyTokens ?? {};
+  const infra = config.coolifyInfra ?? {};
 
   const credentials = (organizationId: OrganizationId): CoolifyCredentials | null => {
     if (!url) return null;
     const token = tokens[organizationId];
-    return token ? { baseUrl: url, token } : null;
+    if (!token) return null;
+    const forOrg = infra[organizationId];
+    return {
+      baseUrl: url,
+      token,
+      ...(forOrg?.projectUuid ? { projectUuid: forOrg.projectUuid } : {}),
+      ...(forOrg?.serverUuid ? { serverUuid: forOrg.serverUuid } : {}),
+      ...(forOrg?.environmentName ? { environmentName: forOrg.environmentName } : {}),
+      ...(forOrg?.environmentUuid ? { environmentUuid: forOrg.environmentUuid } : {}),
+      ...(forOrg?.destinationUuid ? { destinationUuid: forOrg.destinationUuid } : {}),
+    };
   };
   const anyCredential = url !== undefined && Object.keys(tokens).length > 0;
 

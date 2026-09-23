@@ -5,9 +5,10 @@
 
 ## Context
 
-The blueprint lists thirteen release gates. A gate is only meaningful if a
+The blueprint lists thirteen release gates; a fourteenth records a gap this
+repository found in its own adapter. A gate is only meaningful if a
 reviewer can check it, and the failure mode this project is most exposed to is a
-gate that gets marked "done" because nobody looked. Two specific pressures
+gate that gets marked "done" because nobody looked. Three specific pressures
 make that likely here:
 
 1. Six of the gates involve an external system — an edge, containers, a real
@@ -16,6 +17,11 @@ make that likely here:
    gate as passing.
 2. A "load test" that measures a `for` loop, or that reports an average, would
    satisfy the wording of gate 11 without measuring anything a user feels.
+3. An adapter can be written against an *assumed* engine API rather than the
+   pinned one. That reads as working code and passes a stub test written to the
+   same assumption. The Coolify adapter shipped with a bare `POST /applications`,
+   an application-uuid cancel and a commit-less rollback; none of those exist
+   upstream, and none were caught by a stub that encoded the same guesses.
 
 ## Decision
 
@@ -31,6 +37,13 @@ exactly two states:
 A gate in this repository may not be marked Enforced by a test that only runs
 against a fake. If the property needs a real engine, the gate is Open and the
 contract test is cited as partial evidence.
+
+For an adapter's route contract, the check is derived from the pinned engine
+source rather than restated from the adapter. `tests/fixtures/coolify-routes.json`
+holds Coolify's `routes/api.php` table at commit `7c86e53422ad`, and
+`tests/engines/coolify.test.ts` records every request the adapter makes and
+fails if any path or verb is absent from that table. A stub written to the
+adapter's own assumptions cannot pass it, which is why this is gate 14.
 
 For gate 11 specifically, the load probe runs the real router and the real
 procedure table under concurrency, asserts every request succeeded before

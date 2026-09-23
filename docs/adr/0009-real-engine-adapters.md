@@ -75,9 +75,16 @@ resource, and the UI must say so.
 
 ## Acceptance evidence
 
-- `tests/engines/coolify.test.ts` — 11 tests against a local HTTP server:
-  create, deploy, logs with cursor, cancel, rollback, delete, auth header,
-  cross-tenant 404, unreachable → `degraded`, hang → bounded, and the status
-  mapping including an unknown upstream value not becoming success.
-- `tests/engines/wiring.test.ts` — 7 tests: no token means `not_configured`,
-  per-organization tokens are independent, fakes are opt-in.
+- `tests/engines/coolify.test.ts` — 25 tests against a local HTTP server that
+  speaks the pinned upstream shape (no fetch mock): create via
+  `/applications/public` with the exact required body, deploy returning a
+  `deployment_uuid` and reporting `running` (not `succeeded`), read back by
+  application and by deployment, cancel by *deployment* uuid, rollback with the
+  required `commit`, logs with a null cursor, delete, auth header, cross-tenant
+  404, unreachable → `degraded`, hang → bounded, the status mapping including an
+  unknown upstream value not becoming success, and a route-conformance check that
+  every path the adapter calls exists in
+  `tests/fixtures/coolify-routes.json` (extracted from the pinned commit).
+- `tests/engines/wiring.test.ts` — 8 tests: no token means `not_configured`,
+  per-organization tokens and infrastructure UUIDs are independent, fakes are
+  opt-in.

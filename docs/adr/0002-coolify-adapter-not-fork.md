@@ -15,13 +15,27 @@ Coolify is the deployment/hosting execution engine. Source inspection of
   Livewire UI, queues and its own database. There is no supported "embed me"
   mode.
 - **It has a real HTTP API** with 202 documented endpoints in `openapi.json`
-  (OpenAPI 3.1). The surface we care about is concrete and stable enough to wrap:
-  - `POST /deploy` — trigger a deployment
-  - `GET|POST /applications`, `/applications/{uuid}`, `/applications/{uuid}/logs`,
-    `/applications/{uuid}/rollback`, `/applications/{uuid}/cancel`
+  (OpenAPI 3.1). The surface we care about is concrete and stable enough to wrap,
+  and every route below was confirmed in `routes/api.php` rather than assumed:
+  - `POST /deploy` — trigger a deployment; answers with a `deployment_uuid`
+  - `POST /applications/public` — create a public application. There is **no**
+    bare `POST /applications`; creation is build-pack specific
+    (`/applications/public`, `/applications/private-github-app`,
+    `/applications/private-deploy-key`, `/applications/dockerfile`,
+    `/applications/dockerimage`) and requires a project, server, environment and
+    git source.
+  - `GET /applications`, `/applications/{uuid}`, `/applications/{uuid}/logs`,
+    `POST /applications/{uuid}/rollback` (requires `commit`)
+  - `GET /deployments`, `/deployments/{uuid}`, `/deployments/applications/{uuid}`,
+    `POST /deployments/{uuid}/cancel` — queued work is addressed by
+    *deployment* uuid, not application uuid
   - `/projects`, `/projects/{uuid}/environments`, `/projects/{uuid}/environments/{env}`
   - `/databases/postgresql`, `/databases/{uuid}/backups`, `/databases/{uuid}/backups/{id}/executions`
   - `/s3-storages`, `/servers/{uuid}/proxy`, `/servers/{uuid}/cloudflare-tunnel`
+- **Response envelope.** `bootstrap/helpers/api.php` `serializeApiResponse()`
+  sorts keys and lifts `uuid`, `name`, `description`, `id`, `created_at` and
+  `updated_at` to a stable position. `tests/fixtures/coolify-routes.json` pins the
+  route table so the adapter cannot drift back to invented paths.
 - **Team is the tenant boundary.** `app/Http/Middleware/ApiAbility.php` and
   `app/Http/Middleware/EnsureTokenBelongsToCurrentTeamMember.php` show a Sanctum
   token carrying `team_id`, with abilities `root`, `write`, `write:sensitive`,

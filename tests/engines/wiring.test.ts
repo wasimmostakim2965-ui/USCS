@@ -46,6 +46,23 @@ describe("engine configuration", () => {
     expect(config.coolifyTokens).toEqual({ "org-a": "tok-a", "org-b": "tok-b" });
   });
 
+  it("reads per-organization Coolify infrastructure from the environment", () => {
+    const config = engineConfigFromEnv({
+      COOLIFY_URL: "https://coolify.test",
+      "COOLIFY_TOKEN__org-a": "tok-a",
+      "COOLIFY_PROJECT_UUID__org-a": "proj-a",
+      "COOLIFY_SERVER_UUID__org-a": "srv-a",
+      "COOLIFY_ENVIRONMENT_NAME__org-a": "production",
+    });
+    expect(config.coolifyInfra).toEqual({
+      "org-a": {
+        projectUuid: "proj-a",
+        serverUuid: "srv-a",
+        environmentName: "production",
+      },
+    });
+  });
+
   it("builds a real Coolify adapter when a url and tokens are present", () => {
     const engines = buildEngines({
       coolifyUrl: "https://coolify.test",

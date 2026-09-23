@@ -7,6 +7,13 @@
  * filtered out of a shared list — they are unreachable with another
  * organization's credentials.
  *
+ * Every route and verb here is checked against the pinned upstream route table
+ * by `tests/engines/coolify-routes.test.ts`. Two upstream facts shape this file:
+ * Coolify has no generic `POST /applications` (creation goes through a
+ * build-pack specific endpoint that requires a project, server and
+ * environment), and queued work is addressed by *deployment* uuid rather than
+ * application uuid.
+ *
  * Coolify's UUIDs are stored only inside `ProviderRef` values. They are never a
  * tenant boundary.
  */
@@ -17,7 +24,13 @@ import {
   type OperationRef,
   type ProviderRef,
 } from "@cloud-wai/contracts";
-import type { AdapterContext, DeploymentState, HostingAdapter, LogPage } from "./index.js";
+import type {
+  AdapterContext,
+  CreateApplicationInput,
+  DeploymentState,
+  HostingAdapter,
+  LogPage,
+} from "./index.js";
 import { request, type HttpClientOptions } from "./http.js";
 
 const ENGINE: ProviderRef["provider"] = "coolify";
@@ -27,6 +40,17 @@ export interface CoolifyCredentials {
   readonly baseUrl: string;
   /** A Sanctum token scoped to exactly one team. Never shared across tenants. */
   readonly token: string;
+  /**
+   * The Coolify project and server this organization's applications live in.
+   * Coolify requires both on create, so they belong to the tenant's credential
+   * record rather than to per-request input.
+   */
+  readonly projectUuid?: string | undefined;
+  readonly serverUuid?: string | undefined;
+  /** At least one of these is required on create. */
+  readonly environmentName?: string | undefined;
+  readonly environmentUuid?: string | undefined;
+  readonly destinationUuid?: string | undefined;
 }
 
 export type CredentialResolver = (
@@ -42,46 +66,76 @@ export interface CoolifyAdapterOptions extends HttpClientOptions {
   readonly credentials: CredentialResolver;
 }
 
-interface CoolifyApplication {
-  readonly uuid?: string;
-  readonly name?: string;
-  readonly fqdn?: string;
-  readonly status?: string;
+/** Translate a Coolify application `status:health` value into Cloud Wai's. */
+export function mapDeploymentStatus(raw: string | undefined): DeploymentState["status"] {
+  // Coolify serialises application status as `state:health` (or `state (health)`).
+  const parts = (raw ?? "")
+    .toLowerCase()
+    .replace(/[()]/g, ":")
+    .split(":")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const state = parts[0] ?? "";
+  const health = parts[1] ?? "";
+
+  switch (state) {
+    case "running":
+      return health === "healthy" ? "succeeded" : "running";
+    case "starting":
+    case "restarting":
+    case "created":
+    case "deploying":
+    case "removing":
+      return "running";
+    case "paused":
+      return "degraded";
+    case "dead":
+    case "exited":
+      return "failed";
+    default:
+      // Unknown upstream values are not success.
+      return "pending";
+  }
 }
 
-/** Translate Coolify's deployment vocabulary into Cloud Wai's. */
-export function mapDeploymentStatus(raw: string | undefined): DeploymentState["status"] {
+/** Translate a Coolify deployment-queue status into Cloud Wai's. */
+export function mapQueueStatus(raw: string | undefined): DeploymentState["status"] {
   switch ((raw ?? "").toLowerCase()) {
     case "queued":
     case "in_progress":
-    case "deploying":
-    case "running:starting":
       return "running";
     case "finished":
-    case "success":
-    case "succeeded":
-    case "running:healthy":
       return "succeeded";
+    // Coolify retries the build itself; one failed attempt is not a dead engine.
     case "failed":
-    case "error":
-    case "exited":
-    case "cancelled":
-      return "failed";
-    case "degraded":
-    case "unhealthy":
       return "degraded";
+    case "cancelled-by-user":
+    case "cancelled":
+    case "exited":
+      return "failed";
     default:
       return "pending";
   }
 }
 
+/** Fields `POST /applications/public` requires that we must supply. */
+function missingCreateConfig(creds: CoolifyCredentials): readonly string[] {
+  const missing: string[] = [];
+  if (!creds.projectUuid) missing.push("projectUuid");
+  if (!creds.serverUuid) missing.push("serverUuid");
+  if (!creds.environmentName && !creds.environmentUuid) missing.push("environmentName");
+  return missing;
+}
+
 export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAdapter {
   const doFetch = options.fetchImpl ?? fetch;
 
-  const notConfigured = <T>(org: string): AdapterResult<T> =>
+  const notConfigured = <T>(org: string, hint?: string): AdapterResult<T> =>
     err(
       "not_configured",
-      `Coolify is not configured for organization ${org}. Provision a team token for this organization.`,
+      `Coolify is not configured for organization ${org}.${
+        hint ? ` ${hint}` : " Provision a team token for this organization."
+      }`,
     );
 
   /** Resolve credentials, or return the honest refusal. */
@@ -113,8 +167,13 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       },
     );
 
-  const opRef = (ctx: AdapterContext, uuid: string, resourceType: string): OperationRef => ({
-    jobId: `coolify-${resourceType}-${uuid}` as OperationRef["jobId"],
+  const opRef = (
+    ctx: AdapterContext,
+    uuid: string,
+    resourceType: string,
+    jobId?: string,
+  ): OperationRef => ({
+    jobId: (jobId ?? `coolify-${resourceType}-${uuid}`) as OperationRef["jobId"],
     providerRef: {
       organizationId: ctx.organizationId,
       provider: ENGINE,
@@ -124,42 +183,118 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
   });
 
   return {
+    /**
+     * Coolify has no generic create endpoint. A public application is created at
+     * `POST /applications/public`, which requires the project, server, an
+     * environment and the git source.
+     */
     async createApplication(ctx, input) {
       const resolved = credentialsFor<OperationRef>(ctx);
       if (!resolved.ok) return resolved.result;
+      const { creds } = resolved;
 
-      const response = await call<CoolifyApplication>(
+      const missingInfra = missingCreateConfig(creds);
+      if (missingInfra.length > 0) {
+        return notConfigured(
+          ctx.organizationId,
+          `The Coolify credential record is missing ${missingInfra.join(", ")}.`,
+        );
+      }
+
+      const required: readonly (keyof CreateApplicationInput)[] = ["gitRepository", "gitBranch"];
+      const missingInput = required.filter((key) => {
+        const value = input[key];
+        return value === undefined || value.trim() === "";
+      });
+      if (missingInput.length > 0) {
+        // A request that cannot satisfy Coolify's schema is a caller error, not
+        // a misconfiguration — and it is never reported as success.
+        return err("failed", `Coolify requires ${missingInput.join(", ")} to create an application.`);
+      }
+
+      const response = await call<{ uuid?: string; message?: string }>(
         ctx,
-        resolved.creds,
+        creds,
         "POST",
-        "/api/v1/applications",
+        "/api/v1/applications/public",
         {
           name: input.name,
+          project_uuid: creds.projectUuid,
+          server_uuid: creds.serverUuid,
+          ...(creds.environmentUuid
+            ? { environment_uuid: creds.environmentUuid }
+            : { environment_name: creds.environmentName }),
+          ...(creds.destinationUuid ? { destination_uuid: creds.destinationUuid } : {}),
+          git_repository: input.gitRepository,
+          git_branch: input.gitBranch,
+          build_pack: input.buildPack ?? "nixpacks",
+          ...(input.domains ? { domains: input.domains } : {}),
+          ...(input.portsExposes ? { ports_exposes: input.portsExposes } : {}),
         },
       );
       if (!response.ok) return response;
 
       const uuid = response.value.value?.uuid;
-      if (!uuid) return err("degraded", "Coolify created an application but returned no uuid.");
+      if (!uuid) {
+        return err("degraded", "Coolify created an application but returned no uuid.");
+      }
       return ok("succeeded", opRef(ctx, uuid, "application"));
     },
 
+    /**
+     * Queue a deployment.
+     *
+     * Coolify queues asynchronously and answers with a `deployment_uuid`. The
+     * operation is therefore `running`, never `succeeded` — the deployment has
+     * not finished when this returns.
+     */
     async deploy(ctx, input) {
       const resolved = credentialsFor<OperationRef>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const response = await call<unknown>(ctx, resolved.creds, "POST", "/api/v1/deploy", {
+      const response = await call<{
+        deployments?: readonly { deployment_uuid?: string; message?: string }[];
+      }>(ctx, resolved.creds, "POST", "/api/v1/deploy", {
         uuid: input.applicationRef.resourceId,
       });
       if (!response.ok) return response;
-      return ok("succeeded", opRef(ctx, input.applicationRef.resourceId, "deployment"));
+
+      const queued = response.value.value?.deployments?.find((d) => d.deployment_uuid);
+      if (!queued?.deployment_uuid) {
+        return err(
+          "degraded",
+          "Coolify accepted the deploy request but returned no deployment_uuid.",
+        );
+      }
+      return ok("running", opRef(ctx, queued.deployment_uuid, "deployment", queued.deployment_uuid));
     },
 
+    /**
+     * Read the state of either an application or a queued deployment.
+     *
+     * The resource type decides the endpoint: a deployment ref is answered by
+     * the deployment queue, an application ref by the application record.
+     */
     async getDeployment(ctx, ref) {
       const resolved = credentialsFor<DeploymentState>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const response = await call<CoolifyApplication>(
+      if (ref.resourceType === "deployment") {
+        const response = await call<{ status?: string }>(
+          ctx,
+          resolved.creds,
+          "GET",
+          `/api/v1/deployments/${encodeURIComponent(ref.resourceId)}`,
+        );
+        if (!response.ok) return response;
+        return ok("succeeded", {
+          ref,
+          status: mapQueueStatus(response.value.value?.status),
+          url: null,
+        });
+      }
+
+      const response = await call<{ status?: string; fqdn?: string | null }>(
         ctx,
         resolved.creds,
         "GET",
@@ -175,50 +310,88 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       });
     },
 
+    /**
+     * Cancel a deployment.
+     *
+     * Coolify cancels by `deployment_uuid`, so an application ref cannot be
+     * cancelled — saying so is better than reporting success for a request
+     * Coolify would reject.
+     */
     async cancelDeployment(ctx, ref) {
       const resolved = credentialsFor<void>(ctx);
       if (!resolved.ok) return resolved.result;
+
+      if (ref.resourceType !== "deployment") {
+        return err(
+          "failed",
+          `Coolify cancels a deployment by deployment uuid; got a '${ref.resourceType}' ref.`,
+        );
+      }
 
       const response = await call<unknown>(
         ctx,
         resolved.creds,
         "POST",
-        `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/cancel`,
+        `/api/v1/deployments/${encodeURIComponent(ref.resourceId)}/cancel`,
       );
       if (!response.ok) return response;
       return ok("succeeded", undefined);
     },
 
+    /**
+     * Roll back to a git ref.
+     *
+     * Coolify requires `commit` and rejects the request without it, so a missing
+     * commit is reported rather than sent as a body Coolify will refuse.
+     */
     async rollback(ctx, input) {
       const resolved = credentialsFor<OperationRef>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const response = await call<unknown>(
+      const commit = input.commit?.trim();
+      if (!commit) {
+        return err("failed", "Coolify rollback requires the commit to roll back to.");
+      }
+
+      const response = await call<{ deployment_uuid?: string; message?: string }>(
         ctx,
         resolved.creds,
         "POST",
         `/api/v1/applications/${encodeURIComponent(input.applicationRef.resourceId)}/rollback`,
+        { commit },
       );
       if (!response.ok) return response;
-      return ok("succeeded", opRef(ctx, input.applicationRef.resourceId, "rollback"));
+
+      const uuid = response.value.value?.deployment_uuid;
+      return ok(
+        "running",
+        opRef(ctx, uuid ?? input.applicationRef.resourceId, "deployment", uuid ?? undefined),
+      );
     },
 
-    async getLogs(ctx, ref, cursor) {
+    /**
+     * Read container logs.
+     *
+     * Coolify's endpoint takes `lines` and `show_timestamps`; it has no cursor,
+     * so the page cursor is always null rather than an invented value.
+     */
+    async getLogs(ctx, ref) {
       const resolved = credentialsFor<LogPage>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const suffix = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-      const response = await call<{ logs?: string; lines?: string[]; cursor?: string }>(
+      const response = await call<{ logs?: string }>(
         ctx,
         resolved.creds,
         "GET",
-        `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/logs${suffix}`,
+        `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/logs?lines=100`,
       );
       if (!response.ok) return response;
 
       const body = response.value.value ?? {};
-      const lines = body.lines ?? (body.logs ? body.logs.split("\n") : []);
-      return ok("succeeded", { lines, cursor: body.cursor ?? null });
+      return ok("succeeded", {
+        lines: body.logs ? body.logs.split("\n") : [],
+        cursor: null,
+      });
     },
 
     async deleteApplication(ctx, ref) {
@@ -246,7 +419,7 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       const resolved = credentialsFor<DeploymentState>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const response = await call<CoolifyApplication>(
+      const response = await call<{ status?: string; fqdn?: string | null }>(
         ctx,
         resolved.creds,
         "GET",

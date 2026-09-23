@@ -45,11 +45,15 @@ describe("unconfigured engines report not_configured", () => {
     const adapter = hostingNotConfigured("coolify");
     const ref = APP_REF;
     const calls = [
-      adapter.createApplication(ctx("k"), { name: "n" }),
+      adapter.createApplication(ctx("k"), {
+        name: "n",
+        gitRepository: "https://github.com/example/n",
+        gitBranch: "main",
+      }),
       adapter.deploy(ctx("k"), { applicationRef: ref }),
       adapter.getDeployment(ctx("k"), ref),
       adapter.cancelDeployment(ctx("k"), ref),
-      adapter.rollback(ctx("k"), { applicationRef: ref }),
+      adapter.rollback(ctx("k"), { applicationRef: ref, commit: "abc123" }),
       adapter.getLogs(ctx("k"), ref),
       adapter.deleteApplication(ctx("k"), ref),
       adapter.reconcile(ctx("k"), ref),

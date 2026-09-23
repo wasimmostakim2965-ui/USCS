@@ -6,7 +6,7 @@
  * records `not_configured` — the UI shows that honestly instead of a fake green.
  */
 import type { AdapterResult, ProviderRef } from "@cloud-wai/contracts";
-import type { DatabaseAdapter, HostingAdapter } from "@cloud-wai/adapters";
+import type { BuildPack, DatabaseAdapter, HostingAdapter } from "@cloud-wai/adapters";
 import type { JobContext, JobHandler } from "./processor.js";
 
 export const JOB_KINDS = [
@@ -30,10 +30,22 @@ export interface WorkerEngines {
 export interface CreateDeploymentPayload {
   readonly name: string;
   readonly projectSlug: string;
+  /** Coolify requires a source repository and branch to create an application. */
+  readonly gitRepository?: string | undefined;
+  readonly gitBranch?: string | undefined;
+  readonly buildPack?: BuildPack | undefined;
+  readonly domains?: string | undefined;
 }
 
 export interface DeployPayload {
   readonly applicationRef: ProviderRef;
+  /** Coolify refuses a rollback without the git ref to return to. */
+  readonly commit?: string | undefined;
+}
+
+export interface CancelPayload {
+  /** Coolify cancels by deployment uuid, which is what `deploy` returns. */
+  readonly deploymentRef: ProviderRef;
 }
 
 export interface DataProvisionPayload {
@@ -48,15 +60,23 @@ export interface DataProvisionPayload {
  */
 export function buildHandlers(engines: WorkerEngines): Record<JobKind, JobHandler> {
   return {
-    "deployment.create": (payload, ctx) =>
-      engines.hosting.createApplication(
+    "deployment.create": (payload, ctx) => {
+      const input = payload as CreateDeploymentPayload;
+      return engines.hosting.createApplication(
         {
           organizationId: ctx.organizationId as never,
           idempotencyKey: ctx.idempotencyKey,
           timeoutMs: ctx.timeoutMs,
         },
-        { name: (payload as CreateDeploymentPayload).name },
-      ),
+        {
+          name: input.name,
+          ...(input.gitRepository ? { gitRepository: input.gitRepository } : {}),
+          ...(input.gitBranch ? { gitBranch: input.gitBranch } : {}),
+          ...(input.buildPack ? { buildPack: input.buildPack } : {}),
+          ...(input.domains ? { domains: input.domains } : {}),
+        },
+      );
+    },
 
     "deployment.deploy": (payload, ctx) =>
       engines.hosting.deploy(
@@ -68,15 +88,17 @@ export function buildHandlers(engines: WorkerEngines): Record<JobKind, JobHandle
         { applicationRef: (payload as DeployPayload).applicationRef },
       ),
 
-    "deployment.rollback": (payload, ctx) =>
-      engines.hosting.rollback(
+    "deployment.rollback": (payload, ctx) => {
+      const { applicationRef, commit } = payload as DeployPayload;
+      return engines.hosting.rollback(
         {
           organizationId: ctx.organizationId as never,
           idempotencyKey: ctx.idempotencyKey,
           timeoutMs: ctx.timeoutMs,
         },
-        { applicationRef: (payload as DeployPayload).applicationRef },
-      ),
+        { applicationRef, commit: commit ?? "" },
+      );
+    },
 
     "deployment.cancel": (payload, ctx) =>
       engines.hosting.cancelDeployment(
@@ -85,7 +107,7 @@ export function buildHandlers(engines: WorkerEngines): Record<JobKind, JobHandle
           idempotencyKey: ctx.idempotencyKey,
           timeoutMs: ctx.timeoutMs,
         },
-        (payload as DeployPayload).applicationRef,
+        (payload as CancelPayload).deploymentRef,
       ),
 
     "data.provision": (payload, ctx) =>

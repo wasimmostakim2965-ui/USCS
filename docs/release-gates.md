@@ -40,6 +40,7 @@ locally, start the cluster and run `scripts/verify-rls.sh`.
 | 11 | Load tests report p50/p95/p99 latency and throughput | Enforced | `tests/load/control-plane-load.test.ts` — runs the real router and procedure table under concurrency and asserts every request succeeded before reporting the percentiles. Also pins the percentile maths itself |
 | 12 | License inventory carries SPDX ids, notices and pinned versions | Enforced | `LICENSES/engines.json` and `LICENSES/third-party-inventory.md`, reproducible from `scripts/license-inventory.py` |
 | 13 | Threat model, ERD, RLS matrix, API contracts, state machines, SLOs, incident response and DR runbooks exist | Enforced | `docs/adr/0003-threat-model.md`, `docs/adr/0004-control-plane-erd-rls.md`, `docs/adr/0005-api-contracts-and-state-machines.md`, `docs/runbooks/slos.md`, `docs/runbooks/incident-response.md`, `docs/runbooks/backup-and-dr.md` |
+| 14 | An adapter calls only routes the pinned engine actually exposes | Enforced | `tests/fixtures/coolify-routes.json` is the route table extracted from Coolify commit `7c86e53422ad`; `tests/engines/coolify.test.ts` ("uses only routes that exist upstream") fails the build if the adapter calls a path absent from it, and asserts the absence of the bare `POST /applications` that an earlier version assumed |
 
 ## What the load numbers mean
 

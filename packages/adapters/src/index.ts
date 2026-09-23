@@ -37,6 +37,32 @@ export interface DeploymentState {
   readonly url: string | null;
 }
 
+/** The build packs Coolify accepts for a public application. */
+export const BUILD_PACKS = [
+  "nixpacks",
+  "railpack",
+  "static",
+  "dockerfile",
+  "dockercompose",
+] as const;
+export type BuildPack = (typeof BUILD_PACKS)[number];
+
+/**
+ * Input for creating a hosted application.
+ *
+ * `gitRepository` and `gitBranch` are required because Coolify's create
+ * endpoint rejects a request without a source; the build pack defaults to
+ * `nixpacks`.
+ */
+export interface CreateApplicationInput {
+  readonly name: string;
+  readonly gitRepository?: string | undefined;
+  readonly gitBranch?: string | undefined;
+  readonly buildPack?: BuildPack | undefined;
+  readonly domains?: string | undefined;
+  readonly portsExposes?: string | undefined;
+}
+
 export interface LogPage {
   readonly lines: readonly string[];
   readonly cursor: string | null;
@@ -45,7 +71,7 @@ export interface LogPage {
 export interface HostingAdapter extends NotConfiguredBrand {
   createApplication(
     ctx: AdapterContext,
-    input: { name: string },
+    input: CreateApplicationInput,
   ): Promise<AdapterResult<OperationRef>>;
   deploy(
     ctx: AdapterContext,
@@ -53,9 +79,16 @@ export interface HostingAdapter extends NotConfiguredBrand {
   ): Promise<AdapterResult<OperationRef>>;
   getDeployment(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<DeploymentState>>;
   cancelDeployment(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
+  /**
+   * Roll back to a previously built revision.
+   *
+   * `commit` is required: Coolify refuses a rollback without a git ref, so an
+   * adapter that omitted it would be reporting success for a request the engine
+   * never performed.
+   */
   rollback(
     ctx: AdapterContext,
-    input: { applicationRef: ProviderRef },
+    input: { applicationRef: ProviderRef; commit: string },
   ): Promise<AdapterResult<OperationRef>>;
   getLogs(ctx: AdapterContext, ref: ProviderRef, cursor?: string): Promise<AdapterResult<LogPage>>;
   deleteApplication(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;

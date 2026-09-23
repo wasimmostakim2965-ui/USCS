@@ -1,0 +1,263 @@
+{
+  "_source": "coollabsio/coolify routes/api.php",
+  "_commit": "7c86e53422ad7c4f19c5821621c71403b9173f62",
+  "_note": "Verbatim route table (filtered to applications/deployments). Any path the Cloud Wai adapter calls must appear here. Regenerate from engines-src/coolify at the pinned commit.",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/v1/applications"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/dockerfile"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/dockerimage"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/private-deploy-key"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/private-github-app"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/public"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/clone"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/destinations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/destinations"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/destinations/{destination_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/envs/bulk"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/envs/{env_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/migrate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/move"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/previews/{pull_request_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/previews/{pull_request_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/previews/{pull_request_id}/logs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/rollback"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/rollback-images"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks/{task_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks/{task_uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks/{task_uuid}/execute"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/scheduled-tasks/{task_uuid}/executions"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/secret-manager"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/start"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/stop"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/storages"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/applications/{uuid}/storages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/storages"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/storages/{storage_uuid}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/applications/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/storages/{storage_uuid}/backups/run"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/applications/{uuid}/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/applications/{uuid}/tags"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/applications/{uuid}/tags/{tag_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deploy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/deploy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deployments"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deployments/applications/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/deployments/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/deployments/{uuid}/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/applications"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/restart"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/start"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/applications/{app_uuid}/stop"
+    }
+  ]
+}
