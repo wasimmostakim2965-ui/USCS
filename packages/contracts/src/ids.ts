@@ -55,3 +55,17 @@ export interface Principal {
   readonly email: string;
   readonly displayName: string | null;
 }
+
+/**
+ * Lifecycle of an orchestration job.
+ *
+ * Distinct from `EngineStatus`: a job is a unit of Cloud Wai work, and it
+ * finishes as `succeeded` only when the engine actually succeeded.
+ */
+export const JOB_STATES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
+
+export type JobState = (typeof JOB_STATES)[number];
+
+export function isJobTerminal(state: JobState): boolean {
+  return state === "succeeded" || state === "failed" || state === "cancelled";
+}

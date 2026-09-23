@@ -90,3 +90,7 @@ export interface DomainResellerAdapter {
   /** Registering requires credentials and legal approval; default is not_configured. */
   register(ctx: AdapterContext, input: { domain: string }): Promise<AdapterResult<OperationRef>>;
 }
+
+export * from "./conformance.js";
+export * from "./fakes.js";
+export * from "./queue.js";
