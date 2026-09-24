@@ -135,3 +135,16 @@ not when a commit message says so.
   The API write paths for deploy, backup and policy landed in `d32b56a` and this
   session's data/security work; the dashboard now drives them. The one open item
   is the `orchestration_jobs` writer above.
+
+## Closed gaps
+
+- **`api_keys` scope forgery through PostgREST.** `apiKeys.create` narrows
+  requested scopes with `boundedScopes`, but the browser holds the anon key and
+  the user's JWT, so a member could previously insert a key row with arbitrary
+  `scopes` through PostgREST without the API ever running that narrowing.
+  Closed by `0007_api_key_scope_guard.sql`, which drops the client-facing
+  INSERT/UPDATE/DELETE policies (every `api_keys` write already ran on the
+  service role). `tests/isolation/rls/13_api_key_scope_probe.sql` fails on the
+  pre-0007 schema and passes after it. The general rule it follows: a write-time
+  rule enforced only in a procedure is not enforced for a client that can reach
+  PostgREST directly.
