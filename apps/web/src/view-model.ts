@@ -324,12 +324,16 @@ export interface ProviderHealthRow {
   readonly detail: string;
 }
 
-/** Load an organization's domains. */
+/** Load an organization's domains, narrowed to a project when one is given. */
 export async function loadDomains(
   client: ApiClient,
   organizationId: string,
+  projectId?: string | undefined,
 ): Promise<Section<DomainSummary>> {
-  const response = await client.call<readonly DomainSummary[]>("domains.list", { organizationId });
+  const response = await client.call<readonly DomainSummary[]>("domains.list", {
+    organizationId,
+    ...(projectId ? { projectId } : {}),
+  });
   return sectionFrom("Domains", response);
 }
 
@@ -478,7 +482,10 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       return { title: "Deployments", sections: [await loadDeployments(client, route.projectId)] };
 
     case "domains":
-      return { title: "Domains", sections: [await loadDomains(client, route.organizationId)] };
+      return {
+        title: "Domains",
+        sections: [await loadDomains(client, route.organizationId, route.projectId)],
+      };
 
     case "database":
       return {

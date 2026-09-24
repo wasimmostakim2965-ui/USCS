@@ -13,7 +13,7 @@ import { issueApiKey, boundedScopes, type ApiKeyScope } from "@cloud-wai/auth";
 import { requireCapability, roleFor } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { ApiKeySummary, DataResource, DataStore, Domain } from "@cloud-wai/database";
-import type { ApiKeyId, OrganizationId, UserId } from "@cloud-wai/contracts";
+import type { ApiKeyId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
 export interface SettingsDeps {
@@ -23,13 +23,25 @@ export interface SettingsDeps {
   readonly now?: () => Date;
 }
 
+/**
+ * An organization's domains, narrowed to a project when one is named.
+ *
+ * The sidebar's Domains page is project-scoped, but `domains.projectId` is
+ * nullable: a domain can be registered organization-wide with no project. The
+ * rule is the same one the Database page uses — a project's Domains page shows
+ * that project's domains plus the organization-wide ones, never another
+ * project's. Without this, opening project A listed project B's hostnames.
+ */
 export async function listDomains(
   ctx: RequestContext,
   deps: SettingsDeps,
   organizationId: OrganizationId,
+  projectId?: ProjectId | undefined,
 ): Promise<readonly Domain[]> {
   requireCapability(ctx, organizationId, "domain:read");
-  return deps.store.listDomains(ctx.principal.userId, organizationId);
+  const domains = await deps.store.listDomains(ctx.principal.userId, organizationId);
+  if (!projectId) return domains;
+  return domains.filter((domain) => domain.projectId == null || domain.projectId === projectId);
 }
 
 export async function listDataResources(

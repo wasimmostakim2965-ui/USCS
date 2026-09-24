@@ -885,8 +885,8 @@ export function DomainsPage({
 }) {
   const { client } = useApp();
   const { section, reload } = useSection(
-    () => loadDomains(client, organizationId),
-    [client, organizationId],
+    () => loadDomains(client, organizationId, projectId),
+    [client, organizationId, projectId],
     "Domains",
   );
 

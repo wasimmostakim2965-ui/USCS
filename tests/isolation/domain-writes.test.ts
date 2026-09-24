@@ -52,6 +52,7 @@ const ALICE = "u-alice";
 const CAROL = "u-carol";
 const ORG_A = "org-a" as OrganizationId;
 const PROJ_A = "proj-a" as ProjectId;
+const PROJ_B = "proj-b" as ProjectId;
 const TOKEN_ALICE = "t-alice";
 const TOKEN_CAROL = "t-carol";
 
@@ -120,6 +121,13 @@ function makeStore() {
       organizationId: ORG_A,
       name: "Alpha",
       slug: "alpha",
+      createdAt: "2026-01-01T00:00:00Z",
+    },
+    {
+      id: PROJ_B,
+      organizationId: ORG_A,
+      name: "Beta",
+      slug: "beta",
       createdAt: "2026-01-01T00:00:00Z",
     },
   ];
@@ -371,6 +379,59 @@ describe("domains.create through the registered procedures", () => {
     expect(res.ok).toBe(false);
     expect(res.status).toBe(404);
     expect(domains).toHaveLength(0);
+  });
+});
+
+describe("domains.list is project-scoped", () => {
+  it("shows a project's domains and organization-wide ones, never another project's", async () => {
+    const { store, domains } = makeStore();
+    const router = routerWith(store, enginesWith(stubResolver({})));
+
+    // One domain on project A, one on project B, one registered organization-wide.
+    await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A, hostname: "a.example.com" },
+    });
+    await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_B, hostname: "b.example.com" },
+    });
+    await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "org.example.com" },
+    });
+    expect(domains).toHaveLength(3);
+
+    const forA = await router.route({
+      procedure: "domains.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A },
+    });
+    expect(forA.ok).toBe(true);
+    const hostnames = (forA.data as readonly Domain[]).map((d) => d.hostname).sort();
+    // Project A's own domain plus the organization-wide one; not project B's.
+    expect(hostnames).toEqual(["a.example.com", "org.example.com"]);
+
+    const forB = await router.route({
+      procedure: "domains.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_B },
+    });
+    expect((forB.data as readonly Domain[]).map((d) => d.hostname).sort()).toEqual([
+      "b.example.com",
+      "org.example.com",
+    ]);
+
+    // With no project named, the whole organization is still listed.
+    const organizationWide = await router.route({
+      procedure: "domains.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(organizationWide.data as readonly Domain[]).toHaveLength(3);
   });
 });
 

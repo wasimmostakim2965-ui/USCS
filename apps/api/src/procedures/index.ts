@@ -235,12 +235,10 @@ export function buildProcedures(
     },
     {
       name: "domains.list",
-      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
-        listDomains(
-          ctx,
-          settingsDeps,
-          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
-        ),
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) => {
+        const parsed = inputOf<{ organizationId: OrganizationId; projectId?: ProjectId }>(input);
+        return listDomains(ctx, settingsDeps, parsed.organizationId, parsed.projectId);
+      },
     },
     {
       name: "domains.create",
@@ -372,7 +370,7 @@ export const ROUTE_SHAPES = {
   },
   "deployments.logs": { projectId: "ProjectId", deploymentId: "string" },
   "audit.list": { organizationId: "OrganizationId" },
-  "domains.list": { organizationId: "OrganizationId" },
+  "domains.list": { organizationId: "OrganizationId", projectId: "ProjectId?" },
   "domains.create": {
     organizationId: "OrganizationId",
     projectId: "ProjectId?",
