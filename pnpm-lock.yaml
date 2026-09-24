@@ -221,6 +221,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@cloud-wai/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@cloud-wai/authorization':
         specifier: workspace:*
         version: link:../authorization

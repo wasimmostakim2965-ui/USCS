@@ -14,6 +14,7 @@
 | [0010](0010-dashboard-honesty.md) | Dashboard: URL-driven routes and an honesty-in-the-type view model | accepted |
 | [0011](0011-data-engines-and-security-edge.md) | Data engines and the security edge: policy to engine syntax | accepted |
 | [0012](0012-release-gate-evidence.md) | Release-gate evidence, and why some gates stay open | accepted |
+| [0013](0013-competitive-positioning.md) | Competitive positioning: what Cloud Wai does that Vercel does not | accepted |
 
 Source of truth for this project:
 

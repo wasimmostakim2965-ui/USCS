@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@cloud-wai/contracts": "workspace:*",
-    "@cloud-wai/authorization": "workspace:*"
+    "@cloud-wai/authorization": "workspace:*",
+    "@cloud-wai/adapters": "workspace:*"
   }
 }

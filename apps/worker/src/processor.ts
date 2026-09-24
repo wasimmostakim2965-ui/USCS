@@ -9,13 +9,14 @@
  *   2. never writes `succeeded` unless the adapter's own status was success;
  *   3. always terminates a claim — complete, fail, or leave it for `reapExpired`.
  */
+import { err } from "@cloud-wai/contracts";
 import type {
   AdapterResult,
   EngineStatus,
   JobState,
   OrchestrationJobId,
 } from "@cloud-wai/contracts";
-import type { JobQueue } from "@cloud-wai/adapters";
+import type { JobQueue, Job } from "@cloud-wai/adapters";
 import type { Logger } from "@cloud-wai/observability";
 
 export interface JobOutcome {
@@ -46,6 +47,19 @@ export interface WorkerOptions {
   /** How long a claim is valid before another worker may reap it. */
   readonly leaseMs?: number;
   readonly defaultTimeoutMs?: number;
+  /**
+   * Write the job's outcome onto the row the command acted on.
+   *
+   * The queue records that a job finished; the *deployment* a customer is
+   * looking at is a different row, and only this applier may change it. It
+   * receives the adapter's own result, so the customer-facing status is exactly
+   * what the engine reported — never a state derived from "the job finished".
+   * A missing applier is not an error: the worker then owns only the job row.
+   */
+  readonly apply?: (
+    job: Job,
+    result: AdapterResult<unknown>,
+  ) => Promise<void>;
 }
 
 export class InProcessWorker {
@@ -64,13 +78,17 @@ export class InProcessWorker {
       logger.warn("no handler for job kind", { kind: job.kind, jobId: job.id });
       // Retrying cannot conjure a handler; fail it now rather than looping.
       await queue.terminate(job.id, `No handler registered for kind '${job.kind}'.`);
-      return {
-        jobId: job.id as OrchestrationJobId,
-        kind: job.kind,
-        status: "not_configured",
-        applied: false,
-        reason: `No handler registered for kind '${job.kind}'.`,
-      };
+      return this.settle(
+        job,
+        {
+          jobId: job.id as OrchestrationJobId,
+          kind: job.kind,
+          status: "not_configured",
+          applied: false,
+          reason: `No handler registered for kind '${job.kind}'.`,
+        },
+        err("not_configured", `No handler registered for kind '${job.kind}'.`),
+      );
     }
 
     let result: AdapterResult<unknown>;
@@ -84,25 +102,33 @@ export class InProcessWorker {
       const reason = error instanceof Error ? error.message : String(error);
       logger.error("job handler threw", { jobId: job.id, kind: job.kind, detail: reason });
       await queue.fail(job.id, reason);
-      return {
-        jobId: job.id as OrchestrationJobId,
-        kind: job.kind,
-        status: "failed",
-        applied: false,
-        reason,
-      };
+      return this.settle(
+        job,
+        {
+          jobId: job.id as OrchestrationJobId,
+          kind: job.kind,
+          status: "failed",
+          applied: false,
+          reason,
+        },
+        err("failed", reason),
+      );
     }
 
     if (result.ok && result.status === "succeeded") {
       await queue.complete(job.id);
       logger.info("job completed", { jobId: job.id, kind: job.kind, status: result.status });
-      return {
-        jobId: job.id as OrchestrationJobId,
-        kind: job.kind,
-        status: result.status,
-        applied: true,
-        reason: null,
-      };
+      return this.settle(
+        job,
+        {
+          jobId: job.id as OrchestrationJobId,
+          kind: job.kind,
+          status: result.status,
+          applied: true,
+          reason: null,
+        },
+        result,
+      );
     }
 
     // Not a success. A transient failure should be retried; an engine we have no
@@ -116,13 +142,47 @@ export class InProcessWorker {
       await queue.fail(job.id, reason);
     }
     logger.warn("job did not succeed", { jobId: job.id, kind: job.kind, status: result.status });
-    return {
-      jobId: job.id as OrchestrationJobId,
-      kind: job.kind,
-      status: result.status,
-      applied: false,
-      reason,
-    };
+    return this.settle(
+      job,
+      {
+        jobId: job.id as OrchestrationJobId,
+        kind: job.kind,
+        status: result.status,
+        applied: false,
+        reason,
+      },
+      result,
+    );
+  }
+
+  /**
+   * Mirror the outcome onto the customer-facing row, then return it.
+   *
+   * The queue's job state is already written by the caller; this is the separate
+   * write to the deployment or data resource. It runs after the job state so a
+   * failure to apply cannot leave the job `running`: the job is finished and the
+   * row is behind, which is visible, rather than the reverse, which is not.
+   */
+  private async settle(
+    job: Job,
+    outcome: JobOutcome,
+    result: AdapterResult<unknown>,
+  ): Promise<JobOutcome> {
+    const apply = this.options.apply;
+    if (apply) {
+      try {
+        await apply(job, result);
+      } catch (error) {
+        // The job itself is already settled; an apply failure is the row's
+        // problem, and swallowing it here would hide it. Log and continue.
+        this.options.logger.error("job outcome could not be applied", {
+          jobId: job.id,
+          kind: job.kind,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return outcome;
   }
 
   /** Drain the queue, up to `max` jobs. */

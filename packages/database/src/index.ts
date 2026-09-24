@@ -484,3 +484,4 @@ export interface AuditEvent extends AuditEventInput {
 
 export * from "./postgrest.js";
 export * from "./supabase-store.js";
+export * from "./sql-queue.js";
