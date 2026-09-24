@@ -93,11 +93,11 @@ work**. Combined with our honesty rule, the plan is:
 | Landing | Public page, then a single "Open dashboard" path. Vercel has no public landing inside the app; ours is a separate route. | Missing — new |
 | Overview | Keep stats + recent deployments + activity (Vercel Overview shape). Add org-level roll-up later. | Working |
 | Deployments | Keep list + logs + rollback. Add log filtering and keep the build/runtime distinction. | Working |
-| Domains | Project-scoped (fix the leak), then DNS-record display like Vercel's Domains. | Working, needs scoping fix |
+| Domains | Project-scoped (fix the leak), then DNS-record display like Vercel's Domains. | Working, scoped by project |
 | Database | Supabase shape: Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles, Logs, Settings. **Blocked on the ADR-0011 decision** (see inventory). | Only Overview |
 | Security | Keep the level picker + honest edge banner + policy history. | Working |
 | Billing | Build from `usage_records`; org-level aggregate is the Vercel gap we close. | Schema only |
-| Settings | Org profile + engine status + release gates. Add project-level settings page. | Working at org level |
+| Settings | Org profile + engine status + release gates, plus a project-level settings page that renames the project. | Working at both levels |
 
 ## Sources
 

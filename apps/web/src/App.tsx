@@ -196,7 +196,6 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
           activeOrganizationId={activeOrganizationId}
           activeProjectId={projectId}
           projectName={projectName}
-          projectStatus={null}
           loadingWorkspaces={workspaces.section.state.kind === "loading"}
           onCreateOrganization={requestCreateOrganization}
           onSelectOrganization={(organizationId) => {

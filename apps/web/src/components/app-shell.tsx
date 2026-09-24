@@ -5,11 +5,11 @@
  * navigation model and nothing else, so a section cannot exist in the UI
  * without a route, and a route cannot exist without an entry here.
  *
- * Every control does something. Where a feature is genuinely not built yet, the
- * control says so explicitly rather than appearing to work — see `ComingSoon`.
+ * Every control does something, or the section says in prose what is not built
+ * yet rather than rendering a button that does nothing.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Icon, Modal, StatusBadge, TextInput, type Toast } from "@cloud-wai/ui/react";
+import { Button, Icon, Modal, TextInput, type Toast } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
@@ -19,20 +19,6 @@ export interface WorkspaceOption {
   readonly id: string;
   readonly name: string;
   readonly slug: string;
-}
-
-/** A control for a feature that is not built. It says so; it does not pretend. */
-export function ComingSoon({ label }: { readonly label: string }) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled
-      title={`${label} is not available in this build yet.`}
-    >
-      {label} · coming soon
-    </Button>
-  );
 }
 
 function NavLink({
@@ -148,7 +134,6 @@ export interface AppShellProps {
   readonly activeOrganizationId: string | null;
   readonly activeProjectId: string | null;
   readonly projectName: string | null;
-  readonly projectStatus: { readonly label: string; readonly tone: string } | null;
   readonly loadingWorkspaces: boolean;
   readonly onCreateOrganization: () => void;
   readonly onSelectOrganization: (organizationId: string) => void;
@@ -163,7 +148,6 @@ export function AppShell({
   activeOrganizationId,
   activeProjectId,
   projectName,
-  projectStatus,
   loadingWorkspaces,
   onCreateOrganization,
   onSelectOrganization,
@@ -362,9 +346,6 @@ export function AppShell({
               <span className="truncate" style={{ maxWidth: "180px", fontWeight: 600 }}>
                 {projectName}
               </span>
-              {projectStatus ? (
-                <StatusBadge label={projectStatus.label} tone={projectStatus.tone as never} />
-              ) : null}
             </span>
           </>
         ) : null}

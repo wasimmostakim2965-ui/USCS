@@ -1245,19 +1245,23 @@ describe("the Database drill-in", () => {
     ).toBeTruthy();
   });
 
-  it("offers real provisioning and backup controls, and still marks what is not built", async () => {
+  it("offers real provisioning and backup controls, and invents no connection controls", async () => {
     const url = await startApi(reachable());
     renderApp(url, "#/orgs/org-1/projects/p-1/database");
 
-    // Provisioning is now a live control on the Overview, not a disabled
+    // Provisioning is a live control on the Overview, not a disabled
     // placeholder: it calls `data.provision`.
     const provision = await screen.findByRole("button", { name: "Provision resource" });
     expect((provision as HTMLButtonElement).disabled).toBe(false);
 
-    // The connection controls below are still not built, and they say so rather
-    // than appearing to work.
-    const addCustom = screen.getByRole("button", { name: /Add custom database/ });
-    expect((addCustom as HTMLButtonElement).disabled).toBe(true);
+    // The Connection card carries no control at all: there is no procedure
+    // behind a connection flow yet, so it says so in prose and offers nothing
+    // that would render as a button and do nothing.
+    expect(screen.queryByRole("button", { name: /Add custom database/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add Project/ })).toBeNull();
+    expect(
+      await screen.findByText(/Connection details appear once a database engine is configured/),
+    ).toBeTruthy();
   });
 
   it("provisions a resource through the API and shows the engine's own state", async () => {

@@ -37,7 +37,7 @@ import {
   type ProvisionDataSummary,
 } from "../view-model.js";
 import { DataStateBadge, Timestamp } from "../components/page-parts.js";
-import { ComingSoon } from "../components/app-shell.js";
+
 import { databaseSectionTitle } from "../navigation.js";
 
 /**
@@ -208,10 +208,6 @@ function DatabaseOverview({
           <p className="muted small">
             Connection details appear once a database engine is configured for this deployment.
           </p>
-          <div className="row">
-            <ComingSoon label="Add Project" />
-            <ComingSoon label="Add custom database" />
-          </div>
         </Card>
       </SectionShell>
     </>

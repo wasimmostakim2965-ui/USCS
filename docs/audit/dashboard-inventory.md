@@ -47,10 +47,11 @@ them in this order: route/page → procedure → adapter call → live engine.
 | New deployment | `DeploymentsPage` | `deployments.create` | Working |
 | Deployment logs (build vs runtime) | `DeploymentsPage` | `deployments.logs` | Working |
 | Rollback | `DeploymentsPage` | `deployments.rollback` | Working |
-| Domains list | `DomainsPage` | `domains.list` | Working |
+| Domains list | `DomainsPage` | `domains.list` (project-scoped) | Working |
 | Add domain | `DomainsPage` | `domains.create` | Working |
 | Verify domain | `DomainsPage` | `domains.verify` | Working |
 | Remove domain | `DomainsPage` | `domains.remove` | Working |
+| Rename project | `ProjectSettingsPage` | `projects.update` | Working |
 | Security policy read | `SecurityPage` | `security.policy.get` | Working |
 | Save policy draft | `SecurityPage` | `security.policy.save` | Working |
 | Distribute to edge | `SecurityPage` | `security.policy.distribute` | Not configured |
@@ -65,7 +66,7 @@ routes with an honest placeholder and no controls.
 | Sub-page | Body | Controls | State |
 |---|---|---|---|
 | Overview | resources list | Provision resource, Back up | Working |
-| Overview → Connection | text | `ComingSoon "Add Project"`, `ComingSoon "Add custom database"` | **Coming soon** |
+| Overview → Connection | text | none (prose only) | **Missing** |
 | Table Editor | none | none | **Missing** |
 | SQL Editor | none | none | **Missing** |
 | Authentication | none | none | **Missing** |
@@ -136,19 +137,20 @@ and this fork, so the choice is explicit.
 3. **Database sub-pages are placeholders.** Eight of nine are honest but empty.
    Filling them needs new adapter surface (tables, SQL, buckets, auth users) and
    new procedures, which is the largest body of work.
-4. **Domains are organization-scoped, not project-scoped.** `domains.list` takes
-   only `organizationId`, so opening project A's Domains page lists project B's
-   domains too. `domains.projectId` exists on the row but is not filtered on. The
-   page is project-scoped in the sidebar, so this is a real correctness gap.
-5. **Project Settings is the workspace Settings.** `projectNav`'s Settings entry
-   routes to `{ name: "settings", organizationId }`, so the project menu's
-   Settings shows the organization profile. There is no project-level settings
-   page.
-6. **`projectStatus` is dead.** `AppShell` accepts `projectStatus` and renders a
-   badge for it, but `App` always passes `null`, so the badge never renders. Dead
-   prop.
-7. **`ComingSoon` in the Database Connection card** is two disabled buttons with
-   no procedure behind them. Either build the flow or say what the flow is.
+4. **Domains are organization-scoped, not project-scoped.** ~~`domains.list` takes
+   only `organizationId`~~ **Fixed**: `domains.list` accepts an optional
+   `projectId`, the web loader and `DomainsPage` pass project scope, and a
+   regression test proves project A does not see project B's hostnames.
+5. **Project Settings was the workspace Settings.** ~~`projectNav`'s Settings
+   entry routes to `{ name: "settings", organizationId }`~~ **Fixed**:
+   `projectSettings` route + `ProjectSettingsPage`, backed by a new
+   `projects.update` procedure. Renaming is guarded (`project:update`) and audited.
+6. **`projectStatus` was dead.** ~~`AppShell` accepts `projectStatus` ...~~
+   **Fixed**: the unused prop and its render branch were removed rather than left
+   as a badge that can never appear.
+7. **`ComingSoon` in the Database Connection card** ~~is two disabled buttons
+   with no procedure behind them~~ **Fixed**: the two dead buttons are gone; the
+   card is prose only, and the e2e test asserts no button is invented there.
 
 ## What is honest today and must stay honest
 
