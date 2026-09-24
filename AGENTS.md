@@ -139,6 +139,23 @@ not when a commit message says so.
   `orchestration_jobs` row executed by the worker, and its outcome lands in
   `audit_logs`.
 
+## Environment and engine wiring (read before touching `buildEngines`)
+
+- `.env.example` is the contract for `engineConfigFromEnv`. The keys are
+  `STORAGE_ENDPOINT` / `STORAGE_ACCESS_KEY__<orgId>` / `STORAGE_SECRET_KEY__<orgId>`
+  (not `MINIO_*`), `SECURITY_EDGE_URL` + `EDGE_HOSTNAME`, and the optional
+  `COOLIFY_ENVIRONMENT_UUID__<orgId>` / `COOLIFY_DESTINATION_UUID__<orgId>`. If you
+  add an env read, add it to both the example and `engineConfigFromEnv`.
+- **The fakes are refused in production.** `buildEngines({ useFakes: true,
+  nodeEnv: "production" })` throws rather than building in-memory engines that
+  report success for work no engine performed. Read from `NODE_ENV`. A test that
+  wants the fakes runs with `NODE_ENV=test`.
+- **A real security edge is injected, never self-built.** `createEnvoySecurityEdge`
+  needs resolvers the API owns (a route's host/origin, a policy's level), so
+  `buildEngines` cannot construct it. Pass the built adapter as
+  `EngineConfig.securityEdge`; absent means the honest `not_configured` edge,
+  even when `SECURITY_EDGE_URL` is set.
+
 ## Closed gaps
 
 - **`api_keys` scope forgery through PostgREST.** `apiKeys.create` narrows

@@ -101,4 +101,51 @@ describe("engine configuration", () => {
     expect(hostingNotConfigured("coolify").__notConfigured).toBe(true);
     expect(fakeHosting().__notConfigured).toBeUndefined();
   });
+
+  it("refuses the fakes in a production process, so no fake success is reachable there", () => {
+    // The flag alone would let a mistaken production deployment report success
+    // for work no engine performed. The build refuses instead.
+    expect(() => buildEngines({ useFakes: true, nodeEnv: "production" })).toThrow(
+      /CLOUD_WAI_USE_FAKE_ENGINES is set in a production process/,
+    );
+    // A test/development process is unaffected.
+    expect(
+      buildEngines({ useFakes: true, nodeEnv: "test" }).hosting.__notConfigured,
+    ).toBeUndefined();
+  });
+
+  it("uses a supplied security edge adapter, and stays unconfigured without one", () => {
+    // Without an adapter the edge is honestly not_configured even when a URL is
+    // set: this package cannot build the real edge (it needs resolvers the API
+    // owns), and it must not pretend otherwise.
+    const withoutAdapter = buildEngines({ securityEdgeConfigured: true });
+    expect(engineReport(withoutAdapter).find((r) => r.engine === "envoy")?.configured).toBe(false);
+
+    const supplied = {
+      publishRoute: async () => ({ ok: false, status: "not_configured", reason: "x" }) as const,
+      removeRoute: async () => ({ ok: false, status: "not_configured", reason: "x" }) as const,
+      applyPolicy: async () => ({ ok: false, status: "not_configured", reason: "x" }) as const,
+      quarantine: async () => ({ ok: false, status: "not_configured", reason: "x" }) as const,
+      inspectHealth: async () => ({ ok: false, status: "not_configured", reason: "x" }) as const,
+    };
+    const withAdapter = buildEngines({ securityEdgeConfigured: true, securityEdge: supplied });
+    expect(engineReport(withAdapter).find((r) => r.engine === "envoy")?.configured).toBe(true);
+    expect(withAdapter.securityEdge).toBe(supplied);
+  });
+
+  it("reads the storage and edge keys the adapters actually use", () => {
+    const config = engineConfigFromEnv({
+      STORAGE_ENDPOINT: "https://minio.test",
+      "STORAGE_ACCESS_KEY__org-a": "ak-a",
+      "STORAGE_SECRET_KEY__org-a": "sk-a",
+      SECURITY_EDGE_URL: "https://edge.test",
+      EDGE_HOSTNAME: "edge.cloud-wai.test",
+    });
+    expect(config.storageEndpoint).toBe("https://minio.test");
+    expect(config.storageCredentials).toEqual({
+      "org-a": { accessKey: "ak-a", secretKey: "sk-a" },
+    });
+    expect(config.securityEdgeConfigured).toBe(true);
+    expect(config.edgeHostname).toBe("edge.cloud-wai.test");
+  });
 });

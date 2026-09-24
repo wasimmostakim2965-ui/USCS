@@ -61,6 +61,15 @@ export interface EngineConfig {
   /** Per-organization storage credentials, keyed by organization id. */
   readonly storageCredentials?:
     Readonly<Record<string, { accessKey: string; secretKey: string }>> | undefined;
+  /**
+   * A pre-built security edge adapter, when this deployment can supply one.
+   *
+   * The real edge adapter resolves a route's host/origin and a policy's level
+   * from the control plane, so it cannot be constructed inside this package
+   * without a resolver the API owns. Injecting the built adapter is the seam:
+   * absent means the honest `not_configured` edge, present means the real one.
+   */
+  readonly securityEdge?: SecurityEdgeAdapter | undefined;
   /** The security edge (Envoy) is not wired yet; it stays honestly unconfigured. */
   readonly securityEdgeConfigured?: boolean | undefined;
   /**
@@ -70,6 +79,14 @@ export interface EngineConfig {
   readonly edgeHostname?: string | undefined;
   /** Use in-memory engines. Only for tests and local development. */
   readonly useFakes?: boolean | undefined;
+  /**
+   * The deployment's runtime environment, read from `NODE_ENV`.
+   *
+   * Used only to refuse the fakes in a production process: a deployment that
+   * set `CLOUD_WAI_USE_FAKE_ENGINES=true` there by mistake would otherwise
+   * report success for work no engine performed.
+   */
+  readonly nodeEnv?: string | undefined;
 }
 
 export interface Engines {
@@ -146,6 +163,7 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
     edgeHostname: env.EDGE_HOSTNAME,
     useFakes: env.CLOUD_WAI_USE_FAKE_ENGINES === "true",
+    nodeEnv: env.NODE_ENV,
   };
 }
 
@@ -158,6 +176,15 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
  */
 export function buildEngines(config: EngineConfig): Engines {
   if (config.useFakes) {
+    // The fakes report success for work that never ran, which is exactly what a
+    // production deployment must not do. Refuse rather than trust that the flag
+    // was set deliberately; a test sets NODE_ENV=test and is unaffected.
+    if (config.nodeEnv === "production") {
+      throw new Error(
+        "CLOUD_WAI_USE_FAKE_ENGINES is set in a production process. Fakes would fabricate " +
+          "engine success; refusing to build them. Unset it or set NODE_ENV to test/development.",
+      );
+    }
     return {
       hosting: fakeHosting(),
       database: fakeDatabase(),
@@ -225,13 +252,18 @@ export function buildEngines(config: EngineConfig): Engines {
     hosting,
     database,
     storage,
-    // The security edge adapter is not written yet; say so rather than pretend.
-    securityEdge: securityNotConfigured(
-      "envoy",
-      config.securityEdgeConfigured
-        ? "The security edge adapter is not implemented in this build."
-        : "Set SECURITY_EDGE_URL.",
-    ),
+    // A caller that built a real edge adapter supplies it; otherwise the honest
+    // `not_configured` edge is wired. An injected adapter is used as given — it
+    // already knows how to refuse, and a fake would only be reachable if a caller
+    // deliberately passed one.
+    securityEdge:
+      config.securityEdge ??
+      securityNotConfigured(
+        "envoy",
+        config.securityEdgeConfigured
+          ? "An edge URL is set but no edge adapter was supplied to buildEngines."
+          : "Set SECURITY_EDGE_URL and supply a security edge adapter.",
+      ),
     // Verification needs only a resolver, so a real deployment always has one.
     // The edge host is optional: without it, only the TXT challenge verifies.
     domainVerifier: createDnsDomainVerifier(
