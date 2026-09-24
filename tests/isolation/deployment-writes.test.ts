@@ -387,6 +387,38 @@ describe("deployments.create through the registered procedures", () => {
     expect(deployments).toHaveLength(1);
   });
 
+  it("refuses an idempotency key already used for a different project", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    // A second project in the same organization: the deployment key is unique
+    // per organization, so the same key is a real collision across projects.
+    await router.route({
+      procedure: "projects.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Beta", slug: "beta" },
+    });
+
+    const first = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "shared-key" },
+    });
+    expect(first.ok, JSON.stringify(first.error)).toBe(true);
+
+    const second = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "proj-beta" as ProjectId, idempotencyKey: "shared-key" },
+    });
+
+    // Answering with PROJ_A's deployment would silently skip the beta deploy.
+    expect(second.ok).toBe(false);
+    expect(second.status).toBe(409);
+    expect(deployments).toHaveLength(1);
+    expect(deployments.every((d) => d.projectId === PROJ_A)).toBe(true);
+  });
+
   it("refuses a non-member without revealing the organization", async () => {
     const { store, deployments } = makeStore();
     const router = routerWith(store, workingEngines());

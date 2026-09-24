@@ -191,6 +191,16 @@ export async function requestDeployment(
     idempotencyKey,
   );
   if (existing) {
+    // A key names one request. If it was first used for another project, the
+    // stored row is not this caller's operation: returning it would answer a
+    // deploy of project B with a deployment of project A and skip B entirely.
+    // The unique key is per organization, so the collision is real and refused.
+    if (existing.projectId !== project.id) {
+      throw new ApiError(
+        "conflict",
+        "This idempotency key was already used for a deployment in another project.",
+      );
+    }
     return { deployment: existing, replayed: true, engineReason: existing.failureReason };
   }
 
@@ -331,6 +341,14 @@ export async function rollbackDeployment(
     idempotencyKey,
   );
   if (existing) {
+    // Same rule as a deploy: a key reused across projects must not answer a
+    // rollback of project B with an operation from project A.
+    if (existing.projectId !== project.id) {
+      throw new ApiError(
+        "conflict",
+        "This idempotency key was already used for a deployment in another project.",
+      );
+    }
     return { deployment: existing, replayed: true, engineReason: existing.failureReason };
   }
 
