@@ -35,11 +35,14 @@ import type {
   DataResourceCreateInput,
   Deployment,
   DeploymentCreateInput,
+  DeploymentStatusInput,
   Domain,
   DomainCreateInput,
   Organization,
   PolicyEventInput,
   Project,
+  ProjectDeploymentTarget,
+  ProjectProviderInput,
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
@@ -93,9 +96,7 @@ export interface SupabaseStoreOptions {
   readonly now?: () => Date;
 }
 
-export function createSupabaseControlPlaneStore(
-  options: SupabaseStoreOptions,
-): ControlPlaneStore {
+export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): ControlPlaneStore {
   const { client, newId } = options;
   const now = options.now ?? (() => new Date());
   const iso = () => now().toISOString();
@@ -180,7 +181,10 @@ export function createSupabaseControlPlaneStore(
       dataResourceId: str(row, "data_resource_id") as DataResourceId,
       provider: nullableStr(row, "provider"),
       providerResourceId: nullableStr(row, "provider_resource_id"),
-      sizeBytes: row["size_bytes"] === null || row["size_bytes"] === undefined ? null : num(row, "size_bytes"),
+      sizeBytes:
+        row["size_bytes"] === null || row["size_bytes"] === undefined
+          ? null
+          : num(row, "size_bytes"),
       status: str(row, "status") as DataBackup["status"],
       createdAt: str(row, "created_at"),
       finishedAt: nullableStr(row, "finished_at"),
@@ -268,7 +272,10 @@ export function createSupabaseControlPlaneStore(
       return found.map(toOrganization);
     },
 
-    async listProjects(userId: UserId, organizationId: OrganizationId): Promise<readonly Project[]> {
+    async listProjects(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly Project[]> {
       const found = await rows("listProjects", {
         method: "GET",
         path: `/projects?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
@@ -505,6 +512,64 @@ export function createSupabaseControlPlaneStore(
       });
       const row = found[0];
       return row ? toDeployment(row) : null;
+    },
+
+    /**
+     * Advance a deployment's state.
+     *
+     * Two filters make this safe even with the service role: the row must be in
+     * the organization the caller resolved, and it must belong to that tenant's
+     * member. The status column has no user-facing UPDATE policy, so this write is
+     * only reachable through the service-role connection the API server holds.
+     */
+    async updateDeploymentStatus(input: DeploymentStatusInput): Promise<Deployment | null> {
+      const patch: Record<string, unknown> = { status: input.status };
+      if (input.url !== undefined) patch["url"] = input.url;
+      if (input.failureReason !== undefined) patch["failure_reason"] = input.failureReason;
+      if (input.providerResourceId !== undefined) {
+        patch["provider_resource_id"] = input.providerResourceId;
+      }
+      if (input.startedAt !== undefined) patch["started_at"] = input.startedAt;
+      if (input.finishedAt !== undefined) patch["finished_at"] = input.finishedAt;
+
+      const updated = await rows("updateDeploymentStatus", {
+        method: "PATCH",
+        path: `/deployments?select=*&id=eq.${q(input.id)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: patch,
+      });
+      const row = updated[0];
+      return row ? toDeployment(row) : null;
+    },
+
+    async setProjectProviderResource(input: ProjectProviderInput): Promise<Project | null> {
+      const updated = await rows("setProjectProviderResource", {
+        method: "PATCH",
+        path: `/projects?select=*&id=eq.${q(input.projectId)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: {
+          provider: input.provider,
+          provider_resource_id: input.providerResourceId,
+        },
+      });
+      const row = updated[0];
+      return row ? toProject(row) : null;
+    },
+
+    async getProjectDeploymentTarget(
+      userId: UserId,
+      projectId: ProjectId,
+    ): Promise<ProjectDeploymentTarget | null> {
+      const found = await rows("getProjectDeploymentTarget", {
+        method: "GET",
+        path: `/projects?select=provider,provider_resource_id&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+      });
+      const row = found[0];
+      if (!row) return null;
+      return {
+        provider: nullableStr(row, "provider"),
+        providerResourceId: nullableStr(row, "provider_resource_id"),
+      };
     },
 
     async saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy> {

@@ -190,7 +190,9 @@ describe("the dashboard against a live control plane", () => {
     await waitFor(() => expect(screen.getByText("https://web-app.example.test")).toBeTruthy());
     // The three statuses are visually distinct; a not-configured engine is
     // labelled from the shared mapping, not assumed.
-    expect(screen.getAllByText(presentDeploymentStatus("succeeded").label).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(presentDeploymentStatus("succeeded").label).length).toBeGreaterThan(
+      0,
+    );
     expect(screen.getAllByText(presentDeploymentStatus("failed").label).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(presentDeploymentStatus("not_configured").label).length,
@@ -300,6 +302,152 @@ describe("the dashboard against a live control plane", () => {
   });
 });
 
+describe("requesting and rolling back a deployment", () => {
+  /**
+   * A control plane that really records deployments, so the test exercises the
+   * dashboard against behaviour rather than a canned list.
+   */
+  function deploymentPlane() {
+    const deployments: {
+      id: string;
+      projectId: string;
+      status: string;
+      url: string | null;
+      failureReason: string | null;
+    }[] = [
+      {
+        id: "d-existing",
+        projectId: "p-1",
+        status: "succeeded",
+        url: "https://web-app.example.test",
+        failureReason: null,
+      },
+    ];
+    const calls: { procedure: string; input: unknown }[] = [];
+    let counter = 0;
+
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      if (procedure === "deployments.list") {
+        return { ok: true, status: 200, data: [...deployments] };
+      }
+      if (procedure === "deployments.create") {
+        counter += 1;
+        const deployment = {
+          id: `d-new-${counter}`,
+          projectId: "p-1",
+          // The engine is unconfigured in this deployment: the honest state.
+          status: "not_configured",
+          url: null,
+          failureReason: "Coolify is not configured in this deployment.",
+        };
+        deployments.push(deployment);
+        return {
+          ok: true,
+          status: 200,
+          data: { deployment, replayed: false, engineReason: deployment.failureReason },
+        };
+      }
+      if (procedure === "deployments.rollback") {
+        const body = input as { commit: string };
+        counter += 1;
+        const deployment = {
+          id: `d-rollback-${counter}`,
+          projectId: "p-1",
+          status: "running",
+          url: null,
+          failureReason: null,
+        };
+        deployments.push(deployment);
+        return {
+          ok: true,
+          status: 200,
+          data: { deployment, replayed: false, engineReason: null, commit: body.commit },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+    return { responder, deployments, calls };
+  }
+
+  it("requests a deployment and shows the engine's honest not-configured answer", async () => {
+    const { responder, calls, deployments } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+    await user.type(await screen.findByPlaceholderText("main"), "release/1.2");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    // The dialog reports the status the server returned, which is not success.
+    expect(await screen.findByText(/Coolify is not configured/)).toBeTruthy();
+    expect(
+      screen.getAllByText(presentDeploymentStatus("not_configured").label).length,
+    ).toBeGreaterThan(0);
+
+    const create = calls.find((c) => c.procedure === "deployments.create");
+    expect(create?.input).toMatchObject({ projectId: "p-1", gitBranch: "release/1.2" });
+
+    // Closing reloads the list from the server, which now includes the row.
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.getAllByText(/d-new-/).length).toBeGreaterThan(0));
+    expect(deployments).toHaveLength(2);
+  });
+
+  it("rolls back a successful deployment through the API", async () => {
+    const { responder, calls } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Rollback" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByPlaceholderText("abc1234"), "abc1234");
+    await user.click(within(dialog).getByRole("button", { name: "Roll back" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.procedure === "deployments.rollback")).toBe(true),
+    );
+    const rollback = calls.find((c) => c.procedure === "deployments.rollback");
+    expect(rollback?.input).toMatchObject({ projectId: "p-1", commit: "abc1234" });
+  });
+
+  it("surfaces a refused deployment request as an alert, never as success", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      if (procedure === "deployments.create") {
+        return {
+          ok: false,
+          status: 403,
+          error: { code: "forbidden", message: "Requires capability: deployment:create." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("deployment:create");
+    expect(screen.queryByText("Deployment requested")).toBeNull();
+  });
+});
+
 describe("page titles", () => {
   it("names the current page in the document title", async () => {
     const url = await startApi((procedure) => {
@@ -377,7 +525,8 @@ describe("creating and revoking an API key", () => {
       if (procedure === "apiKeys.revoke") {
         const body = input as { keyId: string };
         const found = keys.find((k) => k.id === body.keyId);
-        if (!found) return { ok: false, status: 404, error: { code: "not_found", message: "No key." } };
+        if (!found)
+          return { ok: false, status: 404, error: { code: "not_found", message: "No key." } };
         found.revokedAt = "2026-09-23T00:00:00.000Z";
         return { ok: true, status: 200, data: { revoked: true } };
       }
@@ -446,9 +595,7 @@ describe("creating and revoking an API key", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
-    await waitFor(() =>
-      expect(calls.some((c) => c.procedure === "apiKeys.revoke")).toBe(true),
-    );
+    await waitFor(() => expect(calls.some((c) => c.procedure === "apiKeys.revoke")).toBe(true));
     const revoke = calls.find((c) => c.procedure === "apiKeys.revoke");
     expect(revoke?.input).toMatchObject({ organizationId: "org-1", keyId: "key-1" });
     expect(keys[0]!.revokedAt).not.toBeNull();

@@ -48,6 +48,12 @@ Verified in this repository today (runnable with `pnpm verify`):
   in one organization does not leak into another (`tests/isolation`).
 - Log redaction removes credentials and origin addresses (`tests/integration`).
 - The UI state mapping never renders success for a non-success engine status.
+- The deployment write path is wired end to end: `deployments.create` and
+  `deployments.rollback` persist a row before the engine is called, reuse an
+  idempotency key instead of deploying twice, write `succeeded` only for an
+  engine-reported success, and record `not_configured` when no hosting
+  credentials exist (`tests/isolation/deployment-writes.test.ts`). The dashboard
+  exposes both flows (`tests/web/dashboard.e2e.test.tsx`).
 
 Requires a configured engine to verify (must stay honestly `not_configured`
 until then):

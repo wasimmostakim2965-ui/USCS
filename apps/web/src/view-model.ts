@@ -31,6 +31,19 @@ export interface DeploymentSummary {
   readonly failureReason: string | null;
 }
 
+/**
+ * The answer to a deployment request.
+ *
+ * `replayed` says the idempotency key matched an earlier deployment, so nothing
+ * new was queued. `engineReason` is the engine's own words when it could not
+ * act — shown as "not configured" rather than as a failure the operator caused.
+ */
+export interface DeploymentRequestSummary {
+  readonly deployment: DeploymentSummary;
+  readonly replayed: boolean;
+  readonly engineReason: string | null;
+}
+
 export interface AuditSummary {
   readonly id: string;
   readonly event: string;

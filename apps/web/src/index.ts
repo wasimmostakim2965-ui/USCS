@@ -27,6 +27,7 @@ export type {
   OrganizationSummary,
   ProjectSummary,
   DeploymentSummary,
+  DeploymentRequestSummary,
   DomainSummary,
   DataResourceSummary,
   ApiKeySummaryRow,

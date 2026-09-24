@@ -206,9 +206,24 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
       }),
 
     rollback: (ctx) =>
-      gate(() =>
-        ok("succeeded", operationRef(engine, ctxKey(ctx), ctx.organizationId, "deployment")),
-      ),
+      gate(() => {
+        const key = ctxKey(ctx);
+        // A real engine answers a rollback with a queued deployment, and a later
+        // read of that deployment reports its state. The fake records the state
+        // too, so a caller that reads back after rolling back gets the same shape
+        // of answer it would get from Coolify instead of a fabricated "pending".
+        const app = applications.get(key);
+        applications.set(key, {
+          name: app?.name ?? "application",
+          deployment: {
+            ref: refFor(engine, key, ctx.organizationId, "application"),
+            status: "succeeded",
+            url: app?.deployment.url ?? `https://${key}.fake.cloud-wai.test`,
+          },
+          logs: [...(app?.logs ?? []), "rolled back"],
+        });
+        return ok("succeeded", operationRef(engine, key, ctx.organizationId, "deployment"));
+      }),
 
     getLogs: (ctx, _ref, _cursor): Promise<AdapterResult<LogPage>> =>
       gate(() =>

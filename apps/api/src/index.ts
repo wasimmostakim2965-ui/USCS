@@ -24,8 +24,19 @@ export {
   mayReadProject,
 } from "./procedures/organizations.js";
 export type { OrgDeps } from "./procedures/organizations.js";
-export { listDeployments, listAuditEvents } from "./procedures/deployments.js";
-export type { DeploymentDeps } from "./procedures/deployments.js";
+export {
+  requestDeployment,
+  listAuditEvents,
+  listDeployments,
+  rollbackDeployment,
+  DEPLOYMENT_PROCEDURE_STATES,
+} from "./procedures/deployments.js";
+export type {
+  CreateDeploymentInput,
+  DeploymentDeps,
+  DeploymentRequestResult,
+  RollbackDeploymentInput,
+} from "./procedures/deployments.js";
 export { buildProcedures, procedureNames, ROUTE_SHAPES } from "./procedures/index.js";
 
 export interface AppDescriptor {

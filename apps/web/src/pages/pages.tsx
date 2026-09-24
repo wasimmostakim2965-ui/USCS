@@ -42,6 +42,7 @@ import {
   type ApiKeySummaryRow,
   type AuditSummary,
   type DataResourceSummary,
+  type DeploymentRequestSummary,
   type DeploymentSummary,
   type DomainSummary,
   type IssuedApiKey,
@@ -132,9 +133,7 @@ export function OrganizationsPage() {
                 key={organization.id}
                 title={organization.name}
                 actions={
-                  <Link to={{ name: "projects", organizationId: organization.id }}>
-                    Open →
-                  </Link>
+                  <Link to={{ name: "projects", organizationId: organization.id }}>Open →</Link>
                 }
               >
                 <dl className="dl">
@@ -198,7 +197,12 @@ function NewOrganizationModal({
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={() => void submit()} busy={busy} disabled={!name || !slug}>
+          <Button
+            variant="primary"
+            onClick={() => void submit()}
+            busy={busy}
+            disabled={!name || !slug}
+          >
             Create
           </Button>
         </>
@@ -283,9 +287,7 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
                 key={project.id}
                 title={project.name}
                 actions={
-                  <Link
-                    to={{ name: "project", organizationId, projectId: project.id }}
-                  >
+                  <Link to={{ name: "project", organizationId, projectId: project.id }}>
                     Open →
                   </Link>
                 }
@@ -322,7 +324,11 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
           <Field label="Name">
             {(id) => <TextInput id={id} value={name} onChange={setName} placeholder="Web app" />}
           </Field>
-          <Field label="Slug" hint="Lowercase letters, digits and hyphens." {...(error ? { error } : {})}>
+          <Field
+            label="Slug"
+            hint="Lowercase letters, digits and hyphens."
+            {...(error ? { error } : {})}
+          >
             {(id) => (
               <TextInput
                 id={id}
@@ -349,11 +355,7 @@ export function ProjectOverviewPage({
   readonly projectId: string;
 }) {
   const { client } = useApp();
-  const project = useSection(
-    () => loadProject(client, projectId),
-    [client, projectId],
-    "Project",
-  );
+  const project = useSection(() => loadProject(client, projectId), [client, projectId], "Project");
   const deployments = useSection(
     () => loadDeployments(client, projectId),
     [client, projectId],
@@ -365,7 +367,8 @@ export function ProjectOverviewPage({
     "Recent activity",
   );
 
-  const projectItem = project.section.state.kind === "ready" ? project.section.state.items[0] : undefined;
+  const projectItem =
+    project.section.state.kind === "ready" ? project.section.state.items[0] : undefined;
   const deploymentItems =
     deployments.section.state.kind === "ready" ? deployments.section.state.items : [];
   const live = deploymentItems.filter((item) => item.status === "succeeded").length;
@@ -375,12 +378,7 @@ export function ProjectOverviewPage({
     <PageShell
       title={projectItem?.name ?? "Project"}
       subtitle={projectItem ? `Slug ${projectItem.slug}` : undefined}
-      actions={
-        <>
-          <ComingSoon label="Deploy" />
-          <ComingSoon label="Rollback" />
-        </>
-      }
+      actions={<Link to={{ name: "deployments", organizationId, projectId }}>Deployments →</Link>}
       breadcrumb={
         <nav className="breadcrumb" aria-label="Breadcrumb">
           <Link to={{ name: "projects", organizationId }}>Projects</Link>
@@ -430,9 +428,17 @@ export function ProjectOverviewPage({
                 items={items.slice(0, 8)}
                 rowKey={(item) => item.id}
                 columns={[
-                  { key: "event", header: "Event", render: (item) => <span className="mono small">{item.event}</span> },
+                  {
+                    key: "event",
+                    header: "Event",
+                    render: (item) => <span className="mono small">{item.event}</span>,
+                  },
                   { key: "actor", header: "Actor", render: (item) => item.actorEmail ?? "—" },
-                  { key: "when", header: "When", render: (item) => <Timestamp value={item.createdAt} /> },
+                  {
+                    key: "when",
+                    header: "When",
+                    render: (item) => <Timestamp value={item.createdAt} />,
+                  },
                 ]}
               />
             )}
@@ -455,23 +461,286 @@ export function DeploymentsPage({
     [client, projectId],
     "Deployments",
   );
+  const [deploying, setDeploying] = useState(false);
+  const [rollingBack, setRollingBack] = useState<DeploymentSummary | null>(null);
 
   return (
     <PageShell
       title="Deployments"
-      subtitle="Every deployment this project has requested, newest first."
-      actions={<ComingSoon label="Deploy" />}
+      subtitle="Every deployment this project has requested, newest first. A status is the hosting engine's, never the request's."
+      actions={
+        <Button variant="primary" onClick={() => setDeploying(true)}>
+          New deployment
+        </Button>
+      }
     >
       <Card flush>
         <SectionView<DeploymentSummary>
           section={section}
-          columns={DeploymentColumns()}
+          columns={[
+            ...DeploymentColumns(),
+            {
+              key: "actions",
+              header: "",
+              render: (item) =>
+                item.status === "succeeded" ? (
+                  <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
+                    Rollback
+                  </Button>
+                ) : (
+                  <span className="small muted">—</span>
+                ),
+            },
+          ]}
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="Nothing has been deployed yet."
         />
       </Card>
+
+      <NewDeploymentModal
+        projectId={projectId}
+        open={deploying}
+        onClose={() => setDeploying(false)}
+        onRequested={() => {
+          setDeploying(false);
+          reload();
+        }}
+      />
+
+      <RollbackDeploymentModal
+        projectId={projectId}
+        deployment={rollingBack}
+        onClose={() => setRollingBack(null)}
+        onRolledBack={() => {
+          setRollingBack(null);
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Request a deployment.
+ *
+ * The branch and repository are optional because the engine may already hold
+ * them; whatever is submitted is validated on the server. The result is shown
+ * with the engine's own words, so a deployment with no hosting credentials reads
+ * as "not configured" rather than as a failure the operator caused.
+ */
+function NewDeploymentModal({
+  projectId,
+  open,
+  onClose,
+  onRequested,
+}: {
+  readonly projectId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onRequested: () => void;
+}) {
+  const { client } = useApp();
+  const [gitRepository, setGitRepository] = useState("");
+  const [gitBranch, setGitBranch] = useState("");
+  const [commit, setCommit] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DeploymentRequestSummary | null>(null);
+
+  const reset = () => {
+    setGitRepository("");
+    setGitBranch("");
+    setCommit("");
+    setError(null);
+    setResult(null);
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DeploymentRequestSummary>("deployments.create", {
+      projectId,
+      ...(gitRepository ? { gitRepository } : {}),
+      ...(gitBranch ? { gitBranch } : {}),
+      ...(commit ? { commit } : {}),
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The deployment could not be requested.");
+      return;
+    }
+    setResult(response.data);
+  };
+
+  const close = () => {
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={result ? "Deployment requested" : "New deployment"}
+      open={open}
+      onClose={close}
+      footer={
+        result ? (
+          <Button variant="primary" onClick={onRequested}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="primary" onClick={() => void submit()} busy={busy}>
+              Deploy
+            </Button>
+          </>
+        )
+      }
+    >
+      {result ? (
+        <div className="stack">
+          <dl className="dl">
+            <dt>Status</dt>
+            <dd>
+              <StatusBadge
+                label={presentDeploymentStatus(result.deployment.status).label}
+                tone={presentDeploymentStatus(result.deployment.status).tone}
+              />
+            </dd>
+            <dt>Deployment</dt>
+            <dd className="mono small">{result.deployment.id}</dd>
+            {result.deployment.url ? (
+              <>
+                <dt>URL</dt>
+                <dd className="mono small">{result.deployment.url}</dd>
+              </>
+            ) : null}
+          </dl>
+          {result.engineReason ? (
+            <p className="small muted" role="status">
+              The hosting engine did not act: {result.engineReason}
+            </p>
+          ) : null}
+          {result.replayed ? (
+            <p className="small muted">
+              This request matched an earlier deployment, so nothing new was queued.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="stack">
+          <p className="small muted">
+            Leave a field blank to use what the engine already holds for this project.
+          </p>
+          <Field label="Repository" hint="https:// or git@ clone URL.">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={gitRepository}
+                onChange={setGitRepository}
+                placeholder="https://github.com/acme/web-app.git"
+              />
+            )}
+          </Field>
+          <Field label="Branch">
+            {(id) => (
+              <TextInput id={id} value={gitBranch} onChange={setGitBranch} placeholder="main" />
+            )}
+          </Field>
+          <Field label="Commit" hint="Optional; a specific revision to deploy.">
+            {(id) => (
+              <TextInput id={id} value={commit} onChange={setCommit} placeholder="abc1234" />
+            )}
+          </Field>
+          {error ? (
+            <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+              {error}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Roll a project back.
+ *
+ * Coolify refuses a rollback without the git ref to return to, so the commit is
+ * required here too — the dialog asks for it rather than sending a request the
+ * engine will reject.
+ */
+function RollbackDeploymentModal({
+  projectId,
+  deployment,
+  onClose,
+  onRolledBack,
+}: {
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary | null;
+  readonly onClose: () => void;
+  readonly onRolledBack: () => void;
+}) {
+  const { client } = useApp();
+  const [commit, setCommit] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!deployment) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DeploymentRequestSummary>("deployments.rollback", {
+      projectId,
+      commit,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The rollback could not be requested.");
+      return;
+    }
+    setCommit("");
+    onRolledBack();
+  };
+
+  return (
+    <Modal
+      title="Roll back"
+      open={deployment !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="danger"
+            onClick={() => void submit()}
+            busy={busy}
+            disabled={commit.trim() === ""}
+          >
+            Roll back
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          Rolling back records a new deployment at an earlier revision. The deployment you are
+          undoing is kept in the history.
+        </p>
+        <Field label="Commit" hint="The git revision to return to." {...(error ? { error } : {})}>
+          {(id) => (
+            <TextInput
+              id={id}
+              value={commit}
+              onChange={setCommit}
+              placeholder="abc1234"
+              error={Boolean(error)}
+            />
+          )}
+        </Field>
+      </div>
+    </Modal>
   );
 }
 
@@ -546,8 +815,16 @@ export function DataPage({ organizationId }: { readonly organizationId: string }
           section={section}
           columns={[
             { key: "name", header: "Name", render: (item) => item.name },
-            { key: "kind", header: "Kind", render: (item) => <span className="mono small">{item.kind}</span> },
-            { key: "state", header: "State", render: (item) => <DataStateBadge state={item.state} /> },
+            {
+              key: "kind",
+              header: "Kind",
+              render: (item) => <span className="mono small">{item.kind}</span>,
+            },
+            {
+              key: "state",
+              header: "State",
+              render: (item) => <DataStateBadge state={item.state} />,
+            },
           ]}
           rowKey={(item) => item.id}
           onRetry={reload}
@@ -626,9 +903,9 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       <div className="banner" role="status">
         <strong>Edge not configured yet.</strong>
         <span>
-          Levels below describe what each level enables. Applying one needs a deployed
-          Envoy/Coraza edge and a registered edge provider; until then no policy is compiled or claimed
-          as active.
+          Levels below describe what each level enables. Applying one needs a deployed Envoy/Coraza
+          edge and a registered edge provider; until then no policy is compiled or claimed as
+          active.
         </span>
       </div>
 
@@ -661,7 +938,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 items={items}
                 rowKey={(item) => item.provider}
                 columns={[
-                  { key: "provider", header: "Engine", render: (item) => <span className="mono">{item.provider}</span> },
+                  {
+                    key: "provider",
+                    header: "Engine",
+                    render: (item) => <span className="mono">{item.provider}</span>,
+                  },
                   {
                     key: "state",
                     header: "State",
@@ -672,7 +953,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                         <StatusBadge label="Not configured" tone="neutral" />
                       ),
                   },
-                  { key: "detail", header: "Detail", render: (item) => <span className="small">{item.detail}</span> },
+                  {
+                    key: "detail",
+                    header: "Detail",
+                    render: (item) => <span className="small">{item.detail}</span>,
+                  },
                 ]}
               />
             )}
@@ -708,9 +993,17 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
               items={items}
               rowKey={(item) => item.id}
               columns={[
-                { key: "event", header: "Event", render: (item) => <span className="mono small">{item.event}</span> },
+                {
+                  key: "event",
+                  header: "Event",
+                  render: (item) => <span className="mono small">{item.event}</span>,
+                },
                 { key: "actor", header: "Actor", render: (item) => item.actorEmail ?? "—" },
-                { key: "when", header: "When", render: (item) => <Timestamp value={item.createdAt} /> },
+                {
+                  key: "when",
+                  header: "When",
+                  render: (item) => <Timestamp value={item.createdAt} />,
+                },
               ]}
             />
           )}
@@ -747,13 +1040,21 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
           section={section}
           columns={[
             { key: "name", header: "Name", render: (item) => item.name },
-            { key: "prefix", header: "Prefix", render: (item) => <span className="mono small">{item.keyPrefix}</span> },
+            {
+              key: "prefix",
+              header: "Prefix",
+              render: (item) => <span className="mono small">{item.keyPrefix}</span>,
+            },
             {
               key: "scopes",
               header: "Scopes",
               render: (item) => <span className="small">{item.scopes.join(", ") || "—"}</span>,
             },
-            { key: "state", header: "State", render: (item) => <ApiKeyStateBadge revokedAt={item.revokedAt} /> },
+            {
+              key: "state",
+              header: "State",
+              render: (item) => <ApiKeyStateBadge revokedAt={item.revokedAt} />,
+            },
             {
               key: "actions",
               header: "",
@@ -863,12 +1164,7 @@ function CreateApiKeyModal({
         ) : (
           <>
             <Button onClick={close}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={() => void submit()}
-              busy={busy}
-              disabled={!name}
-            >
+            <Button variant="primary" onClick={() => void submit()} busy={busy} disabled={!name}>
               Create
             </Button>
           </>
@@ -882,9 +1178,7 @@ function CreateApiKeyModal({
             only its hash.
           </p>
           <Field label="Secret">
-            {(id) => (
-              <TextInput id={id} value={issued.secret} onChange={() => {}} />
-            )}
+            {(id) => <TextInput id={id} value={issued.secret} onChange={() => {}} />}
           </Field>
           {issued.key.scopes.length !== scopes.length ? (
             <p className="small muted">
@@ -929,8 +1223,8 @@ function CreateApiKeyModal({
             </div>
           </fieldset>
           <p className="small muted">
-            Leave every scope unchecked to request none. The server narrows the request to your
-            role before storing the key.
+            Leave every scope unchecked to request none. The server narrows the request to your role
+            before storing the key.
           </p>
         </div>
       )}
@@ -1013,10 +1307,14 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
     "Engine status",
   );
 
-  const org = organization.section.state.kind === "ready" ? organization.section.state.items[0] : undefined;
+  const org =
+    organization.section.state.kind === "ready" ? organization.section.state.items[0] : undefined;
 
   return (
-    <PageShell title="Settings" subtitle="Organization profile and the engines this deployment can act on.">
+    <PageShell
+      title="Settings"
+      subtitle="Organization profile and the engines this deployment can act on."
+    >
       <SectionShell title="Organization">
         <Card>
           {organization.section.state.kind === "loading" ? (
@@ -1031,12 +1329,18 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
               <dd className="mono small">{org.id}</dd>
             </dl>
           ) : (
-            <SectionView<OrganizationSummary> section={organization.section} onRetry={organization.reload} />
+            <SectionView<OrganizationSummary>
+              section={organization.section}
+              onRetry={organization.reload}
+            />
           )}
         </Card>
       </SectionShell>
 
-      <SectionShell title="Engine status" hint="An engine with no credentials reports not configured">
+      <SectionShell
+        title="Engine status"
+        hint="An engine with no credentials reports not configured"
+      >
         <Card flush>
           <SectionView<ProviderHealthRow>
             section={health.section}
@@ -1047,7 +1351,11 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                 items={items}
                 rowKey={(item) => item.provider}
                 columns={[
-                  { key: "provider", header: "Engine", render: (item) => <span className="mono">{item.provider}</span> },
+                  {
+                    key: "provider",
+                    header: "Engine",
+                    render: (item) => <span className="mono">{item.provider}</span>,
+                  },
                   {
                     key: "state",
                     header: "State",
@@ -1058,7 +1366,11 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                         <StatusBadge label="Not configured" tone="neutral" />
                       ),
                   },
-                  { key: "detail", header: "Detail", render: (item) => <span className="small">{item.detail}</span> },
+                  {
+                    key: "detail",
+                    header: "Detail",
+                    render: (item) => <span className="small">{item.detail}</span>,
+                  },
                 ]}
               />
             )}

@@ -28,7 +28,15 @@ import {
   listProjects,
   type OrgDeps,
 } from "./organizations.js";
-import { listAuditEvents, listDeployments, type DeploymentDeps } from "./deployments.js";
+import {
+  requestDeployment,
+  listAuditEvents,
+  listDeployments,
+  rollbackDeployment,
+  type CreateDeploymentInput,
+  type DeploymentDeps,
+  type RollbackDeploymentInput,
+} from "./deployments.js";
 import {
   createApiKey,
   listApiKeys,
@@ -73,14 +81,20 @@ export function buildProcedures(
   extras: ProcedureExtras = {},
 ): readonly Procedure[] {
   const orgDeps: OrgDeps = { store };
-  const depDeps: DeploymentDeps = { store };
+  const newId =
+    extras.newId ??
+    (() => {
+      throw new ApiError("engine_unavailable", "This deployment cannot issue Cloud Wai ids yet.");
+    });
+  const depDeps: DeploymentDeps = {
+    store,
+    engines: extras.engines ?? missingEngines,
+    newId,
+    ...(extras.now ? { now: extras.now } : {}),
+  };
   const settingsDeps: SettingsDeps = {
     store,
-    newId:
-      extras.newId ??
-      (() => {
-        throw new ApiError("engine_unavailable", "This deployment cannot issue API keys yet.");
-      }),
+    newId,
     ...(extras.now ? { now: extras.now } : {}),
   };
   const healthDeps: HealthDeps = {
@@ -133,6 +147,16 @@ export function buildProcedures(
       name: "deployments.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listDeployments(ctx, depDeps, inputOf<{ projectId: ProjectId }>(input).projectId),
+    },
+    {
+      name: "deployments.create",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        requestDeployment(ctx, depDeps, inputOf<CreateDeploymentInput>(input)),
+    },
+    {
+      name: "deployments.rollback",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        rollbackDeployment(ctx, depDeps, inputOf<RollbackDeploymentInput>(input)),
     },
     {
       name: "audit.list",
@@ -218,6 +242,19 @@ export const ROUTE_SHAPES = {
   "projects.get": { projectId: "ProjectId" },
   "projects.create": { organizationId: "OrganizationId", name: "string", slug: "string" },
   "deployments.list": { projectId: "ProjectId" },
+  "deployments.create": {
+    projectId: "ProjectId",
+    idempotencyKey: "string?",
+    gitRepository: "string?",
+    gitBranch: "string?",
+    commit: "string?",
+    buildPack: "BuildPack?",
+  },
+  "deployments.rollback": {
+    projectId: "ProjectId",
+    commit: "string",
+    idempotencyKey: "string?",
+  },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId" },
   "data.list": { organizationId: "OrganizationId" },

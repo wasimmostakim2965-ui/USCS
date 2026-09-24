@@ -125,6 +125,27 @@ export interface ControlPlaneWrites {
   ): Promise<Deployment | null>;
   /** A deployment by id, scoped to a member's organization. */
   getDeployment(userId: UserId, deploymentId: DeploymentId): Promise<Deployment | null>;
+  /**
+   * Advance a deployment's state machine.
+   *
+   * Written with the service-role connection the browser never holds, which is
+   * what stops a client from marking its own deployment succeeded. A deployment
+   * row that is not in the caller's organization is not updated, so a write can
+   * never reach across a tenant boundary.
+   */
+  updateDeploymentStatus(input: DeploymentStatusInput): Promise<Deployment | null>;
+  /**
+   * Remember the hosting engine's application for a project.
+   *
+   * The first deployment creates the engine-side application; without persisting
+   * its reference every later deployment would create a second application.
+   */
+  setProjectProviderResource(input: ProjectProviderInput): Promise<Project | null>;
+  /** The engine-side target for a project, scoped to a member's organization. */
+  getProjectDeploymentTarget(
+    userId: UserId,
+    projectId: ProjectId,
+  ): Promise<ProjectDeploymentTarget | null>;
 
   /** The organization's current security policy, or null when none exists. */
   getSecurityPolicy(userId: UserId, organizationId: OrganizationId): Promise<SecurityPolicy | null>;
@@ -132,7 +153,10 @@ export interface ControlPlaneWrites {
   saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
   /** Record a policy state transition. Append-only. */
   recordPolicyEvent(input: PolicyEventInput): Promise<SecurityPolicyEvent>;
-  listPolicyEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly SecurityPolicyEvent[]>;
+  listPolicyEvents(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly SecurityPolicyEvent[]>;
 
   /** Register a hostname. Always unverified: only the edge may verify it. */
   createDomain(input: DomainCreateInput): Promise<Domain>;
@@ -160,6 +184,43 @@ export interface DeploymentCreateInput {
   readonly providerResourceId: string | null;
   readonly url: string | null;
   readonly failureReason: string | null;
+}
+
+/**
+ * A deployment state-machine transition.
+ *
+ * `organizationId` is part of the where clause, not a convenience: a transition
+ * can only ever touch a row in the tenant it was resolved for, even though the
+ * write itself runs with the service role.
+ */
+export interface DeploymentStatusInput {
+  readonly id: DeploymentId;
+  readonly organizationId: OrganizationId;
+  readonly status: EngineStatus;
+  readonly url?: string | null;
+  readonly failureReason?: string | null;
+  readonly providerResourceId?: string | null;
+  readonly startedAt?: string | null;
+  readonly finishedAt?: string | null;
+}
+
+/** Record the hosting engine's application against the project it belongs to. */
+export interface ProjectProviderInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly provider: string;
+  readonly providerResourceId: string;
+}
+
+/**
+ * The engine-side target a project deploys to.
+ *
+ * Server-side only: a provider identifier is never returned by a procedure, so
+ * it cannot become a cross-tenant handle in the browser.
+ */
+export interface ProjectDeploymentTarget {
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
 }
 
 export interface SecurityPolicy {
@@ -264,7 +325,13 @@ export interface DataResource {
   readonly projectId: ProjectId | null;
   readonly kind: "postgres" | "object_storage";
   readonly name: string;
-  readonly state: "provisioning" | "ready" | "degraded" | "failed" | "destroying";
+  /**
+   * Mirrors the `data_resource_state` enum in the control-plane schema. It used
+   * to drift (`degraded`/`destroying` here, `restoring`/`not_configured` in SQL),
+   * which meant a state the database rejects was reachable from TypeScript and a
+   * state the database can hold could not be named.
+   */
+  readonly state: "provisioning" | "ready" | "restoring" | "failed" | "not_configured";
   readonly provider: string | null;
   readonly createdAt: string;
 }
