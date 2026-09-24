@@ -37,9 +37,11 @@ SQL_STEPS=(
   "security policy events|supabase/migrations/0004_security_policy_events.sql"
   "domain verification|supabase/migrations/0005_domain_verification.sql"
   "engine column guards|supabase/migrations/0006_engine_column_guards.sql"
+  "api key scope guard|supabase/migrations/0007_api_key_scope_guard.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
   "engine column guard probe|tests/isolation/rls/12_domain_verification_probe.sql"
+  "api key scope probe|tests/isolation/rls/13_api_key_scope_probe.sql"
 )
 
 run_all() {

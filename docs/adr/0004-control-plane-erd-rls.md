@@ -46,7 +46,7 @@ authenticated Supabase principal, never from a request parameter.
 | `data_resources` | org member | member+ | member+ (engine columns excepted) | owner/admin |
 | `domains` | org member | member+ (unverified) | member+ (engine columns excepted) | owner/admin |
 | `security_policies` | org member | admin+ | admin+ | owner |
-| `api_keys` | owner/admin (`read:sensitive`) | member+ (own keys) | owner (revoke) | owner/admin |
+| `api_keys` | owner/admin (`read:sensitive`) | service only | service only (revoke) | — |
 | `orchestration_jobs` | org member | service only | service only | — |
 | `usage_records` | org member (`billing:read`) | service only | service only | — |
 | `audit_logs` | org member (`audit:read`) | service only (append) | — | — |
@@ -58,7 +58,12 @@ Notes:
 - `orchestration_jobs` and `usage_records` are written by the service role only;
   a normal user session cannot insert or mutate them.
 - API keys are stored hashed. The plaintext is returned exactly once at creation
-  and never selectable afterwards.
+  and never selectable afterwards. Key rows are written by the service role only
+  (`createApiKey` / `revokeApiKey`): issuing narrows the requested scopes to the
+  caller's role, so no client INSERT/UPDATE policy exists. Letting a client write
+  the row directly would let it store a scope its role never had, bypassing that
+  bounding. Migration `0007_api_key_scope_guard.sql` drops those policies; proved
+  by `tests/isolation/rls/13_api_key_scope_probe.sql`.
 - Engine-observed columns are not client-writable, on INSERT or UPDATE. The
   `UPDATE` column above is the *row* permission; it does not mean every column
   in the row is the customer's to set. `domains.verified`, `domains.verified_at`,
