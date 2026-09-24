@@ -110,3 +110,28 @@ description and a title is a type error, not a blank sidebar item.
 
 The old `.../data` path still resolves, to the Database section that replaced it,
 so an existing bookmark does not 404.
+
+## Known gaps (do not paper over these)
+
+- **`orchestration_jobs` has no production writer.** The queue contract
+  (`packages/adapters/src/queue.ts`), the SQL migration
+  (`0003_jobs_lease_and_idempotency.sql`) and the worker
+  (`apps/worker/src/processor.ts`) all exist and are tested, but no API write
+  path enqueues into the queue: `deployments.create`, `data.provision`,
+  `data.backup` and the policy procedures call their adapters synchronously on
+  the request path and record `audit_logs` only. ADR-0006 phase 3's acceptance
+  wording ("recorded in `orchestration_jobs` + `audit_logs`") is therefore only
+  half met. Making a command durable means enqueuing it and letting the worker
+  execute it, which is not done yet. Do not claim otherwise.
+
+## Phase status
+
+ADR-0006 numbers phases 0–8 (superseding the earlier 0–6). See the `feat(phase-N)`
+commits for what each delivered; a phase is done when `pnpm verify:all` is green,
+not when a commit message says so.
+
+- Phases 0–2 and 4–8: delivered (see `feat(phase-0)`…`feat(phase-8)` commits).
+- Phase 3: the adapter contracts, durable queue and worker landed in `5b1e536`.
+  The API write paths for deploy, backup and policy landed in `d32b56a` and this
+  session's data/security work; the dashboard now drives them. The one open item
+  is the `orchestration_jobs` writer above.
