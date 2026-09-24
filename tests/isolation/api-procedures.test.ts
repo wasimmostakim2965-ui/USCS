@@ -20,6 +20,7 @@ import type {
   MembershipStore,
   Organization,
   Project,
+  UsageRecord,
 } from "@cloud-wai/database";
 import type { ApiKeyId, DomainId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 import { buildProcedures, buildRouter, procedureNames, type RouterDeps } from "@cloud-wai/api";
@@ -76,6 +77,7 @@ function makeStore() {
   const domains: Domain[] = [];
   const dataResources: DataResource[] = [];
   const apiKeys: ApiKeySummary[] = [];
+  const usage: UsageRecord[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -144,6 +146,9 @@ function makeStore() {
     async listApiKeys(userId, org) {
       return isMember(userId, org) ? apiKeys.filter((k) => k.organizationId === org) : [];
     },
+    async listUsageRecords(userId, org) {
+      return isMember(userId, org) ? usage.filter((u) => u.organizationId === org) : [];
+    },
     async createApiKey(input: ApiKeyCreateInput) {
       const key: ApiKeySummary = {
         id: input.id,
@@ -176,7 +181,7 @@ function makeStore() {
       return e;
     },
   };
-  return { store, audit, projects };
+  return { store, audit, projects, usage };
 }
 
 function deps(store: DataStore): RouterDeps {
@@ -196,6 +201,7 @@ describe("the registered procedure table", () => {
       "apiKeys.list",
       "apiKeys.revoke",
       "audit.list",
+      "billing.usage",
       "data.backup",
       "data.backups.list",
       "data.list",
@@ -255,6 +261,7 @@ describe("the registered procedure table", () => {
       "apiKeys.create": { organizationId: ORG_A, name: "Sneak", scopes: ["org:delete"] },
       "apiKeys.revoke": { organizationId: ORG_A, keyId: "k-1" as ApiKeyId },
       "providers.health": { organizationId: ORG_A },
+      "billing.usage": { organizationId: ORG_A },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {
@@ -262,6 +269,75 @@ describe("the registered procedure table", () => {
       expect(res.ok, `${procedure} should refuse a non-member`).toBe(false);
       expect([403, 404], `${procedure} status`).toContain(res.status);
     }
+  });
+
+  it("rolls usage up per metric, and never across a tenant", async () => {
+    const { store, usage } = makeStore();
+    usage.push(
+      {
+        id: "u-1",
+        organizationId: ORG_A,
+        metric: "build_minutes",
+        quantity: 10,
+        recordedAt: "2026-09-20T10:00:00Z",
+      },
+      {
+        id: "u-2",
+        organizationId: ORG_A,
+        metric: "build_minutes",
+        quantity: 32,
+        recordedAt: "2026-09-21T10:00:00Z",
+      },
+      {
+        id: "u-3",
+        organizationId: ORG_A,
+        metric: "storage_gb",
+        quantity: 12,
+        recordedAt: "2026-09-19T08:00:00Z",
+      },
+      {
+        // Another tenant's row. It must never appear in Alice's report.
+        id: "u-4",
+        organizationId: "org-b" as OrganizationId,
+        metric: "build_minutes",
+        quantity: 999,
+        recordedAt: "2026-09-22T10:00:00Z",
+      },
+    );
+
+    const router = buildRouter(deps(store), buildProcedures(store));
+    const res = await router.route({
+      procedure: "billing.usage",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+
+    expect(res.ok).toBe(true);
+    const report = res.data as {
+      totals: readonly {
+        metric: string;
+        total: number;
+        records: number;
+        lastRecordedAt: string | null;
+      }[];
+    };
+    // Two build_minutes rows summed to 42, with the later timestamp kept.
+    expect(report.totals).toEqual([
+      {
+        metric: "build_minutes",
+        total: 42,
+        records: 2,
+        lastRecordedAt: "2026-09-21T10:00:00Z",
+      },
+      {
+        metric: "storage_gb",
+        total: 12,
+        records: 1,
+        lastRecordedAt: "2026-09-19T08:00:00Z",
+      },
+    ]);
+    // The other tenant's 999 is absent, which is the isolation guarantee.
+    expect(report.totals.some((t) => t.total === 999)).toBe(false);
   });
 
   it("serves the organization list to a member", async () => {

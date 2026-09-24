@@ -77,6 +77,7 @@ import {
   type SecurityDeps,
 } from "./security.js";
 import { providerHealth, type HealthDeps } from "./health.js";
+import { readUsage, type BillingDeps } from "./billing.js";
 import type { RequestContext } from "../context.js";
 
 type WithInput<T> = (input: unknown) => T;
@@ -162,6 +163,7 @@ export function buildProcedures(
     ...(extras.now ? { now: extras.now } : {}),
     ...(extras.queue ? { queue: extras.queue } : {}),
   };
+  const billingDeps: BillingDeps = { store };
 
   return [
     {
@@ -346,6 +348,15 @@ export function buildProcedures(
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
     },
+    {
+      name: "billing.usage",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readUsage(
+          ctx,
+          billingDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
   ];
 }
 
@@ -410,6 +421,7 @@ export const ROUTE_SHAPES = {
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },
   "providers.health": { organizationId: "OrganizationId" },
+  "billing.usage": { organizationId: "OrganizationId" },
 } as const;
 
 export type { Organization, Project };

@@ -30,9 +30,9 @@ describe("allowed origins from the environment", () => {
   });
 
   it("drops blank entries rather than allowing an empty origin", () => {
-    expect(
-      allowedOriginsFromEnv({ CLOUD_WAI_ALLOWED_ORIGINS: "https://app.example,," }),
-    ).toEqual(["https://app.example"]);
+    expect(allowedOriginsFromEnv({ CLOUD_WAI_ALLOWED_ORIGINS: "https://app.example,," })).toEqual([
+      "https://app.example",
+    ]);
   });
 
   it("never turns the value into a wildcard", () => {

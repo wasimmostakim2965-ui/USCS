@@ -50,6 +50,7 @@ import type {
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
+  UsageRecord,
 } from "./index.js";
 
 /** A procedure could not reach the control-plane database. */
@@ -212,6 +213,16 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       createdAt: str(row, "created_at"),
       lastUsedAt: nullableStr(row, "last_used_at"),
       revokedAt: nullableStr(row, "revoked_at"),
+    };
+  }
+
+  function toUsageRecord(row: Row): UsageRecord {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      metric: str(row, "metric"),
+      quantity: num(row, "quantity"),
+      recordedAt: str(row, "recorded_at"),
     };
   }
 
@@ -432,6 +443,17 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toApiKey);
+    },
+
+    async listUsageRecords(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly UsageRecord[]> {
+      const found = await rows("listUsageRecords", {
+        method: "GET",
+        path: `/usage_records?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=recorded_at.desc&limit=500`,
+      });
+      return found.map(toUsageRecord);
     },
 
     async getSecurityPolicy(

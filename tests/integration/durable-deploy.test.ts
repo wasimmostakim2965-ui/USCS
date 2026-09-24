@@ -163,6 +163,9 @@ function makeStore() {
     async revokeApiKey() {
       return true;
     },
+    async listUsageRecords() {
+      return [];
+    },
     async recordAuditEvent(input: { id?: string }) {
       return { ...input, id: "a-1", createdAt: "2026-01-01T00:00:00Z" };
     },

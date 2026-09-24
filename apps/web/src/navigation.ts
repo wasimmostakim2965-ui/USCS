@@ -73,6 +73,13 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "audit", organizationId },
     },
     {
+      id: "billing",
+      label: "Billing",
+      icon: "billing",
+      description: "Usage recorded for this organization.",
+      route: { name: "billing", organizationId },
+    },
+    {
       id: "settings",
       label: "Settings",
       icon: "settings",
@@ -226,6 +233,8 @@ export function navForRoute(
       return workspace("api-keys");
     case "audit":
       return workspace("audit");
+    case "billing":
+      return workspace("billing");
     case "settings":
       return workspace("settings");
     case "organizations":
@@ -321,6 +330,8 @@ export function titleForRoute(route: Route): string {
       return "API keys";
     case "audit":
       return "Activity";
+    case "billing":
+      return "Billing";
     case "settings":
       return "Settings";
     case "not_found":

@@ -21,6 +21,7 @@ export {
   loadApiKeys,
   loadProviderHealth,
   loadAudit,
+  loadUsage,
   loadRoute,
   sectionFrom,
 } from "./view-model.js";
@@ -35,6 +36,7 @@ export type {
   ApiKeySummaryRow,
   ProviderHealthRow,
   AuditSummary,
+  UsageTotalSummary,
   DashboardModel,
 } from "./view-model.js";
 export {

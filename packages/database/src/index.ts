@@ -99,6 +99,15 @@ export interface DataStore {
   ): Promise<readonly DataResource[]>;
   /** API keys, hash stripped — a list response can never contain a usable key. */
   listApiKeys(userId: UserId, organizationId: OrganizationId): Promise<readonly ApiKeySummary[]>;
+  /**
+   * Usage records for an organization, newest first.
+   *
+   * `usage_records` is written only by the service role (the worker records what
+   * an engine actually consumed) and is readable by any member through RLS. This
+   * is a read: it never writes a usage row, and there is no procedure that lets a
+   * client assert usage.
+   */
+  listUsageRecords(userId: UserId, organizationId: OrganizationId): Promise<readonly UsageRecord[]>;
   /** Persist a newly issued key. The secret is never part of this input. */
   createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary>;
   /** Revoke a key. Idempotent: revoking a revoked key succeeds. */
@@ -490,6 +499,21 @@ export interface ApiKeySummary {
   readonly createdAt: string;
   readonly lastUsedAt: string | null;
   readonly revokedAt: string | null;
+}
+
+/**
+ * One organization-scoped usage measurement.
+ *
+ * Written only by the service role: `quantity` is what an engine reported, not
+ * something a client asserts. Kept as a raw row so the dashboard can aggregate
+ * it without the server pre-deciding a metric vocabulary.
+ */
+export interface UsageRecord {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly metric: string;
+  readonly quantity: number;
+  readonly recordedAt: string;
 }
 
 export interface ApiKeyCreateInput {

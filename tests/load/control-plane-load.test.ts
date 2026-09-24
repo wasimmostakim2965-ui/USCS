@@ -102,6 +102,9 @@ function storeWithOrganizations(count: number): DataStore {
     async revokeApiKey() {
       return false;
     },
+    async listUsageRecords() {
+      return [];
+    },
     async recordAuditEvent(input) {
       return { ...input, id: "a-1", createdAt: "2026-01-01T00:00:00Z" };
     },

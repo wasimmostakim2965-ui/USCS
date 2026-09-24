@@ -61,6 +61,12 @@ insert into audit_logs (organization_id, actor_id, actor_email, event) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', '11111111-1111-1111-1111-111111111111', 'alice@example.com', 'project.created'),
   ('bbbbbbbb-0000-0000-0000-00000000000b', '22222222-2222-2222-2222-222222222222', 'bob@example.com', 'project.created');
 
+-- usage_records is written by the service role, but it is *read* by a member
+-- through the Billing page, so its SELECT policy is load-bearing.
+insert into usage_records (organization_id, metric, quantity, recorded_at) values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', 'build_minutes', 42, '2026-09-20T10:00:00Z'),
+  ('bbbbbbbb-0000-0000-0000-00000000000b', 'build_minutes', 999, '2026-09-21T10:00:00Z');
+
 -- ===========================================================================
 -- Probe 1: Alice (owner of A) sees only org A
 -- ===========================================================================
@@ -132,6 +138,16 @@ begin
   select count(*) into visible from data_backups where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
   if visible <> 0 then
     raise exception 'ISOLATION FAIL: Alice can read org B data backups';
+  end if;
+
+  select count(*) into visible from usage_records where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B usage records';
+  end if;
+
+  select count(*) into visible from usage_records where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if visible <> 1 then
+    raise exception 'ISOLATION FAIL: Alice cannot read her own usage records (% rows)', visible;
   end if;
 
   select count(*) into visible from security_policies where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';

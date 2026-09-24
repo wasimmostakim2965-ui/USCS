@@ -1069,6 +1069,7 @@ describe("the dashboard renders every state for every route", () => {
     { hash: "#/orgs/org-1/projects/p-1/database", title: "Overview", target: "data.list" },
     { hash: "#/orgs/org-1/projects/p-1/security", title: "Security", target: "providers.health" },
     { hash: "#/orgs/org-1/audit", title: "Activity", target: "audit.list" },
+    { hash: "#/orgs/org-1/billing", title: "Billing", target: "billing.usage" },
     { hash: "#/orgs/org-1/settings/api-keys", title: "API keys", target: "apiKeys.list" },
     { hash: "#/orgs/org-1/settings", title: "Settings", target: "providers.health" },
   ];
@@ -1135,6 +1136,66 @@ describe("the dashboard renders every state for every route", () => {
     renderApp(url, "#/nowhere/at/all");
 
     expect(await screen.findByRole("heading", { name: "Not found" })).toBeTruthy();
+  });
+
+  it("shows the billing roll-up the API reported, and calls the real procedure", async () => {
+    const calls: string[] = [];
+    const url = await startApi((procedure) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "billing.usage") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            totals: [
+              {
+                metric: "build_minutes",
+                total: 42,
+                records: 3,
+                lastRecordedAt: "2026-09-20T10:00:00Z",
+              },
+              {
+                metric: "storage_gb",
+                total: 12,
+                records: 1,
+                lastRecordedAt: "2026-09-19T08:00:00Z",
+              },
+            ],
+            records: [],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/billing");
+
+    // The metric names and the summed quantity are the server's numbers.
+    expect(await screen.findByText("build_minutes")).toBeTruthy();
+    expect(screen.getByText("storage_gb")).toBeTruthy();
+    expect(screen.getByText("42")).toBeTruthy();
+    // The page is wired to the procedure, not to a local constant.
+    expect(calls).toContain("billing.usage");
+    // Money is never invented: the invoice section says it is not wired.
+    expect(screen.getByText(/nothing to pay here yet/)).toBeTruthy();
+  });
+
+  it("renders an empty billing read as no usage, not as a failure", async () => {
+    const url = await startApi(only("billing.usage", empty));
+    renderApp(url, "#/orgs/org-1/billing");
+
+    expect(await screen.findByText(/No usage recorded yet/)).toBeTruthy();
+  });
+
+  it("renders a not-configured billing read as degraded, never as an empty success", async () => {
+    const url = await startApi(only("billing.usage", degraded));
+    renderApp(url, "#/orgs/org-1/billing");
+
+    expect(await screen.findByText(/No hosting engine is configured/)).toBeTruthy();
+    expect(screen.queryByText(/No usage recorded yet/)).toBeNull();
   });
 });
 

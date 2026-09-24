@@ -52,6 +52,43 @@ export interface AuditSummary {
   readonly createdAt: string;
 }
 
+/** One metric's recorded total for an organization. */
+export interface UsageTotalSummary {
+  readonly metric: string;
+  readonly total: number;
+  readonly records: number;
+  readonly lastRecordedAt: string | null;
+}
+
+interface UsageReportResponse {
+  readonly totals: readonly UsageTotalSummary[];
+}
+
+/**
+ * Load an organization's usage roll-up.
+ *
+ * This is the Billing page's data. Two existing states carry meaning and must
+ * not be conflated: an empty `totals` list is a successful read that found no
+ * usage yet, while a not-configured response is the engine being absent. The
+ * page renders them differently because they say different things.
+ */
+export async function loadUsage(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<UsageTotalSummary>> {
+  const response = await client.call<UsageReportResponse>("billing.usage", { organizationId });
+  if (response.notConfigured) {
+    return {
+      title: "Usage",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Usage", response.error?.message ?? "Request failed.");
+  }
+  return ready("Usage", response.data?.totals ?? []);
+}
+
 /**
  * Convert a response to a section.
  *
@@ -518,6 +555,9 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
 
     case "audit":
       return { title: "Activity", sections: [await loadAudit(client, route.organizationId)] };
+
+    case "billing":
+      return { title: "Billing", sections: [await loadUsage(client, route.organizationId)] };
 
     case "settings":
       return {

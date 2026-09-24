@@ -28,6 +28,7 @@ export type Route =
       readonly projectId: string;
     }
   | { readonly name: "audit"; readonly organizationId: string }
+  | { readonly name: "billing"; readonly organizationId: string }
   | { readonly name: "settings"; readonly organizationId: string }
   | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "not_found"; readonly path: string };
@@ -132,6 +133,9 @@ export function parseRoute(path: string): Route {
   if (segments[0] === "orgs" && segments[2] === "audit" && segments.length === 3) {
     return { name: "audit", organizationId: segments[1]! };
   }
+  if (segments[0] === "orgs" && segments[2] === "billing" && segments.length === 3) {
+    return { name: "billing", organizationId: segments[1]! };
+  }
   if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3) {
     return { name: "settings", organizationId: segments[1]! };
   }
@@ -165,6 +169,8 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/settings/api-keys`;
     case "audit":
       return `/orgs/${encodeURIComponent(route.organizationId)}/audit`;
+    case "billing":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/billing`;
     case "settings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/settings`;
     case "not_found":

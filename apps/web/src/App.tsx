@@ -30,6 +30,7 @@ import { DatabasePage } from "./pages/database.js";
 import {
   ActivityPage,
   ApiKeysPage,
+  BillingPage,
   DeploymentsPage,
   DomainsPage,
   NotFoundPage,
@@ -179,6 +180,8 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         );
       case "audit":
         return <ActivityPage organizationId={route.organizationId} />;
+      case "billing":
+        return <BillingPage organizationId={route.organizationId} />;
       case "apiKeys":
         return <ApiKeysPage organizationId={route.organizationId} />;
       case "settings":

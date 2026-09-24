@@ -21,6 +21,7 @@ import type { SessionVerifier, SupabaseSession } from "@cloud-wai/auth";
 import type { Membership } from "@cloud-wai/authorization";
 import type {
   ApiKeySummary,
+  UsageRecord,
   AuditEvent,
   AuditEventInput,
   ControlPlaneWrites,
@@ -114,6 +115,7 @@ function makeStore() {
   const domains: Domain[] = [];
   const dataResources: DataResource[] = [];
   const apiKeys: ApiKeySummary[] = [];
+  const usage: UsageRecord[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -173,6 +175,9 @@ function makeStore() {
     },
     async listApiKeys(userId: UserId, org: OrganizationId) {
       return isMember(userId, org) ? apiKeys.filter((k) => k.organizationId === org) : [];
+    },
+    async listUsageRecords(userId: UserId, org: OrganizationId) {
+      return isMember(userId, org) ? usage.filter((u) => u.organizationId === org) : [];
     },
     async createApiKey(input: {
       id: string;

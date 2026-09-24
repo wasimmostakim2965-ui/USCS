@@ -6,7 +6,14 @@
  * network failure must all be visibly not-success.
  */
 import { describe, expect, it } from "vitest";
-import { ApiClient, loadOrganizations, loadProjects, loadRoute, sectionFrom } from "@cloud-wai/web";
+import {
+  ApiClient,
+  loadOrganizations,
+  loadProjects,
+  loadRoute,
+  loadUsage,
+  sectionFrom,
+} from "@cloud-wai/web";
 import {
   hasData,
   needsAttention,
@@ -189,8 +196,50 @@ describe("loaders", () => {
     });
     await loadRoute(recording, { name: "security", organizationId: "org-a", projectId: "p-1" });
     await loadRoute(recording, { name: "apiKeys", organizationId: "org-a" });
+    await loadRoute(recording, { name: "billing", organizationId: "org-a" });
 
-    expect(calls).toEqual(["domains.list", "data.list", "providers.health", "apiKeys.list"]);
+    expect(calls).toEqual([
+      "domains.list",
+      "data.list",
+      "providers.health",
+      "apiKeys.list",
+      "billing.usage",
+    ]);
+  });
+
+  it("rolls usage up per metric that the API reported", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: {
+        totals: [
+          {
+            metric: "build_minutes",
+            total: 42,
+            records: 3,
+            lastRecordedAt: "2026-09-20T10:00:00Z",
+          },
+        ],
+        records: [],
+      },
+    });
+
+    const section = await loadUsage(client, "org-a");
+    expect(section.state.kind).toBe("ready");
+    expect(hasData(section)).toBe(true);
+  });
+
+  it("renders an unconfigured billing engine as degraded, never as an empty success", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      notConfigured: true,
+      error: { code: "not_configured", message: "The billing engine is not configured." },
+    });
+
+    const section = await loadUsage(client, "org-a");
+    expect(section.state.kind).toBe("degraded");
+    expect(hasData(section)).toBe(false);
   });
 
   it("titles a database sub-page by its section, not by the parent section", async () => {

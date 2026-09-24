@@ -43,6 +43,7 @@ import {
   loadProjects,
   updateProject,
   loadProviderHealth,
+  loadUsage,
   loadSecurityPolicy,
   loadSecurityPolicyEvents,
   API_KEY_SCOPES,
@@ -61,6 +62,7 @@ import {
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
   type SecurityPolicySummary,
+  type UsageTotalSummary,
 } from "../view-model.js";
 import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
 
@@ -1971,6 +1973,94 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
           )}
         />
       </Card>
+    </PageShell>
+  );
+}
+
+/* ------------------------------------------------------------------ billing */
+
+/**
+ * Billing.
+ *
+ * An organization-level roll-up of what the engines actually reported, read
+ * from `usage_records`. Every number shown is a real recorded quantity, so an
+ * empty organization says "no usage recorded yet" rather than rendering a fake
+ * zero-balance card. The page makes no claim about money: it reports usage, and
+ * the invoice side is a contract the deployment has not wired yet.
+ */
+export function BillingPage({ organizationId }: { readonly organizationId: string }) {
+  const { client } = useApp();
+  const { section, reload } = useSection(
+    () => loadUsage(client, organizationId),
+    [client, organizationId],
+    "Usage",
+  );
+
+  const totals = section.state.kind === "ready" ? section.state.items : [];
+  const grandTotal = totals.reduce((sum, item) => sum + item.total, 0);
+
+  return (
+    <PageShell
+      title="Billing"
+      subtitle="Usage recorded for this organization. Every figure comes from an engine's own report."
+    >
+      <SectionShell title="Recorded usage" hint="Grouped by metric, newest first">
+        <div className="stat-grid">
+          <StatBox label="Metrics" value={String(totals.length)} />
+          <StatBox label="Records" value={String(totals.reduce((s, t) => s + t.records, 0))} />
+          <StatBox label="Total quantity" value={String(grandTotal)} />
+        </div>
+        <Card flush>
+          <SectionView<UsageTotalSummary>
+            section={section}
+            onRetry={reload}
+            emptyMessage="No usage recorded yet. The worker records a metric when an engine reports one."
+            renderReady={(items) => (
+              <Table
+                items={items}
+                rowKey={(item) => item.metric}
+                columns={[
+                  {
+                    key: "metric",
+                    header: "Metric",
+                    render: (item) => <span className="mono small">{item.metric}</span>,
+                  },
+                  {
+                    key: "total",
+                    header: "Total",
+                    render: (item) => <span className="mono">{String(item.total)}</span>,
+                  },
+                  {
+                    key: "records",
+                    header: "Records",
+                    render: (item) => String(item.records),
+                  },
+                  {
+                    key: "last",
+                    header: "Last recorded",
+                    render: (item) =>
+                      item.lastRecordedAt ? (
+                        <Timestamp value={item.lastRecordedAt} />
+                      ) : (
+                        <span className="faint">—</span>
+                      ),
+                  },
+                ]}
+              />
+            )}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell title="Invoicing" hint="Not wired in this deployment">
+        <Card>
+          <p className="small" style={{ margin: 0 }}>
+            Usage above is real. Payment collection and invoices need a billing provider this
+            deployment has not configured, so there is nothing to pay here yet — and no placeholder
+            balance is shown in its place.
+          </p>
+        </Card>
+      </SectionShell>
     </PageShell>
   );
 }
