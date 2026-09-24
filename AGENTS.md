@@ -77,3 +77,11 @@ pnpm format:check   # check formatting
 - Organization scope is resolved from membership, never from client input.
 - Every write path is exercised by a test that goes through the real router and
   a real store, not a mock.
+- The browser holds the anon key and can reach PostgREST directly, so anything
+  the API enforces in TypeScript must also be enforced in the database. RLS is a
+  *row* rule: a blanket `update` policy lets a member set any column. Columns an
+  engine owns (`domains.verified`, `data_resources.state`,
+  `security_policies.state`, the `provider` pairs) are guarded at the column
+  level by `supabase/migrations/0006_engine_column_guards.sql`, on INSERT and
+  UPDATE. When you add such a column, add it to that migration and to
+  `tests/isolation/rls/12_domain_verification_probe.sql`.
