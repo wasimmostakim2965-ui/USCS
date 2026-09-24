@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Refuse any push that is not to `main`.
+#
+# Why this exists: the only branch that matters in this repository is `main`.
+# An earlier agent run invented a feature branch, pushed a phase to it, and left
+# `main` behind. That is wasted work and a confusing repository. This hook makes
+# the mistake impossible rather than relying on anyone to remember.
+#
+# Emergency escape hatch, for a maintainer who genuinely needs another branch:
+#     ALLOW_NON_MAIN_PUSH=1 git push origin <branch>
+set -euo pipefail
+
+if [ "${ALLOW_NON_MAIN_PUSH:-}" = "1" ]; then
+  exit 0
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # A branch deletion sends an all-zero local sha; allow it (cleanup is fine).
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+
+  # `refs/heads/main` is the only destination this repository accepts.
+  if [ "$remote_ref" != "refs/heads/main" ]; then
+    echo "" >&2
+    echo "refused: this repository pushes only to main." >&2
+    echo "" >&2
+    echo "  you tried to push: $remote_ref" >&2
+    echo "" >&2
+    echo "Work happens on main. If you already made a branch, merge it into" >&2
+    echo "main and delete it:" >&2
+    echo "" >&2
+    echo "    git checkout main" >&2
+    echo "    git merge --ff-only <branch>" >&2
+    echo "    git push origin main" >&2
+    echo "    git branch -d <branch>" >&2
+    echo "    git push origin --delete <branch>" >&2
+    echo "" >&2
+    echo "Override (maintainers only): ALLOW_NON_MAIN_PUSH=1 git push ..." >&2
+    exit 1
+  fi
+done

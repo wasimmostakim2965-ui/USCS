@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+#
+# Refuse a commit made on any branch other than `main`.
+#
+# This is the second half of the guardrail in `.githooks/pre-push`: the push
+# hook stops a branch from reaching GitHub, and this one stops the work from
+# being committed to a branch at all. Together they mean this repository cannot
+# be diverted off `main` by habit or by an agent's assumption.
+#
+# A detached HEAD (mid-rebase, mid-bisect) is inspected by name and, when the
+# checkout is a worktree of main, allowed through by the rebase/bisect guards.
+set -euo pipefail
+
+if [ "${ALLOW_NON_MAIN_COMMIT:-}" = "1" ]; then
+  exit 0
+fi
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+
+# A detached HEAD is a rebase, a bisect or a worktree operation, not a new
+# branch. Those are allowed: "detached" is not a name someone published code to.
+if [ -z "$branch" ]; then
+  exit 0
+fi
+
+if [ "$branch" != "main" ]; then
+  echo "" >&2
+  echo "refused: this repository commits only to main (you are on '$branch')." >&2
+  echo "" >&2
+  echo "Move the work onto main:" >&2
+  echo "" >&2
+  echo "    git checkout main" >&2
+  echo "    git merge --ff-only $branch" >&2
+  echo "" >&2
+  echo "Override (maintainers only): ALLOW_NON_MAIN_COMMIT=1 git commit ..." >&2
+  exit 1
+fi

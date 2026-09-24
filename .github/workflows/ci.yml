@@ -10,12 +10,16 @@
 #
 # Neither job can be skipped: a release gate that only runs when convenient is
 # not a gate.
+#
+# This workflow deliberately does not run on pull requests. This repository works
+# directly on `main` (see AGENTS.md), so there are no PRs to build; a push to
+# `main` is the only event that matters.
 name: ci
 
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
