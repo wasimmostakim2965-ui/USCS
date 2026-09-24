@@ -505,10 +505,18 @@ export function Modal({
   const panel = useRef<HTMLDivElement>(null);
   useScrollLock(open);
 
+  // Kept in refs so typing inside the dialog does not re-run the effect below.
+  // With `onClose` in the dependency list every keystroke re-attached the
+  // listener and, worse, yanked focus to the first control in the dialog (the
+  // close button) — so the next space keyup activated it and closed the modal.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const wasOpen = useRef(false);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
       if (event.key === "Tab") {
         const focusables = panel.current?.querySelectorAll<HTMLElement>(
           'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
@@ -525,12 +533,19 @@ export function Modal({
         }
       }
     };
+    // Focus moves in once per opening, never on a re-render, so a field keeps
+    // focus while the operator types.
+    if (!wasOpen.current) {
+      wasOpen.current = true;
+      const firstField = panel.current?.querySelector<HTMLElement>("input, select, textarea, button");
+      firstField?.focus();
+    }
     document.addEventListener("keydown", onKey);
-    // Move focus in, so a keyboard user is inside the dialog and not behind it.
-    const firstField = panel.current?.querySelector<HTMLElement>("input, select, textarea, button");
-    firstField?.focus();
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      wasOpen.current = false;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -567,14 +582,16 @@ export function Drawer({
   readonly children: ReactNode;
 }) {
   useScrollLock(open);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") onCloseRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return (

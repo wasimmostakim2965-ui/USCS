@@ -158,6 +158,33 @@ export interface ApiKeySummaryRow {
   readonly revokedAt: string | null;
 }
 
+/** The secret exists on the create response and nowhere else. */
+export interface IssuedApiKey {
+  readonly key: ApiKeySummaryRow;
+  readonly secret: string;
+}
+
+/**
+ * The scopes a key can be granted, offered in the create form.
+ *
+ * These mirror the server's capability list. The server narrows whatever is
+ * requested to the caller's own role before it stores the key, so offering one
+ * a member cannot hold is harmless: the request succeeds and the granted scopes
+ * come back narrower than asked for.
+ */
+export const API_KEY_SCOPES: readonly string[] = [
+  "org:read",
+  "project:read",
+  "project:create",
+  "deployment:read",
+  "deployment:create",
+  "data:read",
+  "domain:read",
+  "security:read",
+  "apikey:read",
+  "audit:read",
+];
+
 /** An engine the dashboard shows, with the honest reason for its state. */
 export interface ProviderHealthRow {
   readonly provider: string;

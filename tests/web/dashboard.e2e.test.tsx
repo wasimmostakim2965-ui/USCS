@@ -10,6 +10,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { listen, type HttpServer } from "@cloud-wai/api";
 import type { RpcResponse } from "@cloud-wai/api";
 import { App, ApiClient, type SessionController } from "@cloud-wai/web";
@@ -323,5 +324,185 @@ describe("page titles", () => {
 
     renderApp(url, "#/orgs/org-1/projects/p-1/domains");
     await waitFor(() => expect(document.title).toBe("Domains · Cloud Wai"));
+  });
+});
+
+describe("creating and revoking an API key", () => {
+  /**
+   * A control plane that actually mints keys, so the test exercises the
+   * dashboard against real behaviour rather than a canned list.
+   */
+  function keyPlane() {
+    const keys: {
+      id: string;
+      organizationId: string;
+      name: string;
+      keyPrefix: string;
+      scopes: readonly string[];
+      revokedAt: string | null;
+    }[] = [
+      {
+        id: "key-1",
+        organizationId: "org-1",
+        name: "CI pipeline",
+        keyPrefix: "cw_live_4f2a",
+        scopes: ["projects:read"],
+        revokedAt: null,
+      },
+    ];
+    const calls: { procedure: string; input: unknown }[] = [];
+
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "apiKeys.list") {
+        return { ok: true, status: 200, data: keys };
+      }
+      if (procedure === "apiKeys.create") {
+        const body = input as { name: string; scopes: readonly string[] };
+        const granted = body.scopes.filter((s) => s === "org:read" || s === "project:read");
+        const key = {
+          id: "key-2",
+          organizationId: "org-1",
+          name: body.name,
+          keyPrefix: "cw_live_new1",
+          scopes: granted,
+          revokedAt: null,
+        };
+        keys.push(key);
+        return { ok: true, status: 200, data: { key, secret: "cw_live_new1_supersecret" } };
+      }
+      if (procedure === "apiKeys.revoke") {
+        const body = input as { keyId: string };
+        const found = keys.find((k) => k.id === body.keyId);
+        if (!found) return { ok: false, status: 404, error: { code: "not_found", message: "No key." } };
+        found.revokedAt = "2026-09-23T00:00:00.000Z";
+        return { ok: true, status: 200, data: { revoked: true } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+    return { responder, keys, calls };
+  }
+
+  it("mints a key, shows its secret once, and never shows a prefix as the secret", async () => {
+    const { responder, calls } = keyPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+
+    // The list is loaded from the server, not fabricated.
+    expect(await screen.findByText("CI pipeline")).toBeTruthy();
+    expect(screen.getByText("cw_live_4f2a")).toBeTruthy();
+    // A list can never contain a secret, so there is none on screen yet.
+    expect(screen.queryByText(/supersecret/)).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+    await user.type(await screen.findByPlaceholderText("ci-deploy"), "Deploy bot");
+    await user.click(screen.getByLabelText("org:read"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    // The secret is shown, once, on the create response — inside a field the
+    // operator can copy, never in text that could be scraped from the list.
+    const secret = await screen.findByDisplayValue(/supersecret/);
+    expect((secret as HTMLInputElement).value).toBe("cw_live_new1_supersecret");
+    expect(screen.getByText(/cannot be retrieved again/)).toBeTruthy();
+
+    // The request carried the name and the scopes the operator picked.
+    const create = calls.find((c) => c.procedure === "apiKeys.create");
+    expect(create?.input).toMatchObject({ name: "Deploy bot", scopes: ["org:read"] });
+
+    // Closing the dialog drops the secret from the DOM entirely.
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByDisplayValue(/supersecret/)).toBeNull());
+    expect(await screen.findByText("Deploy bot")).toBeTruthy();
+  });
+
+  it("tells the operator when the server narrowed the granted scopes", async () => {
+    const { responder } = keyPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    await user.type(await screen.findByPlaceholderText("ci-deploy"), "Narrowed");
+    // Ask for a scope the server will not grant alongside ones it will.
+    await user.click(screen.getByLabelText("org:read"));
+    await user.click(screen.getByLabelText("apikey:read"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText(/narrowed to what your role allows/)).toBeTruthy();
+  });
+
+  it("revokes a key through the API and reloads the list from the server", async () => {
+    const { responder, calls, keys } = keyPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Revoke" }));
+    // The dialog adds a second "Revoke"; scope the confirm to the dialog.
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Revoke" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.procedure === "apiKeys.revoke")).toBe(true),
+    );
+    const revoke = calls.find((c) => c.procedure === "apiKeys.revoke");
+    expect(revoke?.input).toMatchObject({ organizationId: "org-1", keyId: "key-1" });
+    expect(keys[0]!.revokedAt).not.toBeNull();
+
+    // The row now reads Revoked (from the server's list), and the control is gone.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull());
+    expect(screen.getAllByText("Revoked").length).toBeGreaterThan(0);
+  });
+
+  it("shows the server's message when a key cannot be created", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "apiKeys.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "apiKeys.create") {
+        return {
+          ok: false,
+          status: 403,
+          error: { code: "forbidden", message: "Your role cannot create API keys." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    await user.type(await screen.findByPlaceholderText("ci-deploy"), "Denied");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your role cannot create API keys.");
+    // A refused create never renders a secret.
+    expect(screen.queryByText(/cannot be retrieved again/)).toBeNull();
+  });
+
+  it("keeps a dialog open when a field value contains spaces", async () => {
+    // Regression: the dialog re-focused its first control on every keystroke,
+    // so typing a space closed it via the close button's keyup activation.
+    const { responder } = keyPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    const field = await screen.findByPlaceholderText("ci-deploy");
+    await user.type(field, "deploy bot");
+
+    // The dialog is still open, the field kept focus, and no request went out.
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect((field as HTMLInputElement).value).toBe("deploy bot");
+    expect(document.activeElement).toBe(field);
   });
 });

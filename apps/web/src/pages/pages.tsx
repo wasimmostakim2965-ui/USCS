@@ -38,11 +38,13 @@ import {
   loadProject,
   loadProjects,
   loadProviderHealth,
+  API_KEY_SCOPES,
   type ApiKeySummaryRow,
   type AuditSummary,
   type DataResourceSummary,
   type DeploymentSummary,
   type DomainSummary,
+  type IssuedApiKey,
   type OrganizationSummary,
   type ProjectSummary,
   type ProviderHealthRow,
@@ -727,12 +729,18 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
     [client, organizationId],
     "API keys",
   );
+  const [creating, setCreating] = useState(false);
+  const [revoking, setRevoking] = useState<ApiKeySummaryRow | null>(null);
 
   return (
     <PageShell
       title="API keys"
       subtitle="A key's secret is shown once, at creation, and stored only as a hash. This list can never contain it."
-      actions={<ComingSoon label="Create key" />}
+      actions={
+        <Button variant="primary" onClick={() => setCreating(true)}>
+          Create key
+        </Button>
+      }
     >
       <Card flush>
         <SectionView<ApiKeySummaryRow>
@@ -746,13 +754,247 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
               render: (item) => <span className="small">{item.scopes.join(", ") || "—"}</span>,
             },
             { key: "state", header: "State", render: (item) => <ApiKeyStateBadge revokedAt={item.revokedAt} /> },
+            {
+              key: "actions",
+              header: "",
+              render: (item) =>
+                item.revokedAt ? (
+                  <span className="small muted">—</span>
+                ) : (
+                  <Button variant="ghost" size="sm" onClick={() => setRevoking(item)}>
+                    Revoke
+                  </Button>
+                ),
+            },
           ]}
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No API keys yet."
         />
       </Card>
+
+      <CreateApiKeyModal
+        organizationId={organizationId}
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => {
+          setCreating(false);
+          reload();
+        }}
+      />
+
+      <RevokeApiKeyModal
+        organizationId={organizationId}
+        apiKey={revoking}
+        onClose={() => setRevoking(null)}
+        onRevoked={() => {
+          setRevoking(null);
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * The secret is rendered here and nowhere else.
+ *
+ * It arrives on the create response, is shown once in a block the operator can
+ * copy, and is dropped from component state when the dialog closes. No list, no
+ * reload and no audit row ever carries it.
+ */
+function CreateApiKeyModal({
+  organizationId,
+  open,
+  onClose,
+  onCreated,
+}: {
+  readonly organizationId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onCreated: () => void;
+}) {
+  const { client } = useApp();
+  const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<readonly string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [issued, setIssued] = useState<IssuedApiKey | null>(null);
+
+  const reset = () => {
+    setName("");
+    setScopes([]);
+    setError(null);
+    setIssued(null);
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<IssuedApiKey>("apiKeys.create", {
+      organizationId,
+      name,
+      scopes,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The key could not be created.");
+      return;
+    }
+    setIssued(response.data);
+  };
+
+  const close = () => {
+    // The secret leaves state when the dialog does; there is no second chance.
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={issued ? "Key created" : "Create API key"}
+      open={open}
+      onClose={close}
+      footer={
+        issued ? (
+          <Button variant="primary" onClick={onCreated}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => void submit()}
+              busy={busy}
+              disabled={!name}
+            >
+              Create
+            </Button>
+          </>
+        )
+      }
+    >
+      {issued ? (
+        <div className="stack">
+          <p className="small">
+            Copy this secret now. It is shown once and cannot be retrieved again — Cloud Wai stores
+            only its hash.
+          </p>
+          <Field label="Secret">
+            {(id) => (
+              <TextInput id={id} value={issued.secret} onChange={() => {}} />
+            )}
+          </Field>
+          {issued.key.scopes.length !== scopes.length ? (
+            <p className="small muted">
+              Granted scopes were narrowed to what your role allows:{" "}
+              <span className="mono">{issued.key.scopes.join(", ") || "none"}</span>
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="stack">
+          <Field label="Name" hint="What this key is for." {...(error ? { error } : {})}>
+            {(id) => (
+              <TextInput
+                id={id}
+                value={name}
+                onChange={setName}
+                placeholder="ci-deploy"
+                error={Boolean(error)}
+              />
+            )}
+          </Field>
+          <fieldset className="field">
+            <legend className="field__label">Scopes</legend>
+            <div className="stack" style={{ gap: "var(--space-2)" }}>
+              {API_KEY_SCOPES.map((scope) => (
+                <label key={scope} className="row small">
+                  <input
+                    type="checkbox"
+                    aria-label={scope}
+                    checked={scopes.includes(scope)}
+                    onChange={(event) =>
+                      setScopes((current) =>
+                        event.target.checked
+                          ? [...current, scope]
+                          : current.filter((s) => s !== scope),
+                      )
+                    }
+                  />
+                  <span className="mono">{scope}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <p className="small muted">
+            Leave every scope unchecked to request none. The server narrows the request to your
+            role before storing the key.
+          </p>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function RevokeApiKeyModal({
+  organizationId,
+  apiKey,
+  onClose,
+  onRevoked,
+}: {
+  readonly organizationId: string;
+  readonly apiKey: ApiKeySummaryRow | null;
+  readonly onClose: () => void;
+  readonly onRevoked: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!apiKey) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ revoked: boolean }>("apiKeys.revoke", {
+      organizationId,
+      keyId: apiKey.id,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data?.revoked) {
+      setError(response.error?.message ?? "The key could not be revoked.");
+      return;
+    }
+    onRevoked();
+  };
+
+  return (
+    <Modal
+      title="Revoke API key"
+      open={apiKey !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy} disabled={!apiKey}>
+            Revoke
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          Revoking <span className="mono">{apiKey?.name}</span> takes effect immediately and cannot
+          be undone. The key is kept in this list so the record survives.
+        </p>
+        {error ? (
+          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 
