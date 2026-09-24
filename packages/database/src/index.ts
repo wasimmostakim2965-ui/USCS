@@ -257,7 +257,18 @@ export interface DeploymentStatusInput {
   readonly status: EngineStatus;
   readonly url?: string | null;
   readonly failureReason?: string | null;
+  /**
+   * The application handle. Set-or-leave, never clear: the value is engine-owned
+   * and nothing in Cloud Wai unsets it, so an omitted value must not erase the
+   * application a previous transition recorded.
+   */
   readonly providerResourceId?: string | null;
+  /**
+   * The engine's *deployment* handle for this run, written when the engine
+   * issues one. Set-or-leave: a later transition that reports `running` again
+   * (a requeue) must not erase the handle, or the build log becomes unaddressable.
+   */
+  readonly deploymentResourceId?: string | null;
   readonly startedAt?: string | null;
   readonly finishedAt?: string | null;
 }
@@ -496,6 +507,21 @@ export interface Deployment {
   readonly projectId: ProjectId;
   readonly status: EngineStatus;
   readonly url: string | null;
+  /**
+   * The engine's own handle for this deployment.
+   *
+   * For a queued deploy this is the engine's *deployment* uuid, which is what
+   * `GET /deployments/{uuid}` addresses — the build/deploy log lives there, not
+   * on the application. It is written only from the adapter's answer and is
+   * never returned to a browser.
+   */
+  readonly providerResourceId: string | null;
+  /**
+   * The engine's deployment uuid for this run, when the engine issued one. This
+   * is the handle the build/deploy log is read through; null means only the
+   * application's runtime log is available.
+   */
+  readonly deploymentResourceId: string | null;
   readonly failureReason: string | null;
   readonly createdAt: string;
 }

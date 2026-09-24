@@ -103,6 +103,8 @@ export async function loadDeployments(
 export interface DeploymentLogsSummary {
   readonly lines: readonly string[];
   readonly cursor: string | null;
+  /** `deployment` = this run's build/deploy log; `application` = runtime tail. */
+  readonly source: "deployment" | "application" | null;
   /** The engine's own words when it could not serve logs. */
   readonly engineReason: string | null;
 }
@@ -127,6 +129,7 @@ export async function loadDeploymentLogs(
     return {
       lines: [],
       cursor: null,
+      source: null,
       engineReason: response.error?.message ?? "The hosting engine is not configured.",
     };
   }
@@ -134,6 +137,7 @@ export async function loadDeploymentLogs(
     return {
       lines: [],
       cursor: null,
+      source: null,
       engineReason: response.error?.message ?? "The logs could not be loaded.",
     };
   }

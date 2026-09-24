@@ -117,13 +117,18 @@ beforeAll(async () => {
         });
       }
 
-      // GET /api/v1/deployments/{uuid} — the deployment queue record.
+      // GET /api/v1/deployments/{uuid} — the deployment queue record. The real
+      // endpoint carries the build log on the same object as the status.
       const depMatch = url.pathname.match(/^\/api\/v1\/deployments\/([^/]+)$/);
       if (depMatch && req.method === "GET") {
         const key = decodeURIComponent(depMatch[1]!);
         const deployment = deps.get(key);
         if (!deployment) return json(404, { message: "Deployment not found." });
-        return json(200, { deployment_uuid: key, status: deployment.status });
+        return json(200, {
+          deployment_uuid: key,
+          status: deployment.status,
+          logs: `build log for ${key}\nbuild step two`,
+        });
       }
 
       // POST /api/v1/deployments/{uuid}/cancel — by deployment uuid.
@@ -135,7 +140,6 @@ beforeAll(async () => {
         deployment.status = "cancelled-by-user";
         return json(200, { message: "Deployment cancelled.", status: deployment.status });
       }
-
       // POST /api/v1/applications/{uuid}/rollback — requires `commit`.
       const rollbackMatch = url.pathname.match(/^\/api\/v1\/applications\/([^/]+)\/rollback$/);
       if (rollbackMatch && req.method === "POST") {
@@ -400,6 +404,35 @@ describe("Coolify adapter", () => {
       expect(logs.value.lines).toEqual(["line one", "line two"]);
       expect(logs.value.cursor).toBeNull();
     }
+  });
+
+  it("reads a deployment ref's build log from the deployment endpoint, not the application", async () => {
+    const coolify = adapter();
+    const from = requests.length;
+    const created = await coolify.createApplication(ctx(ORG_A, "build-log"), CREATE_INPUT);
+    if (!created.ok) throw new Error("setup failed");
+    const deployed = await coolify.deploy(ctx(ORG_A, "build-log"), {
+      applicationRef: created.value.providerRef,
+    });
+    if (!deployed.ok) throw new Error("deploy failed");
+    // `deploy` answers with a *deployment* ref.
+    expect(deployed.value.providerRef.resourceType).toBe("deployment");
+
+    const logs = await coolify.getLogs(ctx(ORG_A, "build-log"), deployed.value.providerRef);
+    expect(logs.ok).toBe(true);
+    if (logs.ok) {
+      // The build log for this run, not the application's runtime tail.
+      expect(logs.value.lines[0]).toContain("build log for");
+      expect(logs.value.cursor).toBeNull();
+    }
+    // And it called the deployment path, not the application path. Scoped to
+    // this test's requests, because the recorder is shared across the file.
+    const mine = requests.slice(from);
+    const deploymentPath = `/api/v1/deployments/${deployed.value.providerRef.resourceId}`;
+    expect(mine.some((r) => r.path === deploymentPath)).toBe(true);
+    expect(
+      mine.some((r) => r.path.startsWith("/api/v1/applications/") && r.path.endsWith("/logs")),
+    ).toBe(false);
   });
 
   it("creates, deploys, cancels, rolls back and deletes through documented endpoints", async () => {

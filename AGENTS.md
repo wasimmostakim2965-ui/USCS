@@ -182,3 +182,35 @@ not when a commit message says so.
   pre-0007 schema and passes after it. The general rule it follows: a write-time
   rule enforced only in a procedure is not enforced for a client that can reach
   PostgREST directly.
+
+- **A deployment could be born green.** `deployments` has no client-facing
+  UPDATE policy, so a client cannot mutate an existing row's status — but the
+  `deployments_insert` policy constrained only *who* may insert, not *which
+  columns*. A member could INSERT their own deployment with
+  `status = 'succeeded'` and a `url`, a green deployment no engine ran. Migration
+  `0009_deployment_status_guard.sql` applies 0006's `guard_engine_columns` /
+  `_on_insert` to the table: `status`, `url`, `provider`, `provider_resource_id`,
+  `deployment_resource_id`, `failure_reason`, `started_at`, `finished_at` are
+  frozen on UPDATE, and a client INSERT must be `pending` with no outcome.
+  `tests/isolation/rls/15_deployment_status_probe.sql` fails before 0009 and
+  passes after. The lesson is the one above: "there is no UPDATE policy" is not
+  the same as "the column is protected".
+
+- **A deployment's build log was unaddressable.** `getLogs` took an application
+  ref and always hit `/applications/{uuid}/logs`, the running container's tail.
+  A failed *build* writes to the engine's deployment queue instead
+  (`/deployments/{uuid}`), so a build failure showed no explanation. The engine's
+  deployment handle (distinct from the application handle) is now carried through
+  `deploymentResourceId` — persisted by the worker and the API's sync path, and
+  read back by `deploymentsLogs`, which prefers it and falls back to the
+  application tail. The result carries `source` so the drawer can say which log
+  it is rather than presenting one as the other.
+
+## The security page's edge banner
+
+- The banner text is derived from `providers.health` (the adapter's report of the
+  Envoy edge), not a hardcoded string. It shows `Edge configured.` only when the
+  adapter reports the edge `ready`, `Edge not configured.` when it reports not
+  configured, and `Edge status unknown.` when the read failed. Do not put a fixed
+  sentence back: a hardcoded "not configured yet" survives the edge being wired
+  and becomes a lie in the other direction.

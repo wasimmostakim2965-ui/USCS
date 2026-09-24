@@ -385,17 +385,23 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       const resolved = credentialsFor<LogPage>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const response = await call<{ logs?: string }>(
-        ctx,
-        resolved.creds,
-        "GET",
-        `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/logs?lines=100`,
-      );
+      // A deployment ref is answered by the deployment queue, which carries the
+      // build/deploy log; an application ref by the application record, which
+      // carries the running container's output. They are different logs, and a
+      // build failure only appears in the first.
+      const path =
+        ref.resourceType === "deployment"
+          ? `/api/v1/deployments/${encodeURIComponent(ref.resourceId)}`
+          : `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/logs?lines=100`;
+
+      const response = await call<{ logs?: string }>(ctx, resolved.creds, "GET", path);
       if (!response.ok) return response;
 
       const body = response.value.value ?? {};
       return ok("succeeded", {
         lines: body.logs ? body.logs.split("\n") : [],
+        // The deployment endpoint has no cursor either; the page cursor stays
+        // null rather than an invented value.
         cursor: null,
       });
     },

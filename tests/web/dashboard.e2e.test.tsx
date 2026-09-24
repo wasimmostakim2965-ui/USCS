@@ -1498,6 +1498,61 @@ describe("the Security policy write path", () => {
     updatedAt: new Date().toISOString(),
   };
 
+  it("reports the edge banner from the engine state, not a hardcoded string", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { provider: "coolify", state: "ready", detail: "Configured." },
+            { provider: "envoy", state: "ready", detail: "Configured." },
+          ],
+        };
+      }
+      if (procedure === "security.policy.get") {
+        return { ok: true, status: 200, data: { policy: null, events: [] } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    // A configured edge must show as configured. The old hardcoded banner would
+    // have said "not configured" here, which is the bug this pins.
+    expect(await screen.findByText("Edge configured.")).toBeTruthy();
+    expect(screen.queryByText("Edge not configured.")).toBeNull();
+  });
+
+  it("says the edge is not configured when the adapter reports so", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return {
+          ok: true,
+          status: 200,
+          data: [{ provider: "envoy", state: "not_configured", detail: "No credentials." }],
+        };
+      }
+      if (procedure === "security.policy.get") {
+        return { ok: true, status: 200, data: { policy: null, events: [] } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("Edge not configured.")).toBeTruthy();
+    expect(screen.queryByText("Edge configured.")).toBeNull();
+  });
+
   it("saves a policy as a draft and never claims it is active", async () => {
     const calls: { procedure: string; input: unknown }[] = [];
     let stored: unknown = null;

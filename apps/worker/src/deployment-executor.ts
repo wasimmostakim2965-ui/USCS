@@ -70,6 +70,14 @@ export interface DeploymentExecutionResult {
   readonly status: EngineStatus;
   readonly url: string | null;
   readonly providerResourceId: string | null;
+  /**
+   * The engine's *deployment* handle for this run, when the engine issued one.
+   *
+   * Distinct from `providerResourceId`, which is the application. Only this
+   * value can address the build/deploy log, so it is persisted onto the row and
+   * the logs procedure reads it from there.
+   */
+  readonly deploymentResourceId: string | null;
   readonly reason: string | null;
 }
 
@@ -124,6 +132,7 @@ export async function executeDeployment(
         status: created.status,
         url: null,
         providerResourceId: null,
+        deploymentResourceId: null,
         reason: created.reason,
       };
     }
@@ -151,6 +160,7 @@ async function rollback(
       status: "not_configured",
       url: null,
       providerResourceId: application?.resourceId ?? null,
+      deploymentResourceId: null,
       reason:
         "This project has no application on the hosting engine yet, so there is nothing to roll back.",
     };
@@ -176,10 +186,23 @@ async function confirm(
   providerResourceId: string | null,
 ): Promise<DeploymentExecutionResult> {
   if (!action.ok) {
-    return { status: action.status, url: null, providerResourceId, reason: action.reason };
+    return {
+      status: action.status,
+      url: null,
+      providerResourceId,
+      deploymentResourceId: null,
+      reason: action.reason,
+    };
   }
 
   const resolvedId = providerResourceId ?? action.value.providerRef.resourceId;
+  // A deploy answers with a *deployment* ref; a rollback with the application.
+  // Only the former can address the build log, so it is recorded separately
+  // rather than collapsed into the application handle.
+  const deploymentResourceId =
+    action.value.providerRef.resourceType === "deployment"
+      ? action.value.providerRef.resourceId
+      : null;
   let status: EngineStatus = action.status;
   let url: string | null = null;
   const state = await deps.hosting.getDeployment(adapterCtx, action.value.providerRef);
@@ -187,5 +210,11 @@ async function confirm(
     status = state.value.status;
     url = state.value.url;
   }
-  return { status, url, providerResourceId: resolvedId, reason: null };
+  return {
+    status,
+    url,
+    providerResourceId: resolvedId,
+    deploymentResourceId,
+    reason: null,
+  };
 }

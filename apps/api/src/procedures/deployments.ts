@@ -18,6 +18,7 @@ import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type {
   AdapterResult,
+  DeploymentId,
   EngineStatus,
   OrganizationId,
   ProjectId,
@@ -47,7 +48,8 @@ type DeploymentWrites = Pick<
   | "findDeploymentByIdempotencyKey"
   | "getProjectDeploymentTarget"
   | "setProjectProviderResource"
->;
+> &
+  Pick<ControlPlaneWrites, "getDeployment">;
 
 const REQUIRED_WRITES = [
   "createDeployment",
@@ -165,10 +167,16 @@ export interface DeploymentLogsInput {
 }
 
 export interface DeploymentLogsResult {
-  /** The engine's own log lines for this application, verbatim. */
+  /** The engine's own log lines, verbatim — either a build log or a runtime tail. */
   readonly lines: readonly string[];
   /** The engine's cursor, or null when it has none (Coolify has none). */
   readonly cursor: string | null;
+  /**
+   * Which engine log this is. `deployment` is the build/deploy log for the
+   * specific run (where a failed build is explained); `application` is the
+   * running container's output; null when neither was resolvable.
+   */
+  readonly source: "deployment" | "application" | null;
   /** The engine's own words when it could not serve logs. */
   readonly engineReason: string | null;
 }
@@ -191,21 +199,49 @@ export async function deploymentsLogs(
   if (!project) throw new ApiError("not_found", "Project not found.");
   requireCapability(ctx, project.organizationId, "deployment:read");
 
-  const target = await writesFor(deps).getProjectDeploymentTarget(ctx.principal.userId, project.id);
-  if (!target?.providerResourceId) {
+  // Prefer the engine's *deployment* handle recorded on the row: only it
+  // addresses the build/deploy log, which is what a failed build writes to.
+  // `getDeployment` is a member-scoped read, so asking for another tenant's
+  // deployment id returns null rather than its logs.
+  const writes = writesFor(deps);
+  const deployment =
+    typeof writes.getDeployment === "function"
+      ? await writes.getDeployment(ctx.principal.userId, input.deploymentId as DeploymentId)
+      : null;
+
+  const applicationTarget = await writes.getProjectDeploymentTarget(
+    ctx.principal.userId,
+    project.id,
+  );
+
+  let ref: ProviderRef | null = null;
+  let source: "deployment" | "application" | null = null;
+  if (deployment?.deploymentResourceId) {
+    ref = {
+      organizationId: project.organizationId,
+      provider: HOSTING_PROVIDER as ProviderRef["provider"],
+      resourceType: "deployment",
+      resourceId: deployment.deploymentResourceId,
+    };
+    source = "deployment";
+  } else if (applicationTarget?.providerResourceId) {
+    ref = {
+      organizationId: project.organizationId,
+      provider: (applicationTarget.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
+      resourceType: "application",
+      resourceId: applicationTarget.providerResourceId,
+    };
+    source = "application";
+  }
+
+  if (!ref || !source) {
     return {
       lines: [],
       cursor: null,
+      source: null,
       engineReason: "This project has no application on the hosting engine yet, so it has no logs.",
     };
   }
-
-  const applicationRef: ProviderRef = {
-    organizationId: project.organizationId,
-    provider: (target.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
-    resourceType: "application",
-    resourceId: target.providerResourceId,
-  };
 
   const result = await deps.engines.hosting.getLogs(
     {
@@ -213,13 +249,13 @@ export async function deploymentsLogs(
       idempotencyKey: `logs-${input.deploymentId}`,
       timeoutMs: ADAPTER_TIMEOUT_MS,
     },
-    applicationRef,
+    ref,
   );
 
   if (!result.ok) {
-    return { lines: [], cursor: null, engineReason: result.reason };
+    return { lines: [], cursor: null, source, engineReason: result.reason };
   }
-  return { lines: result.value.lines, cursor: result.value.cursor, engineReason: null };
+  return { lines: result.value.lines, cursor: result.value.cursor, source, engineReason: null };
 }
 
 export interface DeploymentRequestResult {
@@ -350,6 +386,7 @@ export async function requestDeployment(
   let engineReason: string | null = null;
   let nextStatus: EngineStatus = "pending";
   let url: string | null = null;
+  let deploymentResourceId: string | null = null;
 
   if (!application) {
     const created = await deps.engines.hosting.createApplication(adapterCtx, {
@@ -382,6 +419,9 @@ export async function requestDeployment(
       // finished when it answers. Read the state back so the row reflects the
       // engine rather than the request.
       nextStatus = deployed.status;
+      // The engine returns a *deployment* ref here; its uuid is what addresses
+      // the build/deploy log, so it is recorded for the logs procedure.
+      deploymentResourceId = deployed.value.providerRef.resourceId;
       const state = await deps.engines.hosting.getDeployment(
         adapterCtx,
         deployed.value.providerRef,
@@ -399,6 +439,7 @@ export async function requestDeployment(
     url,
     failureReason: engineReason,
     providerResourceId: application?.resourceId ?? null,
+    deploymentResourceId,
   });
 
   await deps.store.recordAuditEvent({
@@ -521,6 +562,7 @@ export async function rollbackDeployment(
   let nextStatus: EngineStatus = "pending";
   let url: string | null = null;
   let providerResourceId: string | null = target?.providerResourceId ?? null;
+  let deploymentResourceId: string | null = null;
 
   if (!target?.providerResourceId) {
     engineReason =
@@ -540,6 +582,9 @@ export async function rollbackDeployment(
     } else {
       nextStatus = result.status;
       providerResourceId = result.value.providerRef.resourceId;
+      if (result.value.providerRef.resourceType === "deployment") {
+        deploymentResourceId = result.value.providerRef.resourceId;
+      }
       const state = await deps.engines.hosting.getDeployment(adapterCtx, result.value.providerRef);
       if (state.ok) {
         nextStatus = state.value.status;
@@ -554,6 +599,7 @@ export async function rollbackDeployment(
     url,
     failureReason: engineReason,
     providerResourceId,
+    deploymentResourceId,
   });
 
   await deps.store.recordAuditEvent({
@@ -587,6 +633,7 @@ async function persistTransition(
     readonly url: string | null;
     readonly failureReason: string | null;
     readonly providerResourceId: string | null;
+    readonly deploymentResourceId?: string | null;
   },
 ): Promise<Deployment> {
   const startedAt = clock().toISOString();
@@ -598,6 +645,7 @@ async function persistTransition(
     url: input.url,
     failureReason: input.failureReason,
     providerResourceId: input.providerResourceId,
+    deploymentResourceId: input.deploymentResourceId ?? null,
     startedAt,
     finishedAt: terminal ? startedAt : null,
   });

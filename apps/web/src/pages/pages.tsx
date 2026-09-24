@@ -612,6 +612,13 @@ function DeploymentLogsDrawer({
       ) : null}
       {state.kind === "success" && state.data ? (
         <>
+          <p className="small muted">
+            {state.data.source === "deployment"
+              ? "This is the build and deploy log for this run, as the hosting engine recorded it."
+              : state.data.source === "application"
+                ? "This is the running application's log tail. This deployment has no build log recorded from the engine, so the container's output is shown instead."
+                : "The hosting engine returned no log source for this deployment."}
+          </p>
           {state.data.cursor === null ? (
             <p className="small muted">
               The hosting engine keeps no cursor for logs, so this is the full tail it returned.
@@ -1288,6 +1295,15 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
   const current =
     policy.section.state.kind === "ready" ? (policy.section.state.items[0] ?? null) : null;
 
+  // The banner is the deployment's own answer, not a slogan. It used to be a
+  // hardcoded "Edge not configured yet." that would keep saying so after an edge
+  // was wired. It is derived from `providers.health` — the adapter's report of
+  // the security edge — and says which engine it is talking about.
+  const edgeConfigured: boolean | null =
+    health.section.state.kind === "ready"
+      ? health.section.state.items.find((item) => item.provider === "envoy")?.state === "ready"
+      : null;
+
   const levels: readonly ProtectionLevel[] = [
     {
       id: "none",
@@ -1349,12 +1365,33 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       }
     >
       <div className="banner" role="status">
-        <strong>Edge not configured yet.</strong>
-        <span>
-          Levels below describe what each level enables. Applying one needs a deployed Envoy/Coraza
-          edge and a registered edge provider; until then no policy is compiled or claimed as
-          active.
-        </span>
+        {edgeConfigured === true ? (
+          <>
+            <strong>Edge configured.</strong>
+            <span>
+              The security edge engine reports itself ready, so a saved policy can be distributed
+              and confirmed by it. The engine status below is the adapter&apos;s report, not an
+              assumption.
+            </span>
+          </>
+        ) : edgeConfigured === false ? (
+          <>
+            <strong>Edge not configured.</strong>
+            <span>
+              No Envoy/Coraza edge is registered for this deployment, so no policy is compiled or
+              claimed as active. Levels below describe what each level enables once an edge is
+              wired.
+            </span>
+          </>
+        ) : (
+          <>
+            <strong>Edge status unknown.</strong>
+            <span>
+              The engine status could not be read, so whether an edge is configured is unknown. What
+              each level enables is described below; nothing here claims a policy is active.
+            </span>
+          </>
+        )}
       </div>
 
       <SectionShell

@@ -31,6 +31,8 @@ export interface DeploymentJobOutcomeWriter {
     readonly url: string | null;
     readonly failureReason: string | null;
     readonly providerResourceId: string | null;
+    /** The engine's deployment handle, persisted so its build log is addressable. */
+    readonly deploymentResourceId?: string | null;
     readonly startedAt: string;
     readonly finishedAt: string | null;
   }): Promise<unknown>;
@@ -100,6 +102,7 @@ export function buildDeploymentApplier(
         url: value?.url ?? null,
         failureReason: null,
         providerResourceId: value?.providerResourceId ?? null,
+        deploymentResourceId: value?.deploymentResourceId ?? null,
         startedAt: finished,
         finishedAt: isTerminal(value?.status ?? result.status) ? finished : null,
       });

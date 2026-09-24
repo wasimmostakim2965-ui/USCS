@@ -148,6 +148,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       projectId: str(row, "project_id") as ProjectId,
       status: str(row, "status") as Deployment["status"],
       url: nullableStr(row, "url"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
+      deploymentResourceId: nullableStr(row, "deployment_resource_id"),
       failureReason: nullableStr(row, "failure_reason"),
       createdAt: str(row, "created_at"),
     };
@@ -586,8 +588,14 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const patch: Record<string, unknown> = { status: input.status };
       if (input.url !== undefined) patch["url"] = input.url;
       if (input.failureReason !== undefined) patch["failure_reason"] = input.failureReason;
-      if (input.providerResourceId !== undefined) {
+      // Set-or-leave, never clear: the engine's deployment handle is written once
+      // when the engine issues it, and a later transition (a requeue that still
+      // reports `running`) must not erase it. Nothing in Cloud Wai unsets it.
+      if (input.providerResourceId != null) {
         patch["provider_resource_id"] = input.providerResourceId;
+      }
+      if (input.deploymentResourceId != null) {
+        patch["deployment_resource_id"] = input.deploymentResourceId;
       }
       if (input.startedAt !== undefined) patch["started_at"] = input.startedAt;
       if (input.finishedAt !== undefined) patch["finished_at"] = input.finishedAt;
