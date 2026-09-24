@@ -8,6 +8,20 @@ export { InProcessWorker, jobStateFor } from "./processor.js";
 export type { JobOutcome, JobContext, JobHandler, WorkerOptions } from "./processor.js";
 export { JOB_KINDS, buildHandlers } from "./handlers.js";
 export type { JobKind, WorkerEngines } from "./handlers.js";
+export {
+  executeDeployment,
+  type DeploymentExecutionWrites,
+  type DeploymentExecutionResult,
+} from "./deployment-executor.js";
+export {
+  buildDeploymentJobHandler,
+  buildDeploymentApplier,
+  type DeploymentJobDeps,
+  type DeploymentJobOutcomeWriter,
+} from "./deployment-job.js";
+export { DEPLOYMENT_JOB_KIND } from "@cloud-wai/contracts";
+export { startWorker } from "./runtime.js";
+export type { WorkerStartupOptions, WorkerStartupResult, RunningWorker } from "./runtime.js";
 
 export interface AppDescriptor {
   readonly name: string;

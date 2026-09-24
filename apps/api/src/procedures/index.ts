@@ -17,6 +17,7 @@ import {
   securityNotConfigured,
   storageNotConfigured,
   type Engines,
+  type JobQueue,
 } from "@cloud-wai/adapters";
 import { ApiError } from "../errors.js";
 import type { Procedure } from "../router.js";
@@ -104,6 +105,12 @@ export interface ProcedureExtras {
   /** Injected challenge source, so a domain token is deterministic in tests. */
   readonly newToken?: (() => string) | undefined;
   readonly now?: () => Date;
+  /**
+   * When wired, deploy and rollback commands become durable jobs executed by the
+   * worker instead of running on the request path. Omitted in tests that pin the
+   * synchronous behaviour.
+   */
+  readonly queue?: JobQueue;
 }
 
 export function buildProcedures(
@@ -121,6 +128,7 @@ export function buildProcedures(
     engines: extras.engines ?? missingEngines,
     newId,
     ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.queue ? { queue: extras.queue } : {}),
   };
   const settingsDeps: SettingsDeps = {
     store,

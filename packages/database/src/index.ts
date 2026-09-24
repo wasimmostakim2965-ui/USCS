@@ -146,6 +146,18 @@ export interface ControlPlaneWrites {
     userId: UserId,
     projectId: ProjectId,
   ): Promise<ProjectDeploymentTarget | null>;
+  /**
+   * The engine-side target for a project, scoped by organization only.
+   *
+   * For a caller with no session — the worker draining a job. There is no
+   * membership to join, so `organization_id` in the where clause *is* the tenant
+   * boundary. It is on the write interface, not the read interface, so it is
+   * never reachable from a browser-facing read path.
+   */
+  getProjectDeploymentTargetForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<ProjectDeploymentTarget | null>;
 
   /** The organization's current security policy, or null when none exists. */
   getSecurityPolicy(userId: UserId, organizationId: OrganizationId): Promise<SecurityPolicy | null>;

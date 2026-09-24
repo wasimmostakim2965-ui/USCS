@@ -609,6 +609,22 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       };
     },
 
+    async getProjectDeploymentTargetForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<ProjectDeploymentTarget | null> {
+      const found = await rows("getProjectDeploymentTargetForService", {
+        method: "GET",
+        path: `/projects?select=provider,provider_resource_id&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      if (!row) return null;
+      return {
+        provider: nullableStr(row, "provider"),
+        providerResourceId: nullableStr(row, "provider_resource_id"),
+      };
+    },
+
     async saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy> {
       // Upsert on (organization_id, name); the version is supplied by the
       // caller and is monotonic, so a concurrent apply loses rather than

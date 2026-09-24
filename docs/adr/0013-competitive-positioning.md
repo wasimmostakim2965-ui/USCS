@@ -90,10 +90,12 @@ claimed.
 - **Environment variables, integrations and feature flags.** Not present.
 - **Analytics and speed insights.** Not present.
 - **A durable job writer from the API.** The queue, the worker and the SQL
-  contract exist and are tested, but the API write paths still call their
-  adapters synchronously on the request path and record only `audit_logs`; they
-  do not yet enqueue into `orchestration_jobs`. This is ADR-0006 phase 3's one
-  open item, and it is tracked in `AGENTS.md`, not hidden.
+  contract exist and are tested, and deploys and rollbacks are now enqueued as
+  `deployments.execute` jobs executed by the worker
+  (`apps/api/src/bootstrap.ts`, `apps/worker/src/deployment-job.ts`). Backup and
+  policy commands still run synchronously on the request path and record only
+  `audit_logs`; they do not yet enqueue. This is ADR-0006 phase 3's remaining
+  part, and it is tracked in `AGENTS.md`, not hidden.
 
 ## What "two steps ahead" means concretely
 

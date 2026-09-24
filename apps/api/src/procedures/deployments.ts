@@ -23,7 +23,8 @@ import type {
   ProjectId,
   ProviderRef,
 } from "@cloud-wai/contracts";
-import type { BuildPack, Engines } from "@cloud-wai/adapters";
+import type { BuildPack, Engines, JobQueue } from "@cloud-wai/adapters";
+import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
 import type { AuditEvent, ControlPlaneWrites, DataStore, Deployment } from "@cloud-wai/database";
 import type { RequestContext } from "../context.js";
 
@@ -62,6 +63,16 @@ export interface DeploymentDeps {
   /** Injected so a deployment id is a Cloud Wai UUID, not a provider artifact. */
   readonly newId: () => string;
   readonly now?: () => Date;
+  /**
+   * When present, a deploy or rollback is recorded as a durable job and the
+   * engine work is enqueued for the worker rather than performed on the request
+   * path. When absent (a test double, a first deployment) the procedure runs the
+   * engine synchronously, which is the behaviour the deployment tests pin.
+   *
+   * The row is always written first and always on the request path — the queue
+   * only decides who *executes* it, never whether it is recorded.
+   */
+  readonly queue?: JobQueue;
 }
 
 /**
@@ -218,6 +229,45 @@ export async function requestDeployment(
     failureReason: null,
   });
 
+  // Durable path: record the command as a job and let the worker execute it.
+  // The deployment stays `pending` — that is its honest state until the engine
+  // answers. The idempotency key is shared, so a retried request replays the row
+  // above and never enqueues a second job.
+  if (deps.queue) {
+    const payload: DeploymentJobPayload = {
+      deploymentId: deployment.id,
+      organizationId: project.organizationId,
+      projectId: project.id,
+      action: "create",
+      projectSlug: project.slug,
+      gitRepository,
+      gitBranch,
+      buildPack: input.buildPack ?? null,
+      commit,
+    };
+    await deps.queue.enqueue({
+      organizationId: project.organizationId,
+      kind: DEPLOYMENT_JOB_KIND,
+      payload,
+      idempotencyKey,
+    });
+    await deps.store.recordAuditEvent({
+      organizationId: project.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: "deployment.enqueued",
+      targetType: "deployment",
+      targetId: deployment.id,
+      metadata: {
+        projectId: project.id,
+        idempotencyKey,
+        ...(gitBranch ? { branch: gitBranch } : {}),
+        ...(commit ? { commit } : {}),
+      },
+    });
+    return { deployment, replayed: false, engineReason: null };
+  }
+
   const adapterCtx = {
     organizationId: project.organizationId,
     idempotencyKey,
@@ -371,6 +421,38 @@ export async function rollbackDeployment(
   };
 
   const target = await store.getProjectDeploymentTarget(ctx.principal.userId, project.id);
+
+  // Durable path: same shape as a deploy. A rollback is recorded as a job and
+  // executed by the worker; the row stays `pending` until the engine answers.
+  if (deps.queue) {
+    const payload: DeploymentJobPayload = {
+      deploymentId: deployment.id,
+      organizationId: project.organizationId,
+      projectId: project.id,
+      action: "rollback",
+      projectSlug: project.slug,
+      gitRepository: null,
+      gitBranch: null,
+      buildPack: null,
+      commit,
+    };
+    await deps.queue.enqueue({
+      organizationId: project.organizationId,
+      kind: DEPLOYMENT_JOB_KIND,
+      payload,
+      idempotencyKey,
+    });
+    await deps.store.recordAuditEvent({
+      organizationId: project.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: "deployment.rollback_enqueued",
+      targetType: "deployment",
+      targetId: deployment.id,
+      metadata: { projectId: project.id, commit, idempotencyKey },
+    });
+    return { deployment, replayed: false, engineReason: null };
+  }
 
   let engineReason: string | null = null;
   let nextStatus: EngineStatus = "pending";

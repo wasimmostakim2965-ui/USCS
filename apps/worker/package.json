@@ -19,7 +19,8 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
-    "check": "tsc -b"
+    "check": "tsc -b",
+    "start": "node dist/main.js"
   },
   "dependencies": {
     "@cloud-wai/contracts": "workspace:*",

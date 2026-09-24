@@ -47,7 +47,9 @@ import {
   storageNotConfigured,
   securityNotConfigured,
   domainVerifierNotConfigured,
+  InMemoryJobQueue,
   type Engines,
+  type JobQueue,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
 
@@ -320,10 +322,15 @@ function workingEngines(): Engines {
   };
 }
 
-function routerWith(store: DataStoreLike, engines: Engines, extras: { newId?: () => string } = {}) {
+function routerWith(
+  store: DataStoreLike,
+  engines: Engines,
+  extras: { newId?: () => string; queue?: JobQueue } = {},
+) {
   const procedures: readonly Procedure[] = buildProcedures(store, {
     engines,
     newId: extras.newId ?? (() => "gen-key"),
+    ...(extras.queue ? { queue: extras.queue } : {}),
   });
   return buildRouter(deps(store), procedures);
 }
@@ -592,5 +599,101 @@ describe("the deployment adapters stay honest", () => {
     // A sanity check that the helpers are not accidentally succeeding.
     expect(ok("succeeded", 1).ok).toBe(true);
     expect(err("failed", "x").status).toBe("failed");
+  });
+});
+
+describe("the durable writer: deploy and rollback as orchestration jobs", () => {
+  it("enqueues a jobs row for a deploy instead of calling the engine on the request path", async () => {
+    const { store, deployments, audit } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-durable-1", gitBranch: "main" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment };
+    // The row is written and stays pending: the engine has not answered yet, and
+    // a `pending` row after an enqueue is the honest state, not a failure.
+    expect(data.deployment.id).toBe(deployments[0]?.id);
+    expect(data.deployment.status).toBe("pending");
+
+    const job = await queue.get("job-1");
+    expect(job).not.toBeNull();
+    expect(job?.kind).toBe("deployments.execute");
+    expect(job?.state).toBe("queued");
+    const payload = job?.payload as { deploymentId: string; action: string; projectId: string };
+    expect(payload.deploymentId).toBe(data.deployment.id);
+    expect(payload.action).toBe("create");
+    expect(payload.projectId).toBe(PROJ_A);
+    // The audit trail names the enqueue, so the job is traceable to its request.
+    expect(audit.some((a) => a.event === "deployment.enqueued")).toBe(true);
+  });
+
+  it("does not enqueue a second job when the idempotency key is replayed", async () => {
+    const { store, deployments } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const first = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-dup", gitBranch: "main" },
+    });
+    const second = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-dup", gitBranch: "main" },
+    });
+
+    expect(second.ok).toBe(true);
+    expect((second.data as { replayed: boolean }).replayed).toBe(true);
+    expect((second.data as { deployment: Deployment }).deployment.id).toBe(
+      (first.data as { deployment: Deployment }).deployment.id,
+    );
+    // One deployment row, one job: a retried request cannot deploy twice.
+    expect(deployments).toHaveLength(1);
+    expect(await queue.get("job-2")).toBeNull();
+  });
+
+  it("enqueues a rollback job with the commit and keeps the row pending", async () => {
+    const { store, deployments } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const res = await router.route({
+      procedure: "deployments.rollback",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "rb-1", commit: "abc1234" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect((res.data as { deployment: Deployment }).deployment.status).toBe("pending");
+    expect(deployments).toHaveLength(1);
+
+    const job = await queue.get("job-1");
+    const payload = job?.payload as { action: string; commit: string; deploymentId: string };
+    expect(payload.action).toBe("rollback");
+    expect(payload.commit).toBe("abc1234");
+    expect(payload.deploymentId).toBe(deployments[0]?.id);
+  });
+
+  it("refuses a rollback job for a non-member before anything is enqueued", async () => {
+    const { store, deployments } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const res = await router.route({
+      procedure: "deployments.rollback",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, idempotencyKey: "rb-carol", commit: "abc1234" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(deployments).toHaveLength(0);
+    expect(await queue.get("job-1")).toBeNull();
   });
 });

@@ -15,13 +15,19 @@ import {
   controlPlaneConfig,
   createPostgrestClient,
   createSupabaseControlPlaneStore,
+  SqlJobQueue,
 } from "@cloud-wai/database";
 import {
   createSupabaseSessionVerifier,
   supabaseAuthConfig,
   type SessionVerifier,
 } from "@cloud-wai/auth";
-import { buildEngines, engineConfigFromEnv, type Engines } from "@cloud-wai/adapters";
+import {
+  buildEngines,
+  engineConfigFromEnv,
+  type Engines,
+  type JobQueue,
+} from "@cloud-wai/adapters";
 import { randomUUID } from "node:crypto";
 import { buildProcedures } from "./procedures/index.js";
 import { buildRouter } from "./router.js";
@@ -37,6 +43,8 @@ export interface ApiDeploymentDeps {
   readonly verifier: SessionVerifier;
   readonly engines: Engines;
   readonly newId: () => string;
+  /** When wired, deploy/rollback become durable jobs. Omitted in tests. */
+  readonly queue?: JobQueue;
 }
 
 /** Build a router over a real store and verifier. */
@@ -44,6 +52,7 @@ export function createDeployment(deps: ApiDeploymentDeps): Deployment {
   const procedures = buildProcedures(deps.store, {
     engines: deps.engines,
     newId: deps.newId,
+    ...(deps.queue ? { queue: deps.queue } : {}),
   });
   const router = buildRouter({ verifier: deps.verifier, memberships: deps.store }, procedures);
   return { router, engines: deps.engines };
@@ -95,7 +104,13 @@ export async function start(
   const verifier = createSupabaseSessionVerifier(auth);
   const engines = buildEngines(engineConfigFromEnv(env));
 
-  const deployment = createDeployment({ store, verifier, engines, newId });
+  // The durable queue is the production writer: deploy and rollback become jobs
+  // the worker executes. Its claim/reap functions are service-role only, so this
+  // client — which holds the service-role key and never reaches a browser — is
+  // the only thing that can drain it.
+  const queue = new SqlJobQueue(client);
+
+  const deployment = createDeployment({ store, verifier, engines, newId, queue });
 
   const { listen } = await import("./server.js");
   const server = await listen(
