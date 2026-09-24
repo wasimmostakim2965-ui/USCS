@@ -697,3 +697,89 @@ describe("the durable writer: deploy and rollback as orchestration jobs", () => 
     expect(await queue.get("job-1")).toBeNull();
   });
 });
+
+describe("deployments.logs through the registered procedures", () => {
+  it("says there is nothing to read when the project has no engine application", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.logs",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { lines: readonly string[]; engineReason: string | null };
+    // No application on the engine means no logs — reported as a reason, not as
+    // fabricated or empty success.
+    expect(data.lines).toEqual([]);
+    expect(data.engineReason).toMatch(/no logs/i);
+  });
+
+  it("returns the engine's own lines for a project with an application", async () => {
+    const { store } = makeStore();
+    const withTarget = {
+      ...store,
+      async getProjectDeploymentTarget() {
+        return { provider: "coolify", providerResourceId: "app-1" };
+      },
+    } as DataStoreLike;
+    // The fake hosting engine stores whatever was created; create one so it has
+    // a log to return.
+    const engines = workingEngines();
+    await engines.hosting.createApplication(
+      { organizationId: ORG_A, idempotencyKey: "k", timeoutMs: 100 },
+      { name: "app-1" },
+    );
+    const router = routerWith(withTarget, engines);
+
+    const res = await router.route({
+      procedure: "deployments.logs",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { lines: readonly string[]; cursor: string | null };
+    expect(Array.isArray(data.lines)).toBe(true);
+    // Coolify keeps no cursor, and the adapter reports null rather than a fake one.
+    expect(data.cursor).toBeNull();
+  });
+
+  it("refuses a non-member without revealing the project", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.logs",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, deploymentId: "d-1" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+  });
+
+  it("reports a not-configured engine as a reason, never as invented lines", async () => {
+    const { store } = makeStore();
+    const withTarget = {
+      ...store,
+      async getProjectDeploymentTarget() {
+        return { provider: "coolify", providerResourceId: "app-1" };
+      },
+    } as DataStoreLike;
+    const router = routerWith(withTarget, unconfiguredEngines());
+
+    const res = await router.route({
+      procedure: "deployments.logs",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { lines: readonly string[]; engineReason: string | null };
+    expect(data.lines).toEqual([]);
+    expect(data.engineReason).toMatch(/not configured/i);
+  });
+});

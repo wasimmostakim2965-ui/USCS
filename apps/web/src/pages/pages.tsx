@@ -6,12 +6,15 @@
  * no page here that renders a value it did not load, and no page that turns a
  * `not_configured` engine into a success.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Button,
   Card,
   type Column,
+  DegradedState,
+  Drawer,
   EmptyState,
+  ErrorState,
   Field,
   LoadingSkeleton,
   Modal,
@@ -32,6 +35,7 @@ import {
   loadApiKeys,
   loadAudit,
   loadDeployments,
+  loadDeploymentLogs,
   loadDomains,
   loadOrganization,
   loadOrganizations,
@@ -44,6 +48,7 @@ import {
   type ApiKeySummaryRow,
   type AuditSummary,
   type DeploymentRequestSummary,
+  type DeploymentLogsSummary,
   type DeploymentSummary,
   type DistributePolicySummary,
   type DomainChallengeSummary,
@@ -480,6 +485,7 @@ export function DeploymentsPage({
   );
   const [deploying, setDeploying] = useState(false);
   const [rollingBack, setRollingBack] = useState<DeploymentSummary | null>(null);
+  const [viewingLogs, setViewingLogs] = useState<DeploymentSummary | null>(null);
 
   return (
     <PageShell
@@ -499,14 +505,18 @@ export function DeploymentsPage({
             {
               key: "actions",
               header: "",
-              render: (item) =>
-                item.status === "succeeded" ? (
-                  <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
-                    Rollback
+              render: (item) => (
+                <div className="row">
+                  <Button variant="ghost" size="sm" onClick={() => setViewingLogs(item)}>
+                    Logs
                   </Button>
-                ) : (
-                  <span className="small muted">—</span>
-                ),
+                  {item.status === "succeeded" ? (
+                    <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
+                      Rollback
+                    </Button>
+                  ) : null}
+                </div>
+              ),
             },
           ]}
           rowKey={(item) => item.id}
@@ -538,7 +548,91 @@ export function DeploymentsPage({
           reload();
         }}
       />
+
+      <DeploymentLogsDrawer
+        key={`logs-${viewingLogs?.id ?? "none"}`}
+        projectId={projectId}
+        deployment={viewingLogs}
+        onClose={() => setViewingLogs(null)}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Show a deployment's engine logs.
+ *
+ * The lines come from the hosting engine through `deployments.logs`. When the
+ * engine is not configured, or the project was never deployed, the drawer says
+ * so in the engine's own words instead of showing an empty or fabricated log.
+ */
+function DeploymentLogsDrawer({
+  projectId,
+  deployment,
+  onClose,
+}: {
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary | null;
+  readonly onClose: () => void;
+}) {
+  const { client } = useApp();
+  // A local, data-carrying state: the drawer needs the fetched summary back out
+  // of the success arm, which the shapes-only `ViewState` does not carry.
+  const [state, setState] = useState<
+    | { readonly kind: "loading" }
+    | { readonly kind: "degraded"; readonly reason: string }
+    | { readonly kind: "success"; readonly data: DeploymentLogsSummary }
+    | { readonly kind: "error"; readonly message: string }
+  >({ kind: "loading" });
+
+  const load = useCallback(async () => {
+    if (!deployment) return;
+    setState({ kind: "loading" });
+    const logs = await loadDeploymentLogs(client, projectId, deployment.id);
+    if (logs.engineReason && logs.lines.length === 0) {
+      setState({ kind: "degraded", reason: logs.engineReason });
+      return;
+    }
+    setState({ kind: "success", data: logs });
+  }, [client, projectId, deployment]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <Drawer
+      title={deployment ? `Logs — ${deployment.id.slice(0, 8)}` : "Logs"}
+      open={deployment !== null}
+      onClose={onClose}
+    >
+      {state.kind === "loading" ? <LoadingSkeleton title="Logs" rows={5} /> : null}
+      {state.kind === "degraded" ? (
+        <DegradedState title="Deployment logs" reason={state.reason} />
+      ) : null}
+      {state.kind === "success" && state.data ? (
+        <>
+          {state.data.cursor === null ? (
+            <p className="small muted">
+              The hosting engine keeps no cursor for logs, so this is the full tail it returned.
+            </p>
+          ) : null}
+          {state.data.lines.length === 0 ? (
+            <EmptyState
+              title="No output yet"
+              message="The engine returned no log lines for this deployment."
+            />
+          ) : (
+            <pre className="log" aria-label="Deployment logs">
+              {state.data.lines.join("\n")}
+            </pre>
+          )}
+        </>
+      ) : null}
+      {state.kind === "error" ? (
+        <ErrorState title="Deployment logs" message={state.message} onRetry={() => void load()} />
+      ) : null}
+    </Drawer>
   );
 }
 

@@ -159,6 +159,69 @@ export interface RollbackDeploymentInput {
   readonly idempotencyKey?: string | undefined;
 }
 
+export interface DeploymentLogsInput {
+  readonly projectId: ProjectId;
+  readonly deploymentId: string;
+}
+
+export interface DeploymentLogsResult {
+  /** The engine's own log lines for this application, verbatim. */
+  readonly lines: readonly string[];
+  /** The engine's cursor, or null when it has none (Coolify has none). */
+  readonly cursor: string | null;
+  /** The engine's own words when it could not serve logs. */
+  readonly engineReason: string | null;
+}
+
+/**
+ * Read a deployment's engine logs.
+ *
+ * Logs live at the hosting engine, so this resolves the project's engine-side
+ * application and asks the adapter. An engine this deployment has no credentials
+ * for, or a project that was never deployed, returns an honest reason with no
+ * lines — never fabricated output. The lines are the customer's own application
+ * logs; they are returned verbatim, exactly as the engine reports them.
+ */
+export async function deploymentsLogs(
+  ctx: RequestContext,
+  deps: DeploymentDeps,
+  input: DeploymentLogsInput,
+): Promise<DeploymentLogsResult> {
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!project) throw new ApiError("not_found", "Project not found.");
+  requireCapability(ctx, project.organizationId, "deployment:read");
+
+  const target = await writesFor(deps).getProjectDeploymentTarget(ctx.principal.userId, project.id);
+  if (!target?.providerResourceId) {
+    return {
+      lines: [],
+      cursor: null,
+      engineReason: "This project has no application on the hosting engine yet, so it has no logs.",
+    };
+  }
+
+  const applicationRef: ProviderRef = {
+    organizationId: project.organizationId,
+    provider: (target.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
+    resourceType: "application",
+    resourceId: target.providerResourceId,
+  };
+
+  const result = await deps.engines.hosting.getLogs(
+    {
+      organizationId: project.organizationId,
+      idempotencyKey: `logs-${input.deploymentId}`,
+      timeoutMs: ADAPTER_TIMEOUT_MS,
+    },
+    applicationRef,
+  );
+
+  if (!result.ok) {
+    return { lines: [], cursor: null, engineReason: result.reason };
+  }
+  return { lines: result.value.lines, cursor: result.value.cursor, engineReason: null };
+}
+
 export interface DeploymentRequestResult {
   readonly deployment: Deployment;
   /** True when this call replayed an existing idempotency key. */

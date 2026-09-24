@@ -189,6 +189,7 @@ describe("the registered procedure table", () => {
       "data.provision",
       "deployments.create",
       "deployments.list",
+      "deployments.logs",
       "deployments.rollback",
       "domains.create",
       "domains.list",

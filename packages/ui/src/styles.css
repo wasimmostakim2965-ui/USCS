@@ -1463,3 +1463,21 @@ a.card:hover,
 .login__panel {
   box-shadow: var(--shadow-2);
 }
+
+/* ---- logs ---- */
+
+.log {
+  margin: 0;
+  padding: var(--space-4);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 60vh;
+  color: var(--ink-2);
+}

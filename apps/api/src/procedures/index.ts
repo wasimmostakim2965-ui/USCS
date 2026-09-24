@@ -31,12 +31,14 @@ import {
   type OrgDeps,
 } from "./organizations.js";
 import {
+  deploymentsLogs,
   requestDeployment,
   listAuditEvents,
   listDeployments,
   rollbackDeployment,
   type CreateDeploymentInput,
   type DeploymentDeps,
+  type DeploymentLogsInput,
   type RollbackDeploymentInput,
 } from "./deployments.js";
 import {
@@ -218,6 +220,11 @@ export function buildProcedures(
         rollbackDeployment(ctx, depDeps, inputOf<RollbackDeploymentInput>(input)),
     },
     {
+      name: "deployments.logs",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        deploymentsLogs(ctx, depDeps, inputOf<DeploymentLogsInput>(input)),
+    },
+    {
       name: "audit.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listAuditEvents(
@@ -363,6 +370,7 @@ export const ROUTE_SHAPES = {
     commit: "string",
     idempotencyKey: "string?",
   },
+  "deployments.logs": { projectId: "ProjectId", deploymentId: "string" },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId" },
   "domains.create": {

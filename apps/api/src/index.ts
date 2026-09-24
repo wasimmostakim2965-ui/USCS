@@ -25,6 +25,7 @@ export {
 } from "./procedures/organizations.js";
 export type { OrgDeps } from "./procedures/organizations.js";
 export {
+  deploymentsLogs,
   requestDeployment,
   listAuditEvents,
   listDeployments,
@@ -34,6 +35,8 @@ export {
 export type {
   CreateDeploymentInput,
   DeploymentDeps,
+  DeploymentLogsInput,
+  DeploymentLogsResult,
   DeploymentRequestResult,
   RollbackDeploymentInput,
 } from "./procedures/deployments.js";

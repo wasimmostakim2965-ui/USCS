@@ -100,6 +100,46 @@ export async function loadDeployments(
   return sectionFrom("Deployments", response);
 }
 
+export interface DeploymentLogsSummary {
+  readonly lines: readonly string[];
+  readonly cursor: string | null;
+  /** The engine's own words when it could not serve logs. */
+  readonly engineReason: string | null;
+}
+
+/**
+ * Load a deployment's engine logs.
+ *
+ * The lines are the engine's own output. A not-configured engine, or a project
+ * that was never deployed, answers with an honest reason and no lines; there is
+ * no path here that invents log output.
+ */
+export async function loadDeploymentLogs(
+  client: ApiClient,
+  projectId: string,
+  deploymentId: string,
+): Promise<DeploymentLogsSummary> {
+  const response = await client.call<DeploymentLogsSummary>("deployments.logs", {
+    projectId,
+    deploymentId,
+  });
+  if (response.notConfigured) {
+    return {
+      lines: [],
+      cursor: null,
+      engineReason: response.error?.message ?? "The hosting engine is not configured.",
+    };
+  }
+  if (!response.ok || !response.data) {
+    return {
+      lines: [],
+      cursor: null,
+      engineReason: response.error?.message ?? "The logs could not be loaded.",
+    };
+  }
+  return response.data;
+}
+
 /**
  * Convert a single-object response to a section.
  *

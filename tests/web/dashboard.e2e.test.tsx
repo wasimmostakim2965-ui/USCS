@@ -526,6 +526,62 @@ describe("requesting and rolling back a deployment", () => {
     expect(alert.textContent).toContain("deployment:create");
     expect(screen.queryByText("Deployment requested")).toBeNull();
   });
+
+  it("opens a deployment's engine logs and shows the lines the engine returned", async () => {
+    const { responder, calls } = deploymentPlane();
+    const withLogs: Responder = (procedure, input) => {
+      if (procedure === "deployments.logs") {
+        calls.push({ procedure, input });
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            lines: ["build started", "build finished"],
+            cursor: null,
+            engineReason: null,
+          },
+        };
+      }
+      return responder(procedure, input);
+    };
+    const url = await startApi(withLogs);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Logs" }));
+
+    expect(await screen.findByLabelText("Deployment logs")).toBeTruthy();
+    expect(screen.getByText(/build finished/)).toBeTruthy();
+    // Coolify keeps no cursor, and the drawer says so rather than inventing one.
+    expect(screen.getByText(/keeps no cursor for logs/)).toBeTruthy();
+    expect(calls.find((c) => c.procedure === "deployments.logs")?.input).toMatchObject({
+      projectId: "p-1",
+      deploymentId: "d-existing",
+    });
+  });
+
+  it("reports an unconfigured hosting engine as degraded logs, never fabricated output", async () => {
+    const { responder } = deploymentPlane();
+    const notConfigured: Responder = (procedure, input) => {
+      if (procedure === "deployments.logs") {
+        return {
+          ok: false,
+          status: 200,
+          notConfigured: true,
+          error: { code: "not_configured", message: "Coolify is not configured." },
+        };
+      }
+      return responder(procedure, input);
+    };
+    const url = await startApi(notConfigured);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Logs" }));
+
+    expect(await screen.findByText(/Coolify is not configured/)).toBeTruthy();
+    expect(screen.queryByLabelText("Deployment logs")).toBeNull();
+  });
 });
 
 describe("page titles", () => {
