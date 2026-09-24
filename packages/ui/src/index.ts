@@ -6,6 +6,9 @@
  */
 import type { EngineStatus } from "@cloud-wai/contracts";
 
+export { ICONS } from "./icons.js";
+export type { IconGeometry, IconName } from "./icons.js";
+
 export type ViewState =
   | { kind: "loading" }
   | { kind: "empty" }

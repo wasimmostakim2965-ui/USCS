@@ -21,7 +21,7 @@
   /* Type: a characterful grotesque for display, a neutral workhorse for UI.
      Both are fetched from Google Fonts in index.html; the fallbacks are a
      local system stack so the console is usable before the font loads. */
-  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-display: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-body: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
@@ -44,8 +44,8 @@
   --radius: 9px;
   --radius-lg: 14px;
 
-  --shell-topbar: 56px;
-  --shell-sidebar: 264px;
+  --shell-topbar: 52px;
+  --shell-sidebar: 250px;
 
   --dur-fast: 120ms;
   --dur: 200ms;
@@ -81,43 +81,60 @@
   --neutral: #8b98ae;
   --neutral-soft: rgba(139, 152, 174, 0.16);
 
+  --btn-bg: var(--panel-2);
+  --btn-ink: var(--ink);
+  --btn-line: var(--line-strong);
+  --btn-primary-bg: var(--accent);
+  --btn-primary-ink: var(--accent-ink);
+
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow-2: 0 12px 32px -12px rgba(0, 0, 0, 0.75);
-  --grain-opacity: 0.028;
+  --shadow-3: 0 24px 56px -18px rgba(0, 0, 0, 0.8);
+  --grain-opacity: 0.02;
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  --ground: #f6f7f9;
-  --ground-2: #eef0f4;
+  /* A crisp, near-white console: one hairline grey for every divider, white
+     surfaces, and a single near-black primary. Neutrals carry the structure;
+     colour is reserved for status and links so a screen stays legible. */
+  --ground: #fafafa;
+  --ground-2: #ffffff;
   --panel: #ffffff;
-  --panel-2: #f8f9fb;
-  --line: #dfe3ea;
-  --line-strong: #b9c1cf;
+  --panel-2: #fafafa;
+  --line: #ebebeb;
+  --line-strong: #d9d9d9;
 
-  --ink: #10151f;
-  --ink-2: #4a566c;
-  --ink-3: #6d7889;
+  --ink: #0a0a0a;
+  --ink-2: #5c5c5c;
+  --ink-3: #8f8f8f;
 
-  --accent: #0b6bcb;
+  --accent: #0070f3;
   --accent-ink: #ffffff;
-  --accent-soft: rgba(11, 107, 203, 0.1);
+  --accent-soft: rgba(0, 112, 243, 0.08);
 
-  --ok: #0f7a4d;
-  --ok-soft: rgba(15, 122, 77, 0.1);
-  --warn: #925a00;
-  --warn-soft: rgba(146, 90, 0, 0.12);
-  --danger: #b3261e;
-  --danger-soft: rgba(179, 38, 30, 0.1);
-  --progress: #3b4bb5;
-  --progress-soft: rgba(59, 75, 181, 0.1);
-  --neutral: #55607a;
-  --neutral-soft: rgba(85, 96, 122, 0.12);
+  --ok: #067a46;
+  --ok-soft: rgba(6, 122, 70, 0.09);
+  --warn: #8a5300;
+  --warn-soft: rgba(138, 83, 0, 0.1);
+  --danger: #c81e1e;
+  --danger-soft: rgba(200, 30, 30, 0.08);
+  --progress: #3b4bd8;
+  --progress-soft: rgba(59, 75, 216, 0.09);
+  --neutral: #6b6b6b;
+  --neutral-soft: rgba(107, 107, 107, 0.09);
 
-  --shadow-1: 0 1px 2px rgba(16, 21, 31, 0.06);
-  --shadow-2: 0 16px 40px -16px rgba(16, 21, 31, 0.22);
-  --grain-opacity: 0.02;
+  --btn-bg: #ffffff;
+  --btn-ink: #0a0a0a;
+  --btn-line: #d9d9d9;
+  --btn-primary-bg: #0a0a0a;
+  --btn-primary-ink: #ffffff;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-2: 0 10px 40px -12px rgba(0, 0, 0, 0.18);
+  --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.24);
+  --grain-opacity: 0;
 }
 
 /* ------------------------------------------------------------------ reset */
@@ -231,9 +248,8 @@ kbd,
   display: flex;
   align-items: center;
   gap: var(--space-4);
-  padding: 0 var(--space-5);
-  background: color-mix(in srgb, var(--ground-2) 88%, transparent);
-  backdrop-filter: blur(12px);
+  padding: 0 var(--space-4);
+  background: var(--ground-2);
   border-bottom: 1px solid var(--line);
 }
 
@@ -245,11 +261,8 @@ kbd,
 }
 
 .topbar__mark {
-  font-family: var(--font-display);
-  font-size: var(--step-2);
-  font-variation-settings:
-    "SOFT" 40,
-    "WONK" 1;
+  font-weight: 700;
+  font-size: var(--step-1);
   letter-spacing: -0.02em;
 }
 
@@ -265,8 +278,8 @@ kbd,
 .sidebar {
   grid-area: sidebar;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-3) var(--space-6);
-  background: var(--ground-2);
+  padding: var(--space-3) var(--space-2) var(--space-6);
+  background: var(--ground);
   border-right: 1px solid var(--line);
 }
 
@@ -328,7 +341,6 @@ kbd,
   color: var(--ink-2);
   font-size: var(--step-0);
   text-decoration: none;
-  border-left: 2px solid transparent;
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -342,16 +354,22 @@ kbd,
 
 .nav__item--active {
   background: var(--accent-soft);
-  border-left-color: var(--accent);
-  color: var(--ink);
+  color: var(--accent);
   font-weight: 600;
 }
 
 .nav__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
-  text-align: center;
+  height: 18px;
   color: var(--ink-3);
   flex: none;
+}
+
+.nav__item:hover .nav__glyph {
+  color: var(--ink-2);
 }
 
 .nav__item--active .nav__glyph {
@@ -362,9 +380,7 @@ kbd,
    the anchor-based items get from the browser for free. */
 .nav__back {
   background: none;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
+  border: none;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -413,12 +429,9 @@ kbd,
 }
 
 .page__title {
-  font-family: var(--font-display);
-  font-size: var(--step-4);
-  font-variation-settings:
-    "SOFT" 30,
-    "WONK" 1;
-  letter-spacing: -0.025em;
+  font-size: var(--step-3);
+  font-weight: 700;
+  letter-spacing: -0.022em;
 }
 
 .page__sub {
@@ -544,11 +557,11 @@ kbd,
 
 .stat__value {
   margin-top: var(--space-2);
-  font-family: var(--font-display);
   font-size: var(--step-3);
-  font-variation-settings: "SOFT" 20;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  line-height: 1.05;
 }
 
 .stat__note {
@@ -675,26 +688,25 @@ table.table {
   padding: 0 var(--space-4);
   min-height: 34px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--line-strong);
-  background: var(--panel-2);
-  color: var(--ink);
+  border: 1px solid var(--btn-line);
+  background: var(--btn-bg);
+  color: var(--btn-ink);
   font-family: inherit;
   font-size: var(--step--1);
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
+    color var(--dur-fast) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: var(--panel);
+  border-color: var(--ink-3);
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(1px);
+  background: var(--panel-2);
 }
 
 .btn:disabled {
@@ -703,13 +715,13 @@ table.table {
 }
 
 .btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+  color: var(--btn-primary-ink);
 }
 .btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, white);
-  border-color: color-mix(in srgb, var(--accent) 88%, white);
+  background: color-mix(in srgb, var(--btn-primary-bg) 86%, var(--ink-2));
+  border-color: color-mix(in srgb, var(--btn-primary-bg) 86%, var(--ink-2));
 }
 
 .btn--ghost {
@@ -1276,4 +1288,178 @@ table.table {
 }
 .diff__del {
   color: var(--danger);
+}
+
+/* ------------------------------------------------------- refinements (2026)
+   A pass over the shell and surfaces for a crisper, calmer product surface:
+   a single content column, restrained hairlines, one hover language, and a
+   search affordance that reads as a control rather than a label. These rules
+   come after the originals on purpose: they are the intended final values. */
+
+.main {
+  padding: var(--space-5) var(--space-6) var(--space-7);
+}
+
+/* One measured content column: full-bleed content on a wide screen is what
+   makes a console feel unfinished. */
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.page__head {
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.breadcrumb {
+  margin-bottom: var(--space-4);
+}
+
+/* ---- topbar search ---- */
+
+.topbar__search {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-2);
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  min-height: 32px;
+}
+
+.topbar__search:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.topbar__search-label {
+  font-weight: 500;
+}
+
+@media (max-width: 720px) {
+  .topbar__search-label {
+    display: none;
+  }
+}
+
+/* ---- sidebar ---- */
+
+.nav {
+  gap: 2px;
+}
+
+.nav__group {
+  margin-top: var(--space-5);
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+}
+
+.nav__item {
+  padding: 0.4375rem var(--space-3);
+  gap: var(--space-3);
+}
+
+/* ---- surfaces ---- */
+
+.card {
+  box-shadow: none;
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+.card__head {
+  background: transparent;
+  padding: var(--space-3) var(--space-4);
+}
+
+.card__body {
+  padding: var(--space-4);
+}
+
+.stat {
+  padding: var(--space-4);
+  box-shadow: none;
+}
+
+/* Hover elevation is only for surfaces that lead somewhere. */
+a.card,
+.card--link {
+  color: inherit;
+}
+
+a.card:hover,
+.card--link:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+
+.grid {
+  gap: var(--space-3);
+}
+
+/* ---- tables ---- */
+
+.table th {
+  background: var(--panel-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+.table td {
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ---- badges ---- */
+
+.badge {
+  padding: 0.0625rem var(--space-2);
+  font-size: 0.75rem;
+  gap: 0.375rem;
+}
+
+/* ---- focus ---- */
+
+.btn:focus-visible,
+.nav__item:focus-visible,
+.menu__item:focus-visible,
+.palette__item:focus-visible,
+.tabs__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- kbd ---- */
+
+.kbd {
+  background: var(--panel-2);
+  border-color: var(--line);
+  border-bottom-width: 1px;
+  color: var(--ink-3);
+}
+
+/* ---- dialog & palette ---- */
+
+.dialog {
+  box-shadow: var(--shadow-3);
+}
+
+.overlay {
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+
+.palette__item--active {
+  background: var(--panel-2);
+}
+
+/* ---- login ---- */
+
+.login__mark {
+  font-weight: 700;
+  font-size: var(--step-2);
+  letter-spacing: -0.02em;
+}
+
+.login__panel {
+  box-shadow: var(--shadow-2);
 }

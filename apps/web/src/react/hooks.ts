@@ -144,7 +144,7 @@ export type ThemeName = "dark" | "light";
 
 /** The colour scheme, applied to `<html data-theme>` and persisted per browser. */
 export function useTheme(): readonly [ThemeName, () => void] {
-  const [theme, setTheme] = usePersistentState("cloud-wai.theme", "dark");
+  const [theme, setTheme] = usePersistentState("cloud-wai.theme", "light");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

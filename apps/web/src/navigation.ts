@@ -22,6 +22,7 @@
  * the page says so rather than implying a per-project policy that the schema
  * cannot hold.
  */
+import type { IconName } from "@cloud-wai/ui";
 import {
   DATABASE_SECTIONS,
   parseRoute,
@@ -33,8 +34,8 @@ import {
 export interface NavItem {
   readonly id: string;
   readonly label: string;
-  /** One glyph, chosen to be readable in the mono stack. */
-  readonly glyph: string;
+  /** A named glyph from the Cloud Wai icon set. */
+  readonly icon: IconName;
   readonly description: string;
   readonly route: Route;
 }
@@ -53,28 +54,28 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
     {
       id: "projects",
       label: "Projects",
-      glyph: "▦",
+      icon: "projects",
       description: "Applications you deploy and operate.",
       route: { name: "projects", organizationId },
     },
     {
       id: "api-keys",
       label: "API keys",
-      glyph: "⌘",
+      icon: "key",
       description: "Programmatic access to this organization.",
       route: { name: "apiKeys", organizationId },
     },
     {
       id: "audit",
       label: "Activity",
-      glyph: "≡",
+      icon: "activity",
       description: "An append-only record of what changed.",
       route: { name: "audit", organizationId },
     },
     {
       id: "settings",
       label: "Settings",
-      glyph: "⚙",
+      icon: "settings",
       description: "Organization profile and engine status.",
       route: { name: "settings", organizationId },
     },
@@ -95,42 +96,42 @@ export function projectNav(
     {
       id: "overview",
       label: "Overview",
-      glyph: "◇",
+      icon: "overview",
       description: "Deployment state and recent activity for this project.",
       route: { name: "project", organizationId, projectId },
     },
     {
       id: "deployments",
       label: "Deployments",
-      glyph: "▲",
+      icon: "deployments",
       description: "Build and release history.",
       route: { name: "deployments", organizationId, projectId },
     },
     {
       id: "domains",
       label: "Domains",
-      glyph: "◎",
+      icon: "domains",
       description: "Hostnames for this project.",
       route: { name: "domains", organizationId, projectId },
     },
     {
       id: "database",
       label: "Database",
-      glyph: "◫",
+      icon: "database",
       description: "Databases, tables, storage and auth for this project.",
       route: { name: "database", organizationId, projectId },
     },
     {
       id: "security",
       label: "Security",
-      glyph: "⛨",
+      icon: "shield",
       description: "Protection level applied to this project.",
       route: { name: "security", organizationId, projectId },
     },
     {
       id: "settings",
       label: "Settings",
-      glyph: "⚙",
+      icon: "settings",
       description: "Project settings and engine status.",
       route: { name: "settings", organizationId },
     },
@@ -153,16 +154,16 @@ export function projectNav(
  * `DatabaseSection`, so adding a section to `DATABASE_SECTIONS` without giving
  * it a glyph and a description is a type error rather than a blank sidebar item.
  */
-const DATABASE_SECTION_GLYPHS: Readonly<Record<DatabaseSection, string>> = {
-  overview: "◇",
-  tables: "▦",
-  sql: "⌗",
-  auth: "⛿",
-  storage: "▤",
-  api: "⌘",
-  roles: "◎",
-  logs: "≡",
-  settings: "⚙",
+const DATABASE_SECTION_ICONS: Readonly<Record<DatabaseSection, IconName>> = {
+  overview: "overview",
+  tables: "table",
+  sql: "sql",
+  auth: "auth",
+  storage: "storage",
+  api: "api",
+  roles: "roles",
+  logs: "logs",
+  settings: "settings",
 };
 
 const DATABASE_SECTION_DESCRIPTIONS: Readonly<Record<DatabaseSection, string>> = {
@@ -184,7 +185,7 @@ export function databaseNav(
   return DATABASE_SECTIONS.map((section) => ({
     id: `database-${section}`,
     label: databaseSectionTitle(section),
-    glyph: DATABASE_SECTION_GLYPHS[section],
+    icon: DATABASE_SECTION_ICONS[section],
     description: DATABASE_SECTION_DESCRIPTIONS[section],
     route: { name: "database", organizationId, projectId, section } satisfies Route,
   }));

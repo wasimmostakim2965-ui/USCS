@@ -9,7 +9,7 @@
  * control says so explicitly rather than appearing to work — see `ComingSoon`.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Modal, StatusBadge, TextInput, type Toast } from "@cloud-wai/ui/react";
+import { Button, Icon, Modal, StatusBadge, TextInput, type Toast } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
@@ -59,7 +59,7 @@ function NavLink({
       }}
     >
       <span className="nav__glyph" aria-hidden="true">
-        {item.glyph}
+        <Icon name={item.icon} size={18} />
       </span>
       <span className="truncate">{item.label}</span>
     </a>
@@ -152,6 +152,9 @@ export interface AppShellProps {
   readonly loadingWorkspaces: boolean;
   readonly onCreateOrganization: () => void;
   readonly onSelectOrganization: (organizationId: string) => void;
+  /** Current colour scheme, for the topbar control's icon and label. */
+  readonly theme: "dark" | "light";
+  readonly onToggleTheme: () => void;
   readonly children: ReactNode;
 }
 
@@ -164,6 +167,8 @@ export function AppShell({
   loadingWorkspaces,
   onCreateOrganization,
   onSelectOrganization,
+  theme,
+  onToggleTheme,
   children,
 }: AppShellProps) {
   const { router, user, signOut, misconfigured } = useApp();
@@ -267,7 +272,7 @@ export function AppShell({
           ariaLabel="Toggle navigation"
           onClick={() => setSidebarOpen((open) => !open)}
         >
-          ☰
+          <Icon name="menu" size={18} />
         </Button>
 
         <a
@@ -292,7 +297,7 @@ export function AppShell({
             <span className="truncate" style={{ maxWidth: "200px" }}>
               {loadingWorkspaces ? "Loading…" : organizationName}
             </span>
-            <span aria-hidden="true">▾</span>
+            <Icon name="chevronDown" size={16} />
           </Button>
           {workspaceOpen ? (
             <div className="menu__panel" role="menu">
@@ -366,13 +371,25 @@ export function AppShell({
 
         <span className="topbar__spacer" />
 
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm topbar__search"
           onClick={() => setPaletteOpen(true)}
           title="Command palette"
         >
-          Search <span className="kbd">⌘K</span>
+          <Icon name="search" size={16} />
+          <span className="topbar__search-label">Search</span>
+          <span className="kbd">⌘K</span>
+        </button>
+
+        <Button
+          variant="ghost"
+          size="sm"
+          ariaLabel={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          onClick={onToggleTheme}
+        >
+          <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
         </Button>
 
         <div className="menu" ref={profile.ref}>
@@ -441,7 +458,7 @@ export function AppShell({
             {back ? (
               <button type="button" className="nav__item nav__back" onClick={() => go(back)}>
                 <span className="nav__glyph" aria-hidden="true">
-                  ←
+                  <Icon name="back" size={18} />
                 </span>
                 <span className="truncate">Back</span>
               </button>

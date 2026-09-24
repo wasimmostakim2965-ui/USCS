@@ -197,19 +197,9 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
           onSelectOrganization={(organizationId) => {
             router.navigate({ name: "projects", organizationId });
           }}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         >
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-3)" }}
-          >
-            <button
-              type="button"
-              className="btn btn--ghost btn--sm"
-              onClick={toggleTheme}
-              title="Switch colour scheme"
-            >
-              {theme === "dark" ? "Light" : "Dark"}
-            </button>
-          </div>
           {page}
         </AppShell>
       </AppProvider>

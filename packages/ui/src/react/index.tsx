@@ -23,6 +23,54 @@ import {
   type ReactNode,
 } from "react";
 import type { Section, SectionState, StatusPresentation, ViewState } from "../index.js";
+import { ICONS, type IconName } from "../icons.js";
+
+/* ------------------------------------------------------------------ icon */
+
+export interface IconProps {
+  /** A named glyph from the Cloud Wai set. */
+  readonly name: IconName;
+  /** Rendered size in pixels. Defaults to the 18px sidebar/action size. */
+  readonly size?: number;
+  /** Stroke width. One value across the product keeps the weight consistent. */
+  readonly strokeWidth?: number;
+  readonly className?: string;
+}
+
+/**
+ * One icon from the Cloud Wai set.
+ *
+ * The frame (viewBox, stroke colour, line caps) lives here so every call site
+ * gets the same weight and joins; a path never carries its own styling.
+ */
+export function Icon({ name, size = 18, strokeWidth = 1.6, className }: IconProps) {
+  const geometry = ICONS[name];
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {geometry.circles?.map(([cx, cy, r], index) => (
+        <circle key={`c${index}`} cx={cx} cy={cy} r={r} />
+      ))}
+      {geometry.paths.map((d, index) => (
+        <path key={`p${index}`} d={d} />
+      ))}
+      {geometry.dots?.map(([cx, cy, r], index) => (
+        <circle key={`d${index}`} cx={cx} cy={cy} r={r} fill="currentColor" stroke="none" />
+      ))}
+    </svg>
+  );
+}
 
 /* ------------------------------------------------------------------ tones */
 
@@ -565,7 +613,7 @@ export function Modal({
         <div className="dialog__head">
           <span className="dialog__title">{title}</span>
           <Button variant="ghost" size="sm" onClick={onClose} ariaLabel="Close">
-            ✕
+            <Icon name="close" size={16} />
           </Button>
         </div>
         <div className="dialog__body">{children}</div>
@@ -612,7 +660,7 @@ export function Drawer({
         <div className="dialog__head">
           <span className="dialog__title">{title}</span>
           <Button variant="ghost" size="sm" onClick={onClose} ariaLabel="Close">
-            ✕
+            <Icon name="close" size={16} />
           </Button>
         </div>
         <div style={{ padding: "var(--space-5)", overflowY: "auto" }}>{children}</div>
@@ -752,7 +800,7 @@ export function ToastProvider({ children }: { readonly children: ReactNode }) {
             <span>{toast.message}</span>
             <span className="banner__spacer" />
             <Button variant="ghost" size="sm" onClick={() => dismiss(toast.id)} ariaLabel="Dismiss">
-              ✕
+              <Icon name="close" size={14} />
             </Button>
           </div>
         ))}
