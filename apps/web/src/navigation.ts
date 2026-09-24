@@ -15,9 +15,12 @@
  *                 Logs, Settings. This is the third drill-in level, reached from
  *                 the project menu's Database entry.
  *
- * Security, Domains and Database are project-scoped on purpose. A policy is
- * applied to an application, not to a company, and a route that named an
- * organization but no project would render a section with nothing to act on.
+ * Domains and Database are project-scoped on purpose: a domain is attached to
+ * an application, and so is a database. Security is reached under a project for
+ * navigation consistency, but the policy it edits is organization-wide today —
+ * `security_policies` is keyed by `organization_id`, with no `project_id` — and
+ * the page says so rather than implying a per-project policy that the schema
+ * cannot hold.
  */
 import {
   DATABASE_SECTIONS,

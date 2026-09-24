@@ -6,7 +6,7 @@
  * no page here that renders a value it did not load, and no page that turns a
  * `not_configured` engine into a success.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
@@ -26,6 +26,7 @@ import {
 } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { useSection } from "../react/hooks.js";
+import { newRequestId } from "../ids.js";
 import type { Route } from "../routes.js";
 import {
   loadApiKeys,
@@ -38,6 +39,7 @@ import {
   loadProjects,
   loadProviderHealth,
   loadSecurityPolicy,
+  loadSecurityPolicyEvents,
   API_KEY_SCOPES,
   type ApiKeySummaryRow,
   type AuditSummary,
@@ -51,6 +53,7 @@ import {
   type OrganizationSummary,
   type ProjectSummary,
   type ProviderHealthRow,
+  type SecurityPolicyEventSummary,
   type SecurityPolicySummary,
 } from "../view-model.js";
 import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
@@ -99,7 +102,14 @@ function DeploymentColumns(): readonly Column<DeploymentSummary>[] {
 
 /* ------------------------------------------------------------ organizations */
 
-export function OrganizationsPage() {
+export function OrganizationsPage({
+  createRequest = 0,
+  onCreateRequestHandled,
+}: {
+  /** Non-zero when the shell asked for the create form; consumed then reset. */
+  readonly createRequest?: number;
+  readonly onCreateRequestHandled?: () => void;
+}) {
   const { client, router } = useApp();
   const { section, reload } = useSection(
     () => loadOrganizations(client),
@@ -107,6 +117,17 @@ export function OrganizationsPage() {
     "Organizations",
   );
   const [creating, setCreating] = useState(false);
+
+  // A request from the sidebar or the palette opens the form here, so "New
+  // workspace" creates rather than merely landing on the list. The request is
+  // consumed as it is acted on, so a later remount of this page does not reopen
+  // a form the operator already dismissed.
+  useEffect(() => {
+    if (createRequest > 0) {
+      setCreating(true);
+      onCreateRequestHandled?.();
+    }
+  }, [createRequest, onCreateRequestHandled]);
 
   return (
     <PageShell
@@ -495,6 +516,9 @@ export function DeploymentsPage({
       </Card>
 
       <NewDeploymentModal
+        // Remount per open so the idempotency key is fresh for a new request
+        // but stays put for a retry within the same open form.
+        key={`deploy-${String(deploying)}`}
         projectId={projectId}
         open={deploying}
         onClose={() => setDeploying(false)}
@@ -505,6 +529,7 @@ export function DeploymentsPage({
       />
 
       <RollbackDeploymentModal
+        key={`rollback-${rollingBack?.id ?? "none"}`}
         projectId={projectId}
         deployment={rollingBack}
         onClose={() => setRollingBack(null)}
@@ -543,6 +568,9 @@ function NewDeploymentModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DeploymentRequestSummary | null>(null);
+  // One key per open form: pressing "Deploy" twice, or after a failure, replays
+  // the same request instead of queuing a second deployment.
+  const [idempotencyKey] = useState(newRequestId);
 
   const reset = () => {
     setGitRepository("");
@@ -557,6 +585,7 @@ function NewDeploymentModal({
     setError(null);
     const response = await client.call<DeploymentRequestSummary>("deployments.create", {
       projectId,
+      idempotencyKey,
       ...(gitRepository ? { gitRepository } : {}),
       ...(gitBranch ? { gitBranch } : {}),
       ...(commit ? { commit } : {}),
@@ -682,6 +711,9 @@ function RollbackDeploymentModal({
   const [commit, setCommit] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Same reasoning as a deployment: a second press must not queue a second
+  // rollback of the same commit.
+  const [idempotencyKey] = useState(newRequestId);
 
   const submit = async () => {
     if (!deployment) return;
@@ -690,6 +722,7 @@ function RollbackDeploymentModal({
     const response = await client.call<DeploymentRequestSummary>("deployments.rollback", {
       projectId,
       commit,
+      idempotencyKey,
     });
     setBusy(false);
     if (!response.ok || !response.data) {
@@ -1110,6 +1143,22 @@ function RemoveDomainModal({
 /* ------------------------------------------------------------------ security */
 
 /**
+ * A protection level, as the page describes it.
+ *
+ * The level is client-side vocabulary: it maps to a risk level and an
+ * enforcement action that the *same* save form would let an operator pick. The
+ * type keeps a glyph, a description and a mapping from drifting apart.
+ */
+interface ProtectionLevel {
+  readonly id: string;
+  readonly name: string;
+  readonly riskLevel: SecurityPolicySummary["riskLevel"];
+  readonly action: SecurityPolicySummary["action"];
+  readonly summary: string;
+  readonly enables: readonly string[];
+}
+
+/**
  * Security.
  *
  * This page reports what the deployment can actually do. The protection levels
@@ -1130,26 +1179,35 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Security policy",
   );
+  const events = useSection(
+    () => loadSecurityPolicyEvents(client, organizationId),
+    [client, organizationId],
+    "Policy history",
+  );
   const [saving, setSaving] = useState(false);
   const [distributing, setDistributing] = useState(false);
+  // A level card preselects the risk and action the form opens with; it is a
+  // convenience over the same save, never a separate write. Null means "open
+  // with the policy's own values".
+  const [prefill, setPrefill] = useState<ProtectionLevel | null>(null);
 
   const current =
     policy.section.state.kind === "ready" ? (policy.section.state.items[0] ?? null) : null;
 
-  const levels = [
+  const levels: readonly ProtectionLevel[] = [
     {
       id: "none",
       name: "None",
-      riskLevel: "low" as const,
-      action: "allow" as const,
+      riskLevel: "low",
+      action: "allow",
       summary: "No inspection. The origin is reachable directly.",
       enables: ["Host firewall only"],
     },
     {
       id: "normal",
       name: "Normal",
-      riskLevel: "medium" as const,
-      action: "log" as const,
+      riskLevel: "medium",
+      action: "log",
       summary: "Hidden origin, TLS termination, managed rule set.",
       enables: [
         "Origin hidden behind the edge",
@@ -1161,8 +1219,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     {
       id: "high",
       name: "High",
-      riskLevel: "high" as const,
-      action: "challenge" as const,
+      riskLevel: "high",
+      action: "challenge",
       summary: "Normal plus behaviour-based blocking and rate limits.",
       enables: [
         "Everything in Normal",
@@ -1174,8 +1232,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     {
       id: "ultimate",
       name: "Ultimate",
-      riskLevel: "critical" as const,
-      action: "block" as const,
+      riskLevel: "critical",
+      action: "block",
       summary: "High plus advanced anomaly scoring and quarantine.",
       enables: [
         "Everything in High",
@@ -1189,7 +1247,7 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
   return (
     <PageShell
       title="Security"
-      subtitle="Choose a protection level. Cloud Wai compiles it to an edge policy; the edge applies and confirms it."
+      subtitle="Choose a protection level. Cloud Wai compiles it to an edge policy; the edge applies and confirms it. The policy is organization-wide, not per project."
       actions={
         <Button variant="primary" onClick={() => setSaving(true)}>
           {current ? "Edit policy" : "Save policy"}
@@ -1267,8 +1325,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
               <div style={{ marginTop: "var(--space-4)" }}>
                 <Button
                   size="sm"
-                  onClick={() => setSaving(true)}
-                  title="Opens the policy form; distribution is what activates it."
+                  onClick={() => {
+                    setPrefill(level);
+                    setSaving(true);
+                  }}
+                  title="Opens the policy form with this level's risk and action; saving writes a draft."
                 >
                   Use this level
                 </Button>
@@ -1316,14 +1377,64 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
         </Card>
       </SectionShell>
 
+      <SectionShell
+        title="Policy history"
+        hint="Every transition the server recorded, including refusals"
+      >
+        <Card flush>
+          <SectionView<SecurityPolicyEventSummary>
+            section={events.section}
+            onRetry={events.reload}
+            emptyMessage="No policy transitions recorded yet."
+            columns={[
+              {
+                key: "toState",
+                header: "State",
+                render: (item) => <PolicyStateBadge state={item.toState} />,
+              },
+              {
+                key: "from",
+                header: "From",
+                render: (item) => <span className="mono small">{item.fromState ?? "—"}</span>,
+              },
+              {
+                key: "version",
+                header: "Version",
+                render: (item) => <span className="mono small">{item.version}</span>,
+              },
+              {
+                key: "detail",
+                header: "Detail",
+                render: (item) => <span className="small">{item.detail ?? "—"}</span>,
+              },
+              {
+                key: "createdAt",
+                header: "When",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
       <SavePolicyModal
+        // Remount on each open so the form starts from the chosen level or the
+        // stored policy, never from a previous visit's keystrokes.
+        key={`save-${String(saving)}-${prefill?.id ?? "none"}-${current?.version ?? "new"}`}
         organizationId={organizationId}
         policy={current}
+        prefill={prefill}
         open={saving}
-        onClose={() => setSaving(false)}
+        onClose={() => {
+          setSaving(false);
+          setPrefill(null);
+        }}
         onSaved={() => {
           setSaving(false);
+          setPrefill(null);
           policy.reload();
+          events.reload();
         }}
       />
 
@@ -1335,6 +1446,7 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
         onDone={() => {
           setDistributing(false);
           policy.reload();
+          events.reload();
         }}
       />
     </PageShell>
@@ -1357,22 +1469,29 @@ function PolicyStateBadge({ state }: { readonly state: string }) {
 function SavePolicyModal({
   organizationId,
   policy,
+  prefill,
   open,
   onClose,
   onSaved,
 }: {
   readonly organizationId: string;
   readonly policy: SecurityPolicySummary | null;
+  readonly prefill: ProtectionLevel | null;
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onSaved: () => void;
 }) {
   const { client } = useApp();
+  // A chosen level wins over the stored policy, so "Use this level" actually
+  // carries the level the operator clicked. Without one the form opens on the
+  // policy's own values.
   const [name, setName] = useState(policy?.name ?? "Default policy");
   const [riskLevel, setRiskLevel] = useState<SecurityPolicySummary["riskLevel"]>(
-    policy?.riskLevel ?? "medium",
+    prefill?.riskLevel ?? policy?.riskLevel ?? "medium",
   );
-  const [action, setAction] = useState<SecurityPolicySummary["action"]>(policy?.action ?? "log");
+  const [action, setAction] = useState<SecurityPolicySummary["action"]>(
+    prefill?.action ?? policy?.action ?? "log",
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

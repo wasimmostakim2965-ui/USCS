@@ -180,6 +180,8 @@ export interface DataResourceSummary {
   readonly id: string;
   readonly kind: "postgres" | "object_storage";
   readonly name: string;
+  /** The project this resource belongs to, or null when it is organization-wide. */
+  readonly projectId?: string | null;
   /** Mirrors the `data_resource_state` enum. The server, never the client, writes it. */
   readonly state: "provisioning" | "ready" | "restoring" | "failed" | "not_configured";
 }
@@ -191,15 +193,18 @@ export interface ProvisionDataSummary {
 }
 
 export interface BackupDataSummary {
-  readonly backup: {
-    readonly id: string;
-    readonly dataResourceId: string;
-    readonly status: "pending" | "running" | "succeeded" | "failed" | "not_configured";
-    readonly providerResourceId: string | null;
-    readonly createdAt: string;
-    readonly finishedAt: string | null;
-  };
+  readonly backup: DataBackupSummary;
   readonly engineReason: string | null;
+}
+
+/** One backup attempt, with the engine's own status. */
+export interface DataBackupSummary {
+  readonly id: string;
+  readonly dataResourceId: string;
+  readonly status: "pending" | "running" | "succeeded" | "failed" | "not_configured";
+  readonly providerResourceId: string | null;
+  readonly createdAt: string;
+  readonly finishedAt: string | null;
 }
 
 export interface SecurityPolicySummary {
@@ -214,13 +219,17 @@ export interface SecurityPolicySummary {
 
 export interface SecurityPolicyReadSummary {
   readonly policy: SecurityPolicySummary | null;
-  readonly events: readonly {
-    readonly id: string;
-    readonly toState: string;
-    readonly version: number;
-    readonly detail: string | null;
-    readonly createdAt: string;
-  }[];
+  readonly events: readonly SecurityPolicyEventSummary[];
+}
+
+/** One transition in a policy's lifecycle, as the server recorded it. */
+export interface SecurityPolicyEventSummary {
+  readonly id: string;
+  readonly toState: string;
+  readonly fromState: string | null;
+  readonly version: number;
+  readonly detail: string | null;
+  readonly createdAt: string;
 }
 
 export interface DistributePolicySummary {
@@ -291,6 +300,25 @@ export async function loadDataResources(
   return sectionFrom("Databases and storage", response);
 }
 
+/**
+ * Load a resource's backups.
+ *
+ * The server records every attempt with the engine's own status. Reading them
+ * back is what makes a backup auditable: a `failed` or `not_configured` attempt
+ * is visible as such rather than lost once the dialog closes.
+ */
+export async function loadDataBackups(
+  client: ApiClient,
+  organizationId: string,
+  resourceId: string,
+): Promise<Section<DataBackupSummary>> {
+  const response = await client.call<readonly DataBackupSummary[]>("data.backups.list", {
+    organizationId,
+    resourceId,
+  });
+  return sectionFrom("Backups", response);
+}
+
 /** Load an organization's API keys. The secret is never in this list. */
 export async function loadApiKeys(
   client: ApiClient,
@@ -338,6 +366,33 @@ export async function loadSecurityPolicy(
   }
   const policy = response.data?.policy;
   return ready("Security policy", policy ? [policy] : []);
+}
+
+/**
+ * Load a policy's transition history.
+ *
+ * The server records every move between states — a save to `draft`, a
+ * distribution that became `active`, one the edge rejected. Dropping it would
+ * leave an operator unable to see *why* a policy is not active, so it is
+ * surfaced rather than discarded.
+ */
+export async function loadSecurityPolicyEvents(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<SecurityPolicyEventSummary>> {
+  const response = await client.call<SecurityPolicyReadSummary>("security.policy.get", {
+    organizationId,
+  });
+  if (response.notConfigured) {
+    return {
+      title: "Policy history",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Policy history", response.error?.message ?? "Request failed.");
+  }
+  return ready("Policy history", response.data?.events ?? []);
 }
 
 /** Load the audit log of one organization. */

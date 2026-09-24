@@ -65,11 +65,13 @@ import { buildProcedures, buildRouter, type RouterDeps } from "@cloud-wai/api";
 
 const ALICE = "u-alice";
 const CAROL = "u-carol";
+const DAVE = "u-dave";
 const ORG_A = "org-a" as OrganizationId;
 const ORG_B = "org-b" as OrganizationId;
 const PROJ_A = "proj-a" as ProjectId;
 const TOKEN_ALICE = "t-alice";
 const TOKEN_CAROL = "t-carol";
+const TOKEN_DAVE = "t-dave";
 
 const sessions: Record<string, SupabaseSession> = {
   [TOKEN_ALICE]: {
@@ -84,6 +86,12 @@ const sessions: Record<string, SupabaseSession> = {
     displayName: "Carol",
     accessToken: TOKEN_CAROL,
   },
+  [TOKEN_DAVE]: {
+    userId: DAVE,
+    email: "dave@example.com",
+    displayName: "Dave",
+    accessToken: TOKEN_DAVE,
+  },
 };
 
 const verifier: SessionVerifier = {
@@ -92,7 +100,13 @@ const verifier: SessionVerifier = {
   },
 };
 
-const memberships: Membership[] = [{ organizationId: ORG_A, userId: ALICE, role: "owner" }];
+const memberships: Membership[] = [
+  { organizationId: ORG_A, userId: ALICE, role: "owner" },
+  // Dave belongs to both tenants: the case a per-user membership check alone
+  // cannot distinguish, because both organizations are legitimately his.
+  { organizationId: ORG_A, userId: DAVE, role: "member" },
+  { organizationId: ORG_B, userId: DAVE, role: "owner" },
+];
 const membershipStore: MembershipStore = {
   async membershipsFor(userId) {
     return memberships.filter((m) => m.userId === userId);
@@ -571,6 +585,25 @@ describe("data.backup through the registered procedures", () => {
 
     expect(res.ok).toBe(true);
     expect(res.data as readonly DataBackup[]).toHaveLength(1);
+  });
+
+  it("refuses to list backups of a resource under the wrong organization", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, workingEngines());
+    // Alice provisions in ORG_A. Dave is a member of both orgs; he must not be
+    // able to name ORG_B (which he owns) while pointing at ORG_A's resource.
+    const resource = await provision(router);
+
+    const res = await router.route({
+      procedure: "data.backups.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_B, resourceId: resource.id },
+    });
+
+    // Either the capability check or the ownership check refuses; both leave the
+    // caller with no data.
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
   });
 });
 

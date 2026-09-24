@@ -19,6 +19,7 @@ import {
   Card,
   Field,
   Modal,
+  ready,
   SectionShell,
   SectionView,
   StatBox,
@@ -28,12 +29,14 @@ import { useApp } from "../react/context.js";
 import { useSection } from "../react/hooks.js";
 import type { DatabaseSection } from "../routes.js";
 import {
+  loadDataBackups,
   loadDataResources,
   type BackupDataSummary,
+  type DataBackupSummary,
   type DataResourceSummary,
   type ProvisionDataSummary,
 } from "../view-model.js";
-import { DataStateBadge } from "../components/page-parts.js";
+import { DataStateBadge, Timestamp } from "../components/page-parts.js";
 import { ComingSoon } from "../components/app-shell.js";
 import { databaseSectionTitle } from "../navigation.js";
 
@@ -71,7 +74,13 @@ function NotYetBuilt({ section }: { readonly section: DatabaseSection }) {
   );
 }
 
-function DatabaseOverview({ organizationId }: { readonly organizationId: string }) {
+function DatabaseOverview({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
   const { client } = useApp();
   const resources = useSection(
     () => loadDataResources(client, organizationId),
@@ -82,6 +91,19 @@ function DatabaseOverview({ organizationId }: { readonly organizationId: string 
   const [backingUp, setBackingUp] = useState<DataResourceSummary | null>(null);
 
   const reload = resources.reload;
+  // This page is project-scoped. Show this project's resources plus any
+  // organization-wide ones, and never another project's: a resource created
+  // from project A must not appear on project B's Database page.
+  const visibleItems =
+    resources.section.state.kind === "ready"
+      ? resources.section.state.items.filter(
+          (item) => item.projectId == null || item.projectId === projectId,
+        )
+      : [];
+  const visibleResources =
+    resources.section.state.kind === "ready"
+      ? ready("Databases and storage", visibleItems)
+      : resources.section;
 
   return (
     <>
@@ -104,13 +126,23 @@ function DatabaseOverview({ organizationId }: { readonly organizationId: string 
       >
         <Card flush>
           <SectionView<DataResourceSummary>
-            section={resources.section}
+            section={visibleResources}
             columns={[
               { key: "name", header: "Name", render: (item) => item.name },
               {
                 key: "kind",
                 header: "Kind",
                 render: (item) => <span className="mono small">{item.kind}</span>,
+              },
+              {
+                key: "scope",
+                header: "Scope",
+                render: (item) =>
+                  item.projectId ? (
+                    <span className="small">This project</span>
+                  ) : (
+                    <span className="small muted">Organization-wide</span>
+                  ),
               },
               {
                 key: "state",
@@ -142,13 +174,14 @@ function DatabaseOverview({ organizationId }: { readonly organizationId: string 
             ]}
             rowKey={(item) => item.id}
             onRetry={reload}
-            emptyMessage="No database resources. Provisioning needs a configured database engine."
+            emptyMessage="No database resources for this project. Provisioning needs a configured database engine."
           />
         </Card>
       </SectionShell>
 
       <ProvisionResourceModal
         organizationId={organizationId}
+        projectId={projectId}
         open={provisioning}
         onClose={() => setProvisioning(false)}
         onDone={() => {
@@ -192,11 +225,13 @@ function DatabaseOverview({ organizationId }: { readonly organizationId: string 
  */
 function ProvisionResourceModal({
   organizationId,
+  projectId,
   open,
   onClose,
   onDone,
 }: {
   readonly organizationId: string;
+  readonly projectId: string;
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onDone: () => void;
@@ -220,6 +255,7 @@ function ProvisionResourceModal({
     setError(null);
     const response = await client.call<ProvisionDataSummary>("data.provision", {
       organizationId,
+      projectId,
       name,
       kind,
     });
@@ -324,6 +360,17 @@ function BackupResourceModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BackupDataSummary | null>(null);
+  const [historyNonce, setHistoryNonce] = useState(0);
+
+  const resourceId = resource?.id ?? "";
+  const history = useSection(
+    () =>
+      resourceId
+        ? loadDataBackups(client, organizationId, resourceId)
+        : Promise.resolve(ready<DataBackupSummary>("Backups", [])),
+    [client, organizationId, resourceId, historyNonce],
+    "Backups",
+  );
 
   if (!resource) return null;
 
@@ -346,6 +393,7 @@ function BackupResourceModal({
       return;
     }
     setResult(response.data);
+    setHistoryNonce((value) => value + 1);
   };
 
   return (
@@ -393,6 +441,39 @@ function BackupResourceModal({
             {error}
           </p>
         ) : null}
+        <div>
+          <h2 className="small" style={{ marginBottom: "var(--space-2)" }}>
+            Backup history
+          </h2>
+          <SectionView<DataBackupSummary>
+            section={history.section}
+            onRetry={history.reload}
+            emptyMessage="No backups recorded for this resource yet."
+            columns={[
+              {
+                key: "status",
+                header: "Status",
+                render: (item) => <DataStateBadge state={item.status} />,
+              },
+              {
+                key: "createdAt",
+                header: "Started",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+              {
+                key: "finishedAt",
+                header: "Finished",
+                render: (item) =>
+                  item.finishedAt ? (
+                    <Timestamp value={item.finishedAt} />
+                  ) : (
+                    <span className="faint">—</span>
+                  ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </div>
       </div>
     </Modal>
   );
@@ -400,9 +481,11 @@ function BackupResourceModal({
 
 export function DatabasePage({
   organizationId,
+  projectId,
   section,
 }: {
   readonly organizationId: string;
+  readonly projectId: string;
   readonly section: DatabaseSection;
 }) {
   const title = databaseSectionTitle(section);
@@ -421,7 +504,7 @@ export function DatabasePage({
       </header>
 
       {SECTION_BODIES[section] ? (
-        <DatabaseOverview organizationId={organizationId} />
+        <DatabaseOverview organizationId={organizationId} projectId={projectId} />
       ) : (
         <NotYetBuilt section={section} />
       )}

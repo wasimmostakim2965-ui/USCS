@@ -285,5 +285,13 @@ export async function listDataBackups(
   input: ListBackupsInput,
 ): Promise<readonly DataBackup[]> {
   requireCapability(ctx, input.organizationId, "data:read");
-  return writesFor(deps).listDataBackups(ctx.principal.userId, input.resourceId);
+  const writes = writesFor(deps);
+  // The named organization must be the resource's own. A caller who is a member
+  // of two organizations could otherwise pass one organization's id with the
+  // other's resource id and read backups the named organization does not own.
+  const resource = await writes.getDataResource(ctx.principal.userId, input.resourceId);
+  if (!resource || resource.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Data resource not found.");
+  }
+  return writes.listDataBackups(ctx.principal.userId, input.resourceId);
 }

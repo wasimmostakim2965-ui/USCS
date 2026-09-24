@@ -203,7 +203,9 @@ export function AppShell({
     const items: {
       readonly label: string;
       readonly hint: string;
+      /** Either a route to jump to, or an action that also opens a form. */
       readonly route: Route;
+      readonly action?: "create-organization";
     }[] = [];
     for (const item of nav.items) {
       items.push({ label: item.label, hint: item.description, route: item.route });
@@ -217,7 +219,12 @@ export function AppShell({
     }
     items.push(
       { label: "All organizations", hint: "Choose a workspace", route: { name: "organizations" } },
-      { label: "New organization", hint: "Create a workspace", route: { name: "organizations" } },
+      {
+        label: "New organization",
+        hint: "Create a workspace",
+        route: { name: "organizations" },
+        action: "create-organization",
+      },
     );
     return items;
   }, [nav.items, organizations]);
@@ -235,6 +242,16 @@ export function AppShell({
 
   const go = (route: Route) => {
     router.navigate(route);
+    setPaletteOpen(false);
+    setSidebarOpen(false);
+  };
+
+  const runCommand = (command: {
+    readonly route: Route;
+    readonly action?: "create-organization";
+  }) => {
+    if (command.action === "create-organization") onCreateOrganization();
+    else router.navigate(command.route);
     setPaletteOpen(false);
     setSidebarOpen(false);
   };
@@ -487,7 +504,7 @@ export function AppShell({
             if (event.key === "Enter") {
               event.preventDefault();
               const command = filtered[paletteIndex];
-              if (command) go(command.route);
+              if (command) runCommand(command);
             }
           }}
         >
@@ -510,7 +527,7 @@ export function AppShell({
                   type="button"
                   className={`palette__item${index === paletteIndex ? " palette__item--active" : ""}`}
                   onMouseEnter={() => setPaletteIndex(index)}
-                  onClick={() => go(command.route)}
+                  onClick={() => runCommand(command)}
                 >
                   {command.label}
                   <small>{command.hint}</small>

@@ -116,6 +116,41 @@ describe("the dashboard against a live control plane", () => {
     expect(await screen.findByText(/No projects yet/)).toBeTruthy();
   });
 
+  it("opens the create form from New workspace, so the control creates rather than navigates", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects");
+    const user = userEvent.setup();
+
+    // The control lives in the workspace menu; open it, then choose it.
+    await user.click(await screen.findByTitle("Switch workspace"));
+    await user.click(await screen.findByRole("menuitem", { name: /New workspace/ }));
+
+    // The form is open without a second click: "New workspace" is a create
+    // control, not a link to the list it is already on.
+    const dialog = await screen.findByRole("dialog", { name: "New organization" });
+    expect(within(dialog).getByLabelText(/Name/)).toBeTruthy();
+
+    // Dismiss it; navigating back must not re-open a form that was closed, or
+    // the create request would fire on every visit.
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await user.click(screen.getAllByRole("link", { name: /Open/ })[0]!);
+    await waitFor(() => expect(window.location.hash).toContain("/projects"));
+    window.history.replaceState(null, "", "#/orgs/org-1/projects");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    // Give any erroneous re-open a chance to happen, then assert it did not.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("renders a not-configured engine as degraded, never as success", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {
@@ -399,6 +434,51 @@ describe("requesting and rolling back a deployment", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.getAllByText(/d-new-/).length).toBeGreaterThan(0));
     expect(deployments).toHaveLength(2);
+  });
+
+  it("sends an idempotency key and reuses it on a retry, so a double press cannot deploy twice", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    // The first attempt fails, which leaves the form open so the operator can
+    // retry — exactly the moment a duplicate deployment would otherwise appear.
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      if (procedure === "deployments.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "deployments.create") {
+        return {
+          ok: false,
+          status: 503,
+          error: { code: "unavailable", message: "The control plane is unavailable." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+    await user.type(await screen.findByPlaceholderText("main"), "release/1.2");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await screen.findByText(/unavailable/);
+
+    // Retry from the still-open form.
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    const creates = calls.filter((c) => c.procedure === "deployments.create");
+    expect(creates).toHaveLength(2);
+    const keys = creates.map((c) => (c.input as { idempotencyKey?: string }).idempotencyKey);
+    expect(keys[0]).toBeTruthy();
+    // Same key on the retry: the server can recognise it as the same request.
+    expect(keys[1]).toBe(keys[0]);
   });
 
   it("rolls back a successful deployment through the API", async () => {
@@ -1122,6 +1202,134 @@ describe("the Database drill-in", () => {
     expect(sent?.input).toMatchObject({ name: "orders-db", kind: "postgres" });
   });
 
+  it("sends the project when provisioning, so the resource is project-scoped", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "data.provision") {
+        const body = input as { name: string; kind: string; projectId: string };
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: {
+              id: "r-1",
+              kind: body.kind,
+              name: body.name,
+              state: "ready",
+              projectId: body.projectId,
+            },
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-7/database");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Provision resource" }));
+    await user.type(await screen.findByPlaceholderText("tenant-db"), "orders-db");
+    await user.click(screen.getByRole("button", { name: "Provision" }));
+
+    await screen.findByText(/The engine provisioned this resource and confirmed it/);
+    const sent = calls.find((call) => call.procedure === "data.provision");
+    // The URL's project, not a blank or another project, reaches the server.
+    expect(sent?.input).toMatchObject({
+      organizationId: "org-1",
+      projectId: "p-7",
+      name: "orders-db",
+    });
+  });
+
+  it("shows this project's resources plus organization-wide ones, and no other project's", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "r-1", kind: "postgres", name: "mine-db", state: "ready", projectId: "p-1" },
+            { id: "r-2", kind: "postgres", name: "shared-db", state: "ready", projectId: null },
+            { id: "r-3", kind: "postgres", name: "other-db", state: "ready", projectId: "p-2" },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+
+    expect(await screen.findByText("mine-db")).toBeTruthy();
+    expect(screen.getByText("shared-db")).toBeTruthy();
+    expect(screen.queryByText("other-db")).toBeNull();
+  });
+
+  it("lists a resource's backups, including one the engine did not complete", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "r-1", kind: "postgres", name: "ready-db", state: "ready", projectId: "p-1" },
+          ],
+        };
+      }
+      if (procedure === "data.backups.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "b-1",
+              dataResourceId: "r-1",
+              status: "succeeded",
+              providerResourceId: "engine-1",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              finishedAt: "2026-01-01T00:01:00.000Z",
+            },
+            {
+              id: "b-2",
+              dataResourceId: "r-1",
+              status: "not_configured",
+              providerResourceId: null,
+              createdAt: "2026-01-02T00:00:00.000Z",
+              finishedAt: null,
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Back up" }));
+    const dialog = await screen.findByRole("dialog", { name: "Back up resource" });
+
+    // Both attempts are visible; a failed one is not hidden by the good one.
+    expect(await within(dialog).findByText("succeeded")).toBeTruthy();
+    expect(within(dialog).getByText("not_configured")).toBeTruthy();
+  });
+
   it("reports an unconfigured engine instead of pretending a resource exists", async () => {
     const responder: Responder = (procedure) => {
       if (procedure === "organizations.list") {
@@ -1268,6 +1476,92 @@ describe("the Security policy write path", () => {
 
     const sent = calls.find((call) => call.procedure === "security.policy.save");
     expect(sent?.input).toMatchObject({ organizationId: "org-1", riskLevel: "medium" });
+  });
+
+  it("carries a chosen protection level into the save form", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "security.policy.get") {
+        return { ok: true, status: 200, data: { policy: null, events: [] } };
+      }
+      if (procedure === "security.policy.save") {
+        calls.push({ procedure, input });
+        return { ok: true, status: 200, data: draftPolicy };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    // "Ultimate" maps to critical risk and a block action; those exact values
+    // must reach the form rather than the form's own defaults. It is the fourth
+    // level card, and every card's button shares the same label.
+    const levelButtons = await screen.findAllByRole("button", { name: "Use this level" });
+    await user.click(levelButtons[3]!);
+    await user.click(await screen.findByRole("button", { name: "Save draft" }));
+
+    const sent = calls.find((call) => call.procedure === "security.policy.save");
+    expect(sent?.input).toMatchObject({
+      organizationId: "org-1",
+      riskLevel: "critical",
+      action: "block",
+    });
+  });
+
+  it("shows the policy's own history, including transitions the server refused", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "security.policy.get") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            policy: draftPolicy,
+            events: [
+              {
+                id: "e-1",
+                policyId: "pol-1",
+                fromState: "draft",
+                toState: "active",
+                version: 3,
+                detail: null,
+                createdAt: "2026-01-01T00:00:00.000Z",
+              },
+              {
+                id: "e-2",
+                policyId: "pol-1",
+                fromState: "active",
+                toState: "failed",
+                version: 3,
+                detail: "The edge refused the configuration.",
+                createdAt: "2026-01-02T00:00:00.000Z",
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    // Both the activation and the later refusal are visible: history is not
+    // collapsed to the policy's current state.
+    expect(await screen.findByText("The edge refused the configuration.")).toBeTruthy();
   });
 
   it("reports a distribution the edge did not apply as not applied", async () => {

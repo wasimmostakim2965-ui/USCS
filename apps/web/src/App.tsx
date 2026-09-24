@@ -53,6 +53,10 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   const [workspaceId, setWorkspaceId] = usePersistentState("cloud-wai.workspace", "");
   const router = useRouter();
   const [theme, toggleTheme] = useTheme();
+  // Bumped when a "New workspace" / "New organization" affordance is used, so
+  // the Organizations page opens its create form rather than just being shown.
+  // Reset to 0 once the page has acted on it, so a remount does not re-open it.
+  const [createRequest, setCreateRequest] = useState(0);
 
   useEffect(() => session.subscribe(setCurrent), [session]);
 
@@ -85,6 +89,13 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
           slug: item.slug,
         }))
       : [];
+
+  const requestCreateOrganization = useCallback(() => {
+    setCreateRequest((value) => value + 1);
+    router.navigate({ name: "organizations" });
+  }, [router]);
+
+  const acknowledgeCreateRequest = useCallback(() => setCreateRequest(0), []);
 
   // Derive the active workspace from the URL first, then the remembered one.
   const routeOrganizationId = "organizationId" in router.route ? router.route.organizationId : null;
@@ -129,7 +140,12 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     const route = router.route;
     switch (route.name) {
       case "organizations":
-        return <OrganizationsPage />;
+        return (
+          <OrganizationsPage
+            createRequest={createRequest}
+            onCreateRequestHandled={acknowledgeCreateRequest}
+          />
+        );
       case "organization":
         // The organization summary is a Workspace-level concern; the useful
         // view is its projects, and the sidebar already shows the identity.
@@ -150,6 +166,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         return (
           <DatabasePage
             organizationId={route.organizationId}
+            projectId={route.projectId}
             section={route.section ?? "overview"}
           />
         );
@@ -176,7 +193,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
           projectName={projectName}
           projectStatus={null}
           loadingWorkspaces={workspaces.section.state.kind === "loading"}
-          onCreateOrganization={() => router.navigate({ name: "organizations" })}
+          onCreateOrganization={requestCreateOrganization}
           onSelectOrganization={(organizationId) => {
             router.navigate({ name: "projects", organizationId });
           }}
