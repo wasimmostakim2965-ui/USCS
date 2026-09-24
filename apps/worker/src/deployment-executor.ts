@@ -1,11 +1,12 @@
 /**
- * The deployment execution step, shared by the API's direct path and the worker.
+ * The worker's deployment execution step.
  *
- * A deployment command has to be runnable in two places: synchronously, when a
- * request asks for a deploy and the response reports the engine's answer, and
- * asynchronously, when the same command is a durable job. Both must behave
- * identically, so they call this one function rather than each re-implementing
- * "create the application if needed, then deploy".
+ * A deploy is "create the application if the project has none, then deploy, then
+ * read the engine's state back". The API's synchronous path implements the same
+ * algorithm inline; the two cannot share code because apps may not import each
+ * other and the queue is only wired in production, so `tests/isolation` pins the
+ * synchronous behaviour and `tests/integration/durable-deploy.test.ts` pins this
+ * one against the same engine results.
  *
  * It talks only through the injected `HostingAdapter` and write port, and it
  * returns the engine's own answer. It never decides success: a `succeeded` here

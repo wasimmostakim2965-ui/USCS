@@ -150,12 +150,14 @@ export function buildProcedures(
     newId,
     engines: extras.engines ?? missingEngines,
     ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.queue ? { queue: extras.queue } : {}),
   };
   const securityDeps: SecurityDeps = {
     store,
     newId,
     engines: extras.engines ?? missingEngines,
     ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.queue ? { queue: extras.queue } : {}),
   };
 
   return [

@@ -1,12 +1,16 @@
 /**
- * ADR-0006 phase 3 acceptance: deploy/backup/policy as durable jobs.
+ * ADR-0006 phase 3 acceptance: a deploy as a durable job, API to row.
  *
  * The API's own procedures are mounted over the same in-memory store the
  * deployment-writes test uses, a real `InMemoryJobQueue` stands in for the SQL
  * queue, and a real worker drains it with the real hosting adapter. Nothing is
  * mocked away, because the properties that matter — one job per command, the
- * deployment row mirrors the engine, a replay enqueues nothing — are exactly
- * what a mock would hide.
+ * deployment row mirrors the engine, a refused deploy is not a success — are
+ * exactly what a mock would hide.
+ *
+ * The backup and policy halves of the same acceptance live in
+ * `tests/isolation/data-security-writes.test.ts`, whose fixture already models
+ * the data-resource and policy tables.
  *
  * The store and verifier fixtures are shared with the isolation test rather than
  * copied, so there is one definition of "a member of org A".

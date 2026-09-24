@@ -1663,7 +1663,9 @@ function DistributePolicyModal({
               <p className="small">The edge accepted the policy and it is now active.</p>
             ) : (
               <p className="muted small">
-                The edge did not apply the policy: {result.engineReason}
+                {result.engineReason
+                  ? `The edge did not apply the policy: ${result.engineReason}`
+                  : "The distribution is queued. The edge applies it shortly and the policy becomes active when it does."}
               </p>
             )}
           </>

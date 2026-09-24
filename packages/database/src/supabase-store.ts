@@ -397,6 +397,18 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toDataResource(row) : null;
     },
 
+    async getDataResourceForService(
+      organizationId: OrganizationId,
+      resourceId: DataResourceId,
+    ): Promise<DataResource | null> {
+      const found = await rows("getDataResourceForService", {
+        method: "GET",
+        path: `/data_resources?select=*&id=eq.${q(resourceId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDataResource(row) : null;
+    },
+
     async listDataBackups(
       userId: UserId,
       resourceId: DataResourceId,
@@ -426,6 +438,17 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const found = await rows("getSecurityPolicy", {
         method: "GET",
         path: `/security_policies?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=version.desc&limit=1`,
+      });
+      const row = found[0];
+      return row ? toPolicy(row) : null;
+    },
+
+    async getSecurityPolicyForService(
+      organizationId: OrganizationId,
+    ): Promise<SecurityPolicy | null> {
+      const found = await rows("getSecurityPolicyForService", {
+        method: "GET",
+        path: `/security_policies?select=*&organization_id=eq.${q(organizationId)}&order=version.desc&limit=1`,
       });
       const row = found[0];
       return row ? toPolicy(row) : null;

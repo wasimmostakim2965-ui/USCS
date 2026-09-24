@@ -432,6 +432,10 @@ function BackupResourceModal({
               <p className="muted small">
                 The engine did not complete the backup: {result.engineReason}
               </p>
+            ) : result.backup.status === "pending" || result.backup.status === "running" ? (
+              <p className="muted small">
+                The backup is queued. The engine reports its own result here when it finishes.
+              </p>
             ) : (
               <p className="small">The engine returned a backup reference.</p>
             )}

@@ -17,9 +17,10 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { Engines } from "@cloud-wai/adapters";
+import type { Engines, JobQueue } from "@cloud-wai/adapters";
 import type { ControlPlaneWrites, DataBackup, DataResource, DataStore } from "@cloud-wai/database";
 import type { DataResourceId, OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
+import { BACKUP_JOB_KIND, type BackupJobPayload } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
 type DataWrites = Pick<
@@ -46,6 +47,12 @@ export interface DataDeps {
   readonly engines: Engines;
   readonly newId: () => string;
   readonly now?: () => Date;
+  /**
+   * When wired, a backup becomes a durable job the worker executes instead of
+   * engine work on the request path. Omitted in tests that pin the synchronous
+   * behaviour.
+   */
+  readonly queue?: JobQueue;
 }
 
 const ADAPTER_TIMEOUT_MS = 20_000;
@@ -242,6 +249,36 @@ export async function backupDataResource(
     provider: ref.provider,
     status: "pending",
   });
+
+  // Durable path: record the command as a job and let the worker take the
+  // backup. The row stays `pending` — its honest state until the engine answers.
+  if (deps.queue) {
+    const payload: BackupJobPayload = {
+      backupId: id,
+      organizationId: resource.organizationId,
+      dataResourceId: resource.id,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+    };
+    await deps.queue.enqueue({
+      organizationId: resource.organizationId,
+      kind: BACKUP_JOB_KIND,
+      payload,
+      // The backup id is the idempotency key, so a retried request replays the
+      // row above and never enqueues a second backup of the same attempt.
+      idempotencyKey: `backup-${id}`,
+    });
+    await deps.store.recordAuditEvent({
+      organizationId: resource.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: "data.backup_enqueued",
+      targetType: "data_backup",
+      targetId: id,
+      metadata: { dataResourceId: resource.id },
+    });
+    return { backup, engineReason: null };
+  }
 
   const adapterCtx = {
     organizationId: resource.organizationId,

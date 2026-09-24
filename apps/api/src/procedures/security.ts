@@ -25,7 +25,7 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { Engines } from "@cloud-wai/adapters";
+import type { Engines, JobQueue } from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
   DataStore,
@@ -33,6 +33,7 @@ import type {
   SecurityPolicyEvent,
 } from "@cloud-wai/database";
 import type { SecurityPolicyId, OrganizationId, ProviderRef } from "@cloud-wai/contracts";
+import { POLICY_JOB_KIND, type PolicyJobPayload } from "@cloud-wai/contracts";
 import {
   ENFORCEMENT_ACTIONS,
   RISK_LEVELS,
@@ -61,6 +62,12 @@ export interface SecurityDeps {
   readonly engines: Engines;
   readonly newId: () => string;
   readonly now?: () => Date;
+  /**
+   * When wired, a distribution becomes a durable job the worker executes instead
+   * of a call to the edge on the request path. Omitted in tests that pin the
+   * synchronous behaviour.
+   */
+  readonly queue?: JobQueue;
 }
 
 const ADAPTER_TIMEOUT_MS = 20_000;
@@ -230,6 +237,35 @@ export async function distributeSecurityPolicy(
     resourceType: "policy",
     resourceId: policy.id,
   };
+
+  // Durable path: record the distribution as a job and let the worker call the
+  // edge. The policy keeps its state — activation is the edge's answer, which
+  // the worker writes after the edge has replied. Nothing is fabricated here.
+  if (deps.queue) {
+    const payload: PolicyJobPayload = {
+      organizationId: policy.organizationId,
+      policyId: policy.id,
+      version: policy.version,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+    };
+    await deps.queue.enqueue({
+      organizationId: policy.organizationId,
+      kind: POLICY_JOB_KIND,
+      payload,
+      idempotencyKey: `distribute-${policy.id}-v${policy.version}`,
+    });
+    await deps.store.recordAuditEvent({
+      organizationId: policy.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: "policy.distribution_enqueued",
+      targetType: "security_policy",
+      targetId: policy.id,
+      metadata: { version: policy.version },
+    });
+    return { policy, distributed: false, engineReason: null };
+  }
 
   const applied = await deps.engines.securityEdge.applyPolicy(
     {

@@ -19,7 +19,22 @@ export {
   type DeploymentJobDeps,
   type DeploymentJobOutcomeWriter,
 } from "./deployment-job.js";
-export { DEPLOYMENT_JOB_KIND } from "@cloud-wai/contracts";
+export {
+  buildBackupJobHandler,
+  buildBackupApplier,
+  type BackupJobDeps,
+  type BackupExecutionWrites,
+  type BackupExecutionResult,
+} from "./backup-job.js";
+export {
+  buildPolicyJobHandler,
+  buildPolicyApplier,
+  type PolicyJobDeps,
+  type PolicyExecutionWrites,
+  type PolicyExecutionResult,
+} from "./policy-job.js";
+export { buildApplier, type JobOutcomeWriter } from "./applier.js";
+export { DEPLOYMENT_JOB_KIND, BACKUP_JOB_KIND, POLICY_JOB_KIND } from "@cloud-wai/contracts";
 export { startWorker } from "./runtime.js";
 export type { WorkerStartupOptions, WorkerStartupResult, RunningWorker } from "./runtime.js";
 

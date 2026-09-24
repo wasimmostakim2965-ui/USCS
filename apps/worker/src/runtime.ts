@@ -19,11 +19,18 @@ import { buildEngines, engineConfigFromEnv } from "@cloud-wai/adapters";
 import { randomUUID } from "node:crypto";
 import {
   InProcessWorker,
+  buildApplier,
+  buildBackupApplier,
+  buildBackupJobHandler,
   buildDeploymentApplier,
   buildDeploymentJobHandler,
+  buildPolicyApplier,
+  buildPolicyJobHandler,
+  BACKUP_JOB_KIND,
   DEPLOYMENT_JOB_KIND,
-  type DeploymentExecutionWrites,
+  POLICY_JOB_KIND,
   type JobHandler,
+  type JobOutcomeWriter,
 } from "./index.js";
 
 export interface WorkerStartupOptions {
@@ -42,22 +49,90 @@ export interface RunningWorker {
 
 export type WorkerStartupResult = RunningWorker | { readonly reason: string };
 
+type Store = ReturnType<typeof createSupabaseControlPlaneStore>;
+type Engines = ReturnType<typeof buildEngines>;
+
+interface WorkerWiring {
+  readonly handlers: Record<string, JobHandler>;
+  readonly apply: JobOutcomeWriter;
+}
+
 /**
- * The handler table the worker drains with.
+ * Wire every durable command the API writes: deploy/rollback, backup and policy
+ * distribution. Each kind gets its own handler and its own applier, and the
+ * appliers are combined into the one the processor calls.
  *
- * `deployments.execute` is the durable command the API enqueues. The other job
- * kinds in `buildHandlers` are adapter-shaped and are wired by a deployment that
- * uses them; this entry point registers the one the API writes today, and a job
- * of any other kind is failed honestly by the processor's no-handler branch.
+ * Every write here runs on the service-role client that drains the queue. The
+ * worker has no session, so `organization_id` in each write is the tenant
+ * boundary that keeps a job from reaching across organizations.
  */
-function handlersFor(
-  hosting: ReturnType<typeof buildEngines>["hosting"],
-  writes: DeploymentExecutionWrites,
-  outcome: Parameters<typeof buildDeploymentApplier>[0]["outcome"],
-): Record<string, JobHandler> {
-  return {
-    [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({ hosting, writes, outcome }),
+export function buildWorkerWiring(
+  store: Store,
+  engines: Engines,
+  newId: () => string,
+  now: () => Date,
+): WorkerWiring {
+  const deploymentWrites = {
+    getProjectDeploymentTargetForService: (organizationId: string, projectId: string) =>
+      store.getProjectDeploymentTargetForService(organizationId, projectId),
+    setProjectProviderResource: (input: Parameters<typeof store.setProjectProviderResource>[0]) =>
+      store.setProjectProviderResource(input),
   };
+  const deploymentOutcome = {
+    updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>
+      store.updateDeploymentStatus(input),
+  };
+  const backupWrites = {
+    getDataResourceForService: (organizationId: string, resourceId: string) =>
+      store.getDataResourceForService(organizationId, resourceId),
+    updateDataBackupStatus: (input: Parameters<typeof store.updateDataBackupStatus>[0]) =>
+      store.updateDataBackupStatus(input),
+    recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
+      store.recordAuditEvent(input),
+  };
+  const policyWrites = {
+    getSecurityPolicyForService: (organizationId: string) =>
+      store.getSecurityPolicyForService(organizationId),
+    saveSecurityPolicy: (input: Parameters<typeof store.saveSecurityPolicy>[0]) =>
+      store.saveSecurityPolicy(input),
+    recordPolicyEvent: (input: Parameters<typeof store.recordPolicyEvent>[0]) =>
+      store.recordPolicyEvent(input),
+    recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
+      store.recordAuditEvent(input),
+  };
+
+  const handlers: Record<string, JobHandler> = {
+    [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({
+      hosting: engines.hosting,
+      writes: deploymentWrites,
+      outcome: deploymentOutcome,
+      now,
+    }),
+    [BACKUP_JOB_KIND]: buildBackupJobHandler({
+      database: engines.database,
+      writes: backupWrites,
+      now,
+    }),
+    [POLICY_JOB_KIND]: buildPolicyJobHandler({
+      securityEdge: engines.securityEdge,
+      writes: policyWrites,
+      newId,
+      now,
+    }),
+  };
+
+  const apply = buildApplier(
+    buildDeploymentApplier({
+      hosting: engines.hosting,
+      writes: deploymentWrites,
+      outcome: deploymentOutcome,
+      now,
+    }),
+    buildBackupApplier({ database: engines.database, writes: backupWrites, now }),
+    buildPolicyApplier({ securityEdge: engines.securityEdge, writes: policyWrites, newId, now }),
+  );
+
+  return { handlers, apply };
 }
 
 /**
@@ -84,48 +159,19 @@ export async function startWorker(
     url: database.url,
     serviceRoleKey: database.serviceRoleKey,
   });
-  const store = createSupabaseControlPlaneStore({
-    client,
-    newId: options.newId ?? (() => randomUUID()),
-  });
+  const newId = options.newId ?? (() => randomUUID());
+  const store = createSupabaseControlPlaneStore({ client, newId });
   const engines = buildEngines(engineConfigFromEnv(env));
   const queue = new SqlJobQueue(client);
-
-  // The worker writes the deployment row with the same service-role client that
-  // drains the queue: it has no session, so organization_id in each write is the
-  // tenant boundary.
-  const outcome = {
-    updateDeploymentStatus: (input: {
-      id: string;
-      organizationId: string;
-      status: Parameters<typeof store.updateDeploymentStatus>[0]["status"];
-      url: string | null;
-      failureReason: string | null;
-      providerResourceId: string | null;
-      startedAt: string;
-      finishedAt: string | null;
-    }) => store.updateDeploymentStatus(input),
-  };
-
-  const writes: DeploymentExecutionWrites = {
-    getProjectDeploymentTargetForService: (organizationId, projectId) =>
-      store.getProjectDeploymentTargetForService(organizationId, projectId),
-    setProjectProviderResource: (input) => store.setProjectProviderResource(input),
-  };
-
-  const applier = buildDeploymentApplier({
-    hosting: engines.hosting,
-    writes,
-    outcome,
-  });
+  const { handlers, apply } = buildWorkerWiring(store, engines, newId, () => new Date());
 
   const worker = new InProcessWorker({
     queue,
-    handlers: handlersFor(engines.hosting, writes, outcome),
+    handlers,
     logger: consoleLogger(),
     workerId: `worker-${process.pid}`,
     ...(options.leaseMs ? { leaseMs: options.leaseMs } : {}),
-    apply: applier,
+    apply,
   });
 
   const intervalMs = options.pollIntervalMs ?? 2_000;

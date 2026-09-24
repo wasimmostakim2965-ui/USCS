@@ -30,14 +30,19 @@ export interface DeploymentJobPayload {
 
 export const BACKUP_JOB_KIND = "data.backup.execute";
 
-/** A backup requested against a provisioned data resource. */
+/**
+ * A backup requested against a provisioned data resource.
+ *
+ * It carries no engine handle: the worker re-reads the resource and takes the
+ * handle from there, so a job cannot back up whatever a stale id happens to name.
+ */
 export interface BackupJobPayload {
   readonly backupId: string;
   readonly organizationId: OrganizationId;
   readonly dataResourceId: string;
-  /** The engine handle recorded at provisioning, so the job can address it. */
-  readonly providerResourceId: string;
-  readonly provider: string;
+  /** The member who asked, carried so the worker's audit row names the actor. */
+  readonly actorId: string;
+  readonly actorEmail: string;
 }
 
 export const POLICY_JOB_KIND = "policy.distribute.execute";
@@ -46,6 +51,9 @@ export const POLICY_JOB_KIND = "policy.distribute.execute";
 export interface PolicyJobPayload {
   readonly organizationId: OrganizationId;
   readonly policyId: string;
-  /** The version the API saw. The worker re-reads before applying. */
+  /** The version the API saw. The worker re-reads and refuses a stale one. */
   readonly version: number;
+  /** The member who asked, carried so the worker's audit rows name the actor. */
+  readonly actorId: string;
+  readonly actorEmail: string;
 }

@@ -44,11 +44,12 @@ import type {
   SecurityPolicyEvent,
   SecurityPolicyInput,
 } from "@cloud-wai/database";
-import type { AdapterContext, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
+import type { AdapterContext, JobQueue, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
 import {
   databaseNotConfigured,
   fakeDatabase,
   hostingNotConfigured,
+  InMemoryJobQueue,
   securityNotConfigured,
   storageNotConfigured,
   domainVerifierNotConfigured,
@@ -62,6 +63,16 @@ import {
   type UserId,
 } from "@cloud-wai/contracts";
 import { buildProcedures, buildRouter, type RouterDeps } from "@cloud-wai/api";
+import {
+  InProcessWorker,
+  buildApplier,
+  buildBackupApplier,
+  buildBackupJobHandler,
+  buildPolicyApplier,
+  buildPolicyJobHandler,
+  BACKUP_JOB_KIND,
+  POLICY_JOB_KIND,
+} from "@cloud-wai/worker";
 
 const ALICE = "u-alice";
 const CAROL = "u-carol";
@@ -263,6 +274,11 @@ function makeStore() {
       const r = resources.find((x) => x.id === resourceId);
       return r && isMember(userId, r.organizationId) ? r : null;
     },
+    async getDataResourceForService(organizationId: OrganizationId, resourceId: DataResourceId) {
+      return (
+        resources.find((x) => x.id === resourceId && x.organizationId === organizationId) ?? null
+      );
+    },
     async setDataResourceState(input: DataResourceStateInput) {
       const r = resources.find(
         (x) => x.id === input.id && x.organizationId === input.organizationId,
@@ -313,6 +329,9 @@ function makeStore() {
 
     async getSecurityPolicy(userId: UserId, org: OrganizationId) {
       if (!isMember(userId, org)) return null;
+      return policies.find((p) => p.organizationId === org) ?? null;
+    },
+    async getSecurityPolicyForService(org: OrganizationId) {
       return policies.find((p) => p.organizationId === org) ?? null;
     },
     async saveSecurityPolicy(input: SecurityPolicyInput) {
@@ -432,12 +451,13 @@ function workingSecurityEngines(edge: SecurityEdgeAdapter): Engines {
 function routerWith(
   store: DataStoreLike,
   engines: Engines,
-  extras: { newId?: () => string; now?: () => Date } = {},
+  extras: { newId?: () => string; now?: () => Date; queue?: JobQueue } = {},
 ) {
   const procedures = buildProcedures(store, {
     engines,
     newId: extras.newId ?? (() => `gen-${Math.random().toString(36).slice(2, 8)}`),
     ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.queue ? { queue: extras.queue } : {}),
   });
   return buildRouter(deps(store), procedures);
 }
@@ -835,3 +855,188 @@ describe("security.policy.get through the registered procedures", () => {
     expect([403, 404]).toContain(res.status);
   });
 });
+
+/**
+ * Durable backup and policy: the same round trip the deploy test proves.
+ *
+ * The API enqueues; a real `InMemoryJobQueue` holds the job; a real worker
+ * drains it with the real handlers and appliers. The assertions are about what a
+ * mock would hide: one job per command, the row mirroring the engine, and a
+ * policy activating only after the edge answered.
+ */
+describe("the durable writer: backup and policy as orchestration jobs", () => {
+  const logger = { debug() {}, info() {}, warn() {}, error() {} };
+
+  function workerOver(store: DataStoreLike, engines: Engines, queue: JobQueue, newId: () => string) {
+    const backupWrites = {
+      getDataResourceForService: (org: OrganizationId, resourceId: DataResourceId) =>
+        store.getDataResourceForService!(org, resourceId),
+      updateDataBackupStatus: (input: DataBackupStatusInput) =>
+        store.updateDataBackupStatus!(input),
+      recordAuditEvent: (input: AuditEventInput) => store.recordAuditEvent(input),
+    };
+    const policyWrites = {
+      getSecurityPolicyForService: (org: OrganizationId) => store.getSecurityPolicyForService!(org),
+      saveSecurityPolicy: (input: SecurityPolicyInput) => store.saveSecurityPolicy!(input),
+      recordPolicyEvent: (input: PolicyEventInput) => store.recordPolicyEvent!(input),
+      recordAuditEvent: (input: AuditEventInput) => store.recordAuditEvent(input),
+    };
+    return new InProcessWorker({
+      queue,
+      handlers: {
+        [BACKUP_JOB_KIND]: buildBackupJobHandler({ database: engines.database, writes: backupWrites }),
+        [POLICY_JOB_KIND]: buildPolicyJobHandler({
+          securityEdge: engines.securityEdge,
+          writes: policyWrites,
+          newId,
+        }),
+      },
+      logger,
+      workerId: "worker-1",
+      apply: buildApplier(
+        buildBackupApplier({ database: engines.database, writes: backupWrites }),
+        buildPolicyApplier({ securityEdge: engines.securityEdge, writes: policyWrites, newId }),
+      ),
+    });
+  }
+
+  it("enqueues a backup as a pending row and a queued job, then the worker takes it", async () => {
+    const { store, backups } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+
+    const res = await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    // `pending` is honest: the engine has not answered, so a success would be a
+    // guess. The job is queued, not run on the request path.
+    expect((res.data as { backup: DataBackup }).backup.status).toBe("pending");
+    expect(backups[0]?.status).toBe("pending");
+
+    const job = await queue.get("job-1");
+    expect(job?.kind).toBe(BACKUP_JOB_KIND);
+    expect(job?.state).toBe("queued");
+    expect((job?.payload as { actorId?: string }).actorId).toBe(ALICE);
+
+    const outcomes = await workerOver(store, engines, queue, () => "evt").drain();
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]?.status).toBe("succeeded");
+    expect(outcomes[0]?.applied).toBe(true);
+    // The row now carries the engine's own handle.
+    expect(backups[0]?.status).toBe("succeeded");
+    expect(backups[0]?.providerResourceId).toBeTruthy();
+  });
+
+  it("records the engine's not_configured on the backup row, never a success", async () => {
+    const { store, backups } = makeStore();
+    const queue = new InMemoryJobQueue();
+    // The resource is provisioned with a real handle, but the worker runs with
+    // an engine that has no credentials: the backup must end `not_configured`.
+    const router = routerWith(store, workingEngines(), { queue, newId: () => "gen" });
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+
+    await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+
+    const outcomes = await workerOver(store, unconfiguredEngines(), queue, () => "evt").drain();
+    expect(outcomes[0]?.status).toBe("not_configured");
+    expect(backups[0]?.status).toBe("not_configured");
+  });
+
+  it("refuses a non-member's backup before anything is enqueued", async () => {
+    const { store, backups } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue, newId: () => "gen" });
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+
+    const res = await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
+    expect(await queue.get("job-1")).toBeNull();
+    expect(backups).toHaveLength(0);
+  });
+
+  it("distributes a policy as a durable job and activates only after the edge accepts", async () => {
+    const { store, policies, policyEvents } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingSecurityEngines(edgeAnswering(() => ok("succeeded", { version: 1 })));
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Block SQLi", riskLevel: "high", action: "block" },
+    });
+
+    const res = await router.route({
+      procedure: "security.policy.distribute",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    // Still a draft: the edge has not answered, so nothing is active yet.
+    expect(policies[0]?.state).toBe("draft");
+    const job = await queue.get("job-1");
+    expect(job?.kind).toBe(POLICY_JOB_KIND);
+    expect(job?.state).toBe("queued");
+
+    const outcomes = await workerOver(store, engines, queue, () => "evt").drain();
+    expect(outcomes[0]?.status).toBe("succeeded");
+    expect(policies[0]?.state).toBe("active");
+    expect(policyEvents.some((e) => e.toState === "active")).toBe(true);
+  });
+
+  it("keeps a policy non-active and records rejected when the edge refuses", async () => {
+    const { store, policies, policyEvents } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingSecurityEngines(
+      edgeAnswering(() => err("not_configured", "edge not configured")),
+    );
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Block SQLi", riskLevel: "high", action: "block" },
+    });
+    await router.route({
+      procedure: "security.policy.distribute",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+
+    const outcomes = await workerOver(store, engines, queue, () => "evt").drain();
+    expect(outcomes[0]?.status).toBe("not_configured");
+    expect(policies[0]?.state).toBe("draft");
+    expect(policyEvents.some((e) => e.toState === "rejected")).toBe(true);
+  });
+});
+

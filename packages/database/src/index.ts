@@ -161,6 +161,15 @@ export interface ControlPlaneWrites {
 
   /** The organization's current security policy, or null when none exists. */
   getSecurityPolicy(userId: UserId, organizationId: OrganizationId): Promise<SecurityPolicy | null>;
+  /**
+   * The organization's current policy, scoped by organization only.
+   *
+   * For a caller with no session — the worker draining a distribution job. As
+   * with the other `…ForService` reads, `organization_id` in the where clause is
+   * the tenant boundary, and it sits on the write interface so no browser-facing
+   * read path can reach it.
+   */
+  getSecurityPolicyForService(organizationId: OrganizationId): Promise<SecurityPolicy | null>;
   /** Insert or advance the policy. Version increases monotonically. */
   saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
   /** Record a policy state transition. Append-only. */
@@ -192,6 +201,18 @@ export interface ControlPlaneWrites {
   /** Register a tenant data resource handle. */
   createDataResource(input: DataResourceCreateInput): Promise<DataResource>;
   getDataResource(userId: UserId, resourceId: DataResourceId): Promise<DataResource | null>;
+  /**
+   * A data resource by id, scoped by organization only.
+   *
+   * For a caller with no session — the worker draining a backup job, which needs
+   * the engine handle recorded at provisioning. There is no membership to join,
+   * so `organization_id` is the tenant boundary. On the write interface, so it is
+   * not reachable from a browser-facing read path.
+   */
+  getDataResourceForService(
+    organizationId: OrganizationId,
+    resourceId: DataResourceId,
+  ): Promise<DataResource | null>;
   listDataBackups(userId: UserId, resourceId: DataResourceId): Promise<readonly DataBackup[]>;
   /** Request a backup. The worker performs it; status starts `pending`. */
   createDataBackup(input: DataBackupCreateInput): Promise<DataBackup>;

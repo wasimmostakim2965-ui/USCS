@@ -23,9 +23,10 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@cloud-wai/contracts": "workspace:*",
     "@cloud-wai/adapters": "workspace:*",
+    "@cloud-wai/contracts": "workspace:*",
     "@cloud-wai/database": "workspace:*",
-    "@cloud-wai/observability": "workspace:*"
+    "@cloud-wai/observability": "workspace:*",
+    "@cloud-wai/security": "workspace:*"
   }
 }

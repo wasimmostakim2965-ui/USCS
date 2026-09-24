@@ -8,7 +8,7 @@
  * state is persisted before the customer-facing row is touched.
  */
 import type { AdapterResult, EngineStatus, DeploymentJobPayload } from "@cloud-wai/contracts";
-import { err, ok } from "@cloud-wai/contracts";
+import { err, ok, DEPLOYMENT_JOB_KIND } from "@cloud-wai/contracts";
 import type { Job } from "@cloud-wai/adapters";
 import type { JobHandler } from "./processor.js";
 import {
@@ -87,6 +87,7 @@ export function buildDeploymentApplier(
 ): (job: Job, result: AdapterResult<unknown>) => Promise<void> {
   const clock = deps.now ?? (() => new Date());
   return async (job, result) => {
+    if (job.kind !== DEPLOYMENT_JOB_KIND) return;
     const payload = job.payload as DeploymentJobPayload;
     const finished = clock().toISOString();
 
