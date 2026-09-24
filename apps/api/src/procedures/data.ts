@@ -213,6 +213,18 @@ export async function backupDataResource(
     );
   }
 
+  // Only the database adapter has a `backup` at all: a bucket's backup goes
+  // through the storage engine's own mechanism, which this build does not
+  // expose. Routing a bucket here would send a MinIO bucket name to the database
+  // engine as though it were a database id and record a backup that names no
+  // artifact — so it is refused rather than faked.
+  if (resource.kind !== "postgres") {
+    throw new ApiError(
+      "engine_unavailable",
+      "Backing up an object-storage bucket is not available in this build yet.",
+    );
+  }
+
   const id = deps.newId();
   const ref: ProviderRef = {
     organizationId: resource.organizationId,

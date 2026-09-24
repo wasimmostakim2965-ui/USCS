@@ -156,13 +156,16 @@ function DatabaseOverview({
                   <div style={{ display: "flex", justifyContent: "flex-end" }}>
                     <Button
                       size="sm"
-                      // A resource with no engine handle cannot be backed up; the
-                      // server refuses it too. Disabling says so before the call.
-                      disabled={item.state !== "ready"}
+                      // A resource that is not ready has no engine handle, and a
+                      // bucket has no backup path in this build; the server refuses
+                      // both. Disabling says so before the call.
+                      disabled={item.state !== "ready" || item.kind !== "postgres"}
                       title={
-                        item.state === "ready"
-                          ? "Take a backup"
-                          : "A resource must be ready before it can be backed up."
+                        item.kind !== "postgres"
+                          ? "Backing up an object-storage bucket is not available yet."
+                          : item.state === "ready"
+                            ? "Take a backup"
+                            : "A resource must be ready before it can be backed up."
                       }
                       onClick={() => setBackingUp(item)}
                     >

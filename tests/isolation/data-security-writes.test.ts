@@ -384,6 +384,26 @@ function workingEngines(): Engines {
   return { ...unconfiguredEngines(), database: fakeDatabase() };
 }
 
+/** A storage engine that really provisions a bucket, so a bucket has a handle. */
+function workingStorage(): Engines["storage"] {
+  let counter = 0;
+  return {
+    __notConfigured: false,
+    async createBucket(ctx, input) {
+      counter += 1;
+      return ok("succeeded", {
+        organizationId: ctx.organizationId,
+        provider: "minio",
+        resourceType: "bucket",
+        resourceId: `${input.name}-${counter}`,
+      });
+    },
+    async deleteBucket() {
+      return ok("succeeded", undefined);
+    },
+  };
+}
+
 /**
  * An edge whose `applyPolicy` answer the test controls.
  *
@@ -564,6 +584,39 @@ describe("data.backup through the registered procedures", () => {
 
     expect(res.ok).toBe(false);
     expect([403, 404]).toContain(res.status);
+    expect(backups).toHaveLength(0);
+  });
+
+  it("refuses to back up an object-storage bucket through the database engine", async () => {
+    const { store, backups } = makeStore();
+    // Storage really provisions, so the bucket has a provider handle — which is
+    // exactly what a naive implementation would then hand to the *database*
+    // engine as though the bucket name were a database id.
+    const router = routerWith(store, {
+      ...unconfiguredEngines(),
+      database: fakeDatabase(),
+      storage: workingStorage(),
+    });
+
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput({ kind: "object_storage", name: "tenant-bucket" }),
+    });
+    expect(provisioned.ok, JSON.stringify(provisioned.error)).toBe(true);
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+    expect(resource.providerResourceId).toBeTruthy();
+
+    const res = await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+
+    // A bucket has no backup path in this build; recording a backup would name
+    // no artifact, so it is refused and nothing is written.
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(503);
     expect(backups).toHaveLength(0);
   });
 
