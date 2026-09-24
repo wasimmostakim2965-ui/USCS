@@ -35,6 +35,7 @@ import {
   NotFoundPage,
   OrganizationsPage,
   ProjectOverviewPage,
+  ProjectSettingsPage,
   ProjectsPage,
   SecurityPage,
   SettingsPage,
@@ -172,6 +173,10 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         );
       case "security":
         return <SecurityPage organizationId={route.organizationId} />;
+      case "projectSettings":
+        return (
+          <ProjectSettingsPage organizationId={route.organizationId} projectId={route.projectId} />
+        );
       case "audit":
         return <ActivityPage organizationId={route.organizationId} />;
       case "apiKeys":

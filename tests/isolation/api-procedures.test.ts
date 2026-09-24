@@ -113,6 +113,19 @@ function makeStore() {
       projects.push(p);
       return p;
     },
+    async updateProject(input) {
+      const p = projects.find(
+        (x) => x.id === input.projectId && x.organizationId === input.organizationId,
+      );
+      if (!p) return null;
+      const next: Project = {
+        ...p,
+        name: input.name ?? p.name,
+        slug: input.slug ?? p.slug,
+      };
+      projects[projects.indexOf(p)] = next;
+      return next;
+    },
     async listDeployments(userId, projectId) {
       const p = projects.find((x) => x.id === projectId);
       return p && isMember(userId, p.organizationId)
@@ -201,6 +214,7 @@ describe("the registered procedure table", () => {
       "projects.create",
       "projects.get",
       "projects.list",
+      "projects.update",
       "providers.health",
       "security.policy.distribute",
       "security.policy.get",
@@ -280,6 +294,69 @@ describe("the registered procedure table", () => {
     });
     expect(res.status).toBe(400);
     expect(res.error?.code).toBe("invalid_input");
+  });
+});
+
+describe("projects.update through the registered procedures", () => {
+  it("renames a project and records the change", async () => {
+    const { store, audit, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", name: "Renamed", slug: "renamed" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as Project;
+    expect(data.name).toBe("Renamed");
+    expect(data.slug).toBe("renamed");
+    expect(projects[0]?.name).toBe("Renamed");
+    expect(audit.some((a) => a.event === "project.updated" && a.targetId === "p-1")).toBe(true);
+  });
+
+  it("reports not_found for a project the caller is not a member of", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: "p-1", name: "Hijacked" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+    expect(projects[0]?.name).toBe("P");
+  });
+
+  it("requires something to change", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.error?.code).toBe("invalid_input");
+  });
+
+  it("rejects an invalid slug", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", slug: "Not Valid" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(projects[0]?.slug).toBe("p");
   });
 });
 

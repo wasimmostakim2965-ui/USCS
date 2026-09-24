@@ -141,6 +141,14 @@ export interface ControlPlaneWrites {
    * its reference every later deployment would create a second application.
    */
   setProjectProviderResource(input: ProjectProviderInput): Promise<Project | null>;
+  /**
+   * Rename a project. Scoped to a member's organization.
+   *
+   * Only the caller-owned columns (`name`, `slug`) are writable; the engine-owned
+   * ones are frozen by the `projects` trigger from `0006`. The where clause
+   * carries `organization_id`, so a write can never reach across a tenant.
+   */
+  updateProject(input: ProjectUpdateInput): Promise<Project | null>;
   /** The engine-side target for a project, scoped to a member's organization. */
   getProjectDeploymentTarget(
     userId: UserId,
@@ -279,6 +287,14 @@ export interface ProjectProviderInput {
   readonly projectId: ProjectId;
   readonly provider: string;
   readonly providerResourceId: string;
+}
+
+/** What a project rename may change. Engine-owned columns are not here. */
+export interface ProjectUpdateInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly name?: string | undefined;
+  readonly slug?: string | undefined;
 }
 
 /**

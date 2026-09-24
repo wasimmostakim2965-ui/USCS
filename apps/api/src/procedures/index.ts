@@ -28,6 +28,7 @@ import {
   getProject,
   listOrganizations,
   listProjects,
+  updateProject,
   type OrgDeps,
 } from "./organizations.js";
 import {
@@ -205,6 +206,15 @@ export function buildProcedures(
         ),
     },
     {
+      name: "projects.update",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        updateProject(
+          ctx,
+          orgDeps,
+          inputOf<{ projectId: ProjectId; name?: string; slug?: string }>(input),
+        ),
+    },
+    {
       name: "deployments.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listDeployments(ctx, depDeps, inputOf<{ projectId: ProjectId }>(input).projectId),
@@ -354,6 +364,7 @@ export const ROUTE_SHAPES = {
   "projects.list": { organizationId: "OrganizationId" },
   "projects.get": { projectId: "ProjectId" },
   "projects.create": { organizationId: "OrganizationId", name: "string", slug: "string" },
+  "projects.update": { projectId: "ProjectId", name: "string?", slug: "string?" },
   "deployments.list": { projectId: "ProjectId" },
   "deployments.create": {
     projectId: "ProjectId",

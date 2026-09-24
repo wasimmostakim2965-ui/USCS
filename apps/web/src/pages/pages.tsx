@@ -6,7 +6,7 @@
  * no page here that renders a value it did not load, and no page that turns a
  * `not_configured` engine into a success.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -41,6 +41,7 @@ import {
   loadOrganizations,
   loadProject,
   loadProjects,
+  updateProject,
   loadProviderHealth,
   loadSecurityPolicy,
   loadSecurityPolicyEvents,
@@ -465,6 +466,120 @@ export function ProjectOverviewPage({
               />
             )}
           />
+        </Card>
+      </SectionShell>
+    </PageShell>
+  );
+}
+
+/**
+ * A project's settings page.
+ *
+ * Distinct from the workspace Settings page: this one edits the project the
+ * caller is currently inside. Renaming goes through `projects.update`, which
+ * resolves the organization from the row (not the request) before it guards.
+ * Engine-owned fields are not shown as editable because they are not — the
+ * adapter writes them.
+ */
+export function ProjectSettingsPage({
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client } = useApp();
+  const { section, reload } = useSection(
+    () => loadProject(client, projectId),
+    [client, projectId],
+    "Project",
+  );
+
+  const project = section.state.kind === "ready" ? section.state.items[0] : undefined;
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  // Seed once per project. Keying on the id (rather than priming on empty
+  // strings) means a keystroke after a save is never overwritten by a reload.
+  const seededFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (project && seededFor.current !== project.id) {
+      seededFor.current = project.id;
+      setName(project.name);
+      setSlug(project.slug);
+    }
+  }, [project]);
+
+  const dirty = Boolean(project) && (name !== project!.name || slug !== project!.slug);
+
+  const submit = async () => {
+    if (!project) return;
+    setBusy(true);
+    setError(null);
+    const result = await updateProject(client, { projectId, name, slug });
+    setBusy(false);
+    if (result.state.kind !== "ready" || !result.state.items[0]) {
+      setError(
+        result.state.kind === "error" ? result.state.message : "The project could not be updated.",
+      );
+      return;
+    }
+    setSaved(true);
+    reload();
+  };
+
+  return (
+    <PageShell
+      title="Settings"
+      subtitle="Rename this project. Engine-owned fields are written by the adapters, not here."
+    >
+      <SectionShell title="Project">
+        <Card>
+          <div className="stack">
+            <Field label="Name" {...(error ? { error } : {})}>
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={name}
+                  onChange={(value) => {
+                    setSaved(false);
+                    setName(value);
+                  }}
+                  placeholder="Web app"
+                />
+              )}
+            </Field>
+            <Field label="Slug" hint="Lowercase letters, digits and hyphens. Used in URLs.">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={slug}
+                  onChange={(value) => {
+                    setSaved(false);
+                    setSlug(value.toLowerCase());
+                  }}
+                  placeholder="web-app"
+                />
+              )}
+            </Field>
+            <dl className="dl">
+              <dt>Project ID</dt>
+              <dd className="mono">{projectId}</dd>
+            </dl>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              {saved ? <span className="muted small">Saved.</span> : null}
+              <Button
+                variant="primary"
+                onClick={() => void submit()}
+                busy={busy}
+                disabled={!dirty || !name || !slug}
+              >
+                Save changes
+              </Button>
+            </div>
+          </div>
         </Card>
       </SectionShell>
     </PageShell>

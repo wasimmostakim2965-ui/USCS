@@ -46,6 +46,7 @@ import type {
   Project,
   ProjectDeploymentTarget,
   ProjectProviderInput,
+  ProjectUpdateInput,
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
@@ -619,6 +620,22 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           provider: input.provider,
           provider_resource_id: input.providerResourceId,
         },
+      });
+      const row = updated[0];
+      return row ? toProject(row) : null;
+    },
+
+    async updateProject(input: ProjectUpdateInput): Promise<Project | null> {
+      const patch: Record<string, unknown> = {};
+      if (input.name !== undefined) patch["name"] = input.name;
+      if (input.slug !== undefined) patch["slug"] = input.slug;
+      if (Object.keys(patch).length === 0) return null;
+
+      const updated = await rows("updateProject", {
+        method: "PATCH",
+        path: `/projects?select=*&id=eq.${q(input.projectId)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: patch,
       });
       const row = updated[0];
       return row ? toProject(row) : null;

@@ -180,6 +180,15 @@ export async function loadProject(
   return itemFrom("Project", response, "This project does not exist, or you are not a member.");
 }
 
+/** Rename a project. Returns the updated project, or an honest error section. */
+export async function updateProject(
+  client: ApiClient,
+  input: { projectId: string; name?: string; slug?: string },
+): Promise<Section<ProjectSummary>> {
+  const response = await client.call<ProjectSummary>("projects.update", input);
+  return itemFrom("Project", response, "This project does not exist, or you are not a member.");
+}
+
 /** Load one organization by id. */
 export async function loadOrganization(
   client: ApiClient,
@@ -499,6 +508,12 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       return {
         title: "Security",
         sections: [await loadProviderHealth(client, route.organizationId)],
+      };
+
+    case "projectSettings":
+      return {
+        title: "Settings",
+        sections: [await loadProject(client, route.projectId)],
       };
 
     case "audit":

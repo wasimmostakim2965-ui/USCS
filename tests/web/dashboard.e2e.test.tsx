@@ -299,6 +299,45 @@ describe("the dashboard against a live control plane", () => {
     expect(screen.queryByText(/cw_secret/i)).toBeNull();
   });
 
+  it("renames a project from the project settings page through projects.update", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    let project = { id: "p-1", organizationId: "org-1", name: "Web app", slug: "web-app" };
+
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: project };
+      }
+      if (procedure === "projects.update") {
+        const body = input as { name?: string; slug?: string };
+        project = {
+          ...project,
+          ...(body.name ? { name: body.name } : {}),
+          ...(body.slug ? { slug: body.slug } : {}),
+        };
+        return { ok: true, status: 200, data: project };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/settings");
+
+    const user = userEvent.setup();
+    const name = await screen.findByLabelText("Name");
+    await waitFor(() => expect((name as HTMLInputElement).value).toBe("Web app"));
+
+    await user.clear(name);
+    await user.type(name, "Renamed app");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(calls.some((c) => c.procedure === "projects.update")).toBe(true));
+    const rename = calls.find((c) => c.procedure === "projects.update");
+    expect((rename!.input as { name: string }).name).toBe("Renamed app");
+  });
+
   it("navigates by rewriting the URL, so the route survives a reload", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

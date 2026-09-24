@@ -132,8 +132,8 @@ export function projectNav(
       id: "settings",
       label: "Settings",
       icon: "settings",
-      description: "Project settings and engine status.",
-      route: { name: "settings", organizationId },
+      description: "Project profile and engine status for this project.",
+      route: { name: "projectSettings", organizationId, projectId },
     },
   ];
 }
@@ -235,13 +235,19 @@ export function navForRoute(
     case "project":
     case "deployments":
     case "domains":
-    case "security": {
+    case "security":
+    case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
       // workspace-level dead link, and the honest answer is the workspace menu.
       if (!route.projectId) return workspace(null);
       return {
         items: projectNav({ ...context, projectId: route.projectId }),
-        activeId: route.name === "project" ? "overview" : route.name,
+        activeId:
+          route.name === "project"
+            ? "overview"
+            : route.name === "projectSettings"
+              ? "settings"
+              : route.name,
         projectId: route.projectId,
         level: "project",
       };
@@ -309,6 +315,8 @@ export function titleForRoute(route: Route): string {
       return databaseSectionTitle(route.section ?? "overview");
     case "security":
       return "Security";
+    case "projectSettings":
+      return "Settings";
     case "apiKeys":
       return "API keys";
     case "audit":
@@ -328,6 +336,7 @@ export function backTargetFor(route: Route): Route | null {
     case "deployments":
     case "domains":
     case "security":
+    case "projectSettings":
       return {
         name: "project",
         organizationId: route.organizationId,

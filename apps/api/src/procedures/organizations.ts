@@ -11,7 +11,7 @@
  */
 import { allowed, requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { DataStore, Organization, Project } from "@cloud-wai/database";
+import type { ControlPlaneWrites, DataStore, Organization, Project } from "@cloud-wai/database";
 import type { OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
@@ -141,4 +141,75 @@ export async function createProject(
 /** Non-throwing variant, for callers that want a boolean and no error. */
 export function mayReadProject(ctx: RequestContext, organizationId: OrganizationId): boolean {
   return allowed(ctx, organizationId, "project:read");
+}
+
+/**
+ * Rename a project.
+ *
+ * The project id is resolved through membership first, so the organization the
+ * capability is checked against comes from the row, not from the caller — the
+ * same reason `getProject` reads before it guards. Only `name` and `slug` can
+ * change: the engine-owned columns are not accepted here and the `projects`
+ * trigger from `0006` would reject them anyway.
+ */
+export async function updateProject(
+  ctx: RequestContext,
+  deps: OrgDeps,
+  input: { projectId: ProjectId; name?: string | undefined; slug?: string | undefined },
+): Promise<Project> {
+  const existing = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!existing) {
+    throw new ApiError("not_found", "Project not found.");
+  }
+  requireCapability(ctx, existing.organizationId, "project:update");
+
+  if (input.name === undefined && input.slug === undefined) {
+    throw new ApiError("invalid_input", "Nothing to update: provide a name or a slug.");
+  }
+
+  let name: string | undefined;
+  if (input.name !== undefined) {
+    name = input.name.trim();
+    if (name.length < 1 || name.length > 120) {
+      throw new ApiError("invalid_input", "Project name must be 1-120 characters.");
+    }
+  }
+
+  let slug: string | undefined;
+  if (input.slug !== undefined) {
+    if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(input.slug)) {
+      throw new ApiError(
+        "invalid_input",
+        "Project slug must be lowercase alphanumeric with hyphens.",
+      );
+    }
+    slug = input.slug;
+  }
+
+  const writes = deps.store as Partial<ControlPlaneWrites>;
+  if (typeof writes.updateProject !== "function") {
+    throw new ApiError("engine_unavailable", "This deployment cannot rename projects yet.");
+  }
+
+  const updated = await writes.updateProject({
+    organizationId: existing.organizationId,
+    projectId: input.projectId,
+    name,
+    slug,
+  });
+  if (!updated) {
+    throw new ApiError("not_found", "Project not found.");
+  }
+
+  await deps.store.recordAuditEvent({
+    organizationId: updated.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "project.updated",
+    targetType: "project",
+    targetId: updated.id,
+    metadata: { slug: updated.slug },
+  });
+
+  return updated;
 }
