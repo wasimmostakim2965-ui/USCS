@@ -181,11 +181,35 @@ describe("loaders", () => {
     });
 
     await loadRoute(recording, { name: "domains", organizationId: "org-a", projectId: "p-1" });
-    await loadRoute(recording, { name: "data", organizationId: "org-a", projectId: "p-1" });
+    await loadRoute(recording, {
+      name: "database",
+      organizationId: "org-a",
+      projectId: "p-1",
+      section: "tables",
+    });
     await loadRoute(recording, { name: "security", organizationId: "org-a", projectId: "p-1" });
     await loadRoute(recording, { name: "apiKeys", organizationId: "org-a" });
 
     expect(calls).toEqual(["domains.list", "data.list", "providers.health", "apiKeys.list"]);
+  });
+
+  it("titles a database sub-page by its section, not by the parent section", async () => {
+    const client = clientReturning({ ok: true, status: 200, data: [] });
+
+    const tables = await loadRoute(client, {
+      name: "database",
+      organizationId: "org-a",
+      projectId: "p-1",
+      section: "tables",
+    });
+    const overview = await loadRoute(client, {
+      name: "database",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
+
+    expect(tables.title).toBe("Table Editor");
+    expect(overview.title).toBe("Overview");
   });
 
   it("carries each engine's state through to the row instead of collapsing it", async () => {

@@ -8,15 +8,24 @@
  * Every entry carries a `parseRoute`-compatible path, so navigation is a link:
  * a refresh, a bookmark or a deep link lands in the same place.
  *
- * There are two levels, and a route belongs to exactly one of them:
+ * There are three levels, and a route belongs to exactly one of them:
  *   * workspace — Projects, API keys, Activity, Settings.
- *   * project   — Overview, Deployments, Domains, Data, Security, Settings.
+ *   * project   — Overview, Deployments, Domains, Database, Security, Settings.
+ *   * database  — Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles,
+ *                 Logs, Settings. This is the third drill-in level, reached from
+ *                 the project menu's Database entry.
  *
- * Security, Domains and Data are project-scoped on purpose. A policy is applied
- * to an application, not to a company, and a route that named an organization
- * but no project would render a section with nothing to act on.
+ * Security, Domains and Database are project-scoped on purpose. A policy is
+ * applied to an application, not to a company, and a route that named an
+ * organization but no project would render a section with nothing to act on.
  */
-import { parseRoute, toPath, type Route } from "./routes.js";
+import {
+  DATABASE_SECTIONS,
+  parseRoute,
+  toPath,
+  type DatabaseSection,
+  type Route,
+} from "./routes.js";
 
 export interface NavItem {
   readonly id: string;
@@ -102,11 +111,11 @@ export function projectNav(
       route: { name: "domains", organizationId, projectId },
     },
     {
-      id: "data",
-      label: "Data",
+      id: "database",
+      label: "Database",
       glyph: "◫",
-      description: "Databases and storage attached to this project.",
-      route: { name: "data", organizationId, projectId },
+      description: "Databases, tables, storage and auth for this project.",
+      route: { name: "database", organizationId, projectId },
     },
     {
       id: "security",
@@ -126,6 +135,59 @@ export function projectNav(
 }
 
 /**
+ * The Database sub-menu.
+ *
+ * This is the third drill-in level: Workspace -> Project -> Database. Like the
+ * project switch, it *replaces* the sidebar rather than appending to it, and a
+ * back control returns to the project menu. That is the GitLab shape, not a
+ * Cloudflare-style dropdown, per the owner's instruction.
+ *
+ * The section list is the vocabulary of a hosted Postgres platform, because
+ * that is what this section is. Every entry is a real route, so each sub-page
+ * is deep-linkable, refreshable and bookmarkable on its own.
+ *
+ * Every section's glyph and description live in total records over
+ * `DatabaseSection`, so adding a section to `DATABASE_SECTIONS` without giving
+ * it a glyph and a description is a type error rather than a blank sidebar item.
+ */
+const DATABASE_SECTION_GLYPHS: Readonly<Record<DatabaseSection, string>> = {
+  overview: "◇",
+  tables: "▦",
+  sql: "⌗",
+  auth: "⛿",
+  storage: "▤",
+  api: "⌘",
+  roles: "◎",
+  logs: "≡",
+  settings: "⚙",
+};
+
+const DATABASE_SECTION_DESCRIPTIONS: Readonly<Record<DatabaseSection, string>> = {
+  overview: "Project status and connection details.",
+  tables: "Browse and edit rows through the REST surface.",
+  sql: "Run SQL against this project's database.",
+  auth: "Users, sessions and auth providers.",
+  storage: "Object storage buckets for this project.",
+  api: "The REST endpoints this project exposes.",
+  roles: "Roles, extensions and backups.",
+  logs: "Recent database and API logs.",
+  settings: "Database settings for this project.",
+};
+
+export function databaseNav(
+  context: NavContext & { readonly projectId: string },
+): readonly NavItem[] {
+  const { organizationId, projectId } = context;
+  return DATABASE_SECTIONS.map((section) => ({
+    id: `database-${section}`,
+    label: databaseSectionTitle(section),
+    glyph: DATABASE_SECTION_GLYPHS[section],
+    description: DATABASE_SECTION_DESCRIPTIONS[section],
+    route: { name: "database", organizationId, projectId, section } satisfies Route,
+  }));
+}
+
+/**
  * The items relevant to a route, and which one is active.
  *
  * A project route yields the project menu; every other route yields the
@@ -139,11 +201,18 @@ export function navForRoute(
   readonly items: readonly NavItem[];
   readonly activeId: string | null;
   readonly projectId: string | null;
+  /**
+   * Which drill-in level is showing. The shell uses this to label the group and
+   * to decide whether to offer a back control, so the two levels cannot
+   * disagree about where the user is.
+   */
+  readonly level: "workspace" | "project" | "database";
 } {
   const workspace = (activeId: string | null) => ({
     items: workspaceNav(context),
     activeId,
     projectId: null,
+    level: "workspace" as const,
   });
 
   switch (route.name) {
@@ -162,7 +231,6 @@ export function navForRoute(
     case "project":
     case "deployments":
     case "domains":
-    case "data":
     case "security": {
       // A section URL is only valid with a project. Without one the route is a
       // workspace-level dead link, and the honest answer is the workspace menu.
@@ -171,8 +239,48 @@ export function navForRoute(
         items: projectNav({ ...context, projectId: route.projectId }),
         activeId: route.name === "project" ? "overview" : route.name,
         projectId: route.projectId,
+        level: "project",
       };
     }
+    case "database": {
+      if (!route.projectId) return workspace(null);
+      const section = route.section ?? "overview";
+      return {
+        items: databaseNav({ ...context, projectId: route.projectId }),
+        activeId: `database-${section}`,
+        projectId: route.projectId,
+        level: "database",
+      };
+    }
+  }
+}
+
+/**
+ * A human title for a database sub-section.
+ *
+ * Kept separate from `databaseNav` so the title and the sidebar label cannot
+ * drift: both read this one function.
+ */
+export function databaseSectionTitle(section: DatabaseSection): string {
+  switch (section) {
+    case "overview":
+      return "Overview";
+    case "tables":
+      return "Table Editor";
+    case "sql":
+      return "SQL Editor";
+    case "auth":
+      return "Authentication";
+    case "storage":
+      return "Storage";
+    case "api":
+      return "API";
+    case "roles":
+      return "Roles & Extensions";
+    case "logs":
+      return "Logs";
+    case "settings":
+      return "Settings";
   }
 }
 
@@ -191,8 +299,10 @@ export function titleForRoute(route: Route): string {
       return "Deployments";
     case "domains":
       return "Domains";
-    case "data":
-      return "Data";
+    case "database":
+      // The section name is the page title, so a deep link to
+      // `.../database/tables` titles itself "Table Editor" rather than "Database".
+      return databaseSectionTitle(route.section ?? "overview");
     case "security":
       return "Security";
     case "apiKeys":
@@ -213,13 +323,27 @@ export function backTargetFor(route: Route): Route | null {
       return { name: "projects", organizationId: route.organizationId };
     case "deployments":
     case "domains":
-    case "data":
     case "security":
       return {
         name: "project",
         organizationId: route.organizationId,
         projectId: route.projectId,
       };
+    case "database":
+      // A database sub-page belongs to the Database section, so back returns to
+      // the Database Overview — the level the sidebar is currently showing —
+      // not all the way to the project menu. Two presses get to the project.
+      return route.section && route.section !== "overview"
+        ? {
+            name: "database",
+            organizationId: route.organizationId,
+            projectId: route.projectId,
+          }
+        : {
+            name: "project",
+            organizationId: route.organizationId,
+            projectId: route.projectId,
+          };
     default:
       return null;
   }

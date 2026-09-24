@@ -9,6 +9,7 @@
 import { errored, loading, ready, type Section } from "@cloud-wai/ui";
 import type { ApiClient, ApiResponse } from "./api-client.js";
 import type { Route } from "./routes.js";
+import { databaseSectionTitle } from "./navigation.js";
 
 export interface OrganizationSummary {
   readonly id: string;
@@ -307,8 +308,11 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
     case "domains":
       return { title: "Domains", sections: [await loadDomains(client, route.organizationId)] };
 
-    case "data":
-      return { title: "Data", sections: [await loadDataResources(client, route.organizationId)] };
+    case "database":
+      return {
+        title: databaseSectionTitle(route.section ?? "overview"),
+        sections: [await loadDataResources(client, route.organizationId)],
+      };
 
     case "security":
       // Security shows policy and incident state through the same

@@ -13,7 +13,7 @@ import { Button, Modal, StatusBadge, TextInput, type Toast } from "@cloud-wai/ui
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
-import { navForRoute, titleForRoute, type NavItem } from "../navigation.js";
+import { backTargetFor, navForRoute, titleForRoute, type NavItem } from "../navigation.js";
 
 export interface WorkspaceOption {
   readonly id: string;
@@ -92,6 +92,22 @@ function Breadcrumb({
     crumbs.push({
       label: projectName ?? "Project",
       route: { name: "project", organizationId, projectId },
+    });
+  }
+  // The Database section is a level of its own: a sub-page shows
+  // ... / Database / Tables, and the "Database" crumb is a real link back to the
+  // section rather than a dead label. On the Overview itself the crumb would
+  // repeat the page title, so it is left out.
+  if (
+    route.name === "database" &&
+    route.section &&
+    route.section !== "overview" &&
+    organizationId &&
+    projectId
+  ) {
+    crumbs.push({
+      label: "Database",
+      route: { name: "database", organizationId, projectId },
     });
   }
   if (!(route.name === "projects" && crumbs.length === 1)) {
@@ -178,6 +194,10 @@ export function AppShell({
       }),
     [router.route, activeOrganizationId, projectName],
   );
+
+  const back = backTargetFor(router.route);
+  const groupLabel =
+    nav.level === "database" ? "Database" : nav.level === "project" ? "Project" : organizationName;
 
   const commands = useMemo(() => {
     const items: {
@@ -401,7 +421,15 @@ export function AppShell({
       {activeOrganizationId ? (
         <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`}>
           <nav className="nav" aria-label="Sections">
-            <div className="nav__group">{nav.projectId ? "Project" : organizationName}</div>
+            {back ? (
+              <button type="button" className="nav__item nav__back" onClick={() => go(back)}>
+                <span className="nav__glyph" aria-hidden="true">
+                  ←
+                </span>
+                <span className="truncate">Back</span>
+              </button>
+            ) : null}
+            <div className="nav__group">{groupLabel}</div>
             {nav.items.map((item) => (
               <NavLink
                 key={item.id}

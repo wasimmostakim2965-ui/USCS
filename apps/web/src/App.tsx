@@ -26,10 +26,10 @@ import { loadOrganizations } from "./view-model.js";
 import { AppShell, type WorkspaceOption } from "./components/app-shell.js";
 import { titleForRoute } from "./navigation.js";
 import { LoginPage } from "./pages/login.js";
+import { DatabasePage } from "./pages/database.js";
 import {
   ActivityPage,
   ApiKeysPage,
-  DataPage,
   DeploymentsPage,
   DomainsPage,
   NotFoundPage,
@@ -146,8 +146,13 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         );
       case "domains":
         return <DomainsPage organizationId={route.organizationId} projectId={route.projectId} />;
-      case "data":
-        return <DataPage organizationId={route.organizationId} />;
+      case "database":
+        return (
+          <DatabasePage
+            organizationId={route.organizationId}
+            section={route.section ?? "overview"}
+          />
+        );
       case "security":
         return <SecurityPage organizationId={route.organizationId} />;
       case "audit":

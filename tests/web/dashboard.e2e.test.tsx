@@ -891,7 +891,7 @@ describe("the dashboard renders every state for every route", () => {
       target: "deployments.list",
     },
     { hash: "#/orgs/org-1/projects/p-1/domains", title: "Domains", target: "domains.list" },
-    { hash: "#/orgs/org-1/projects/p-1/data", title: "Data", target: "data.list" },
+    { hash: "#/orgs/org-1/projects/p-1/database", title: "Overview", target: "data.list" },
     { hash: "#/orgs/org-1/projects/p-1/security", title: "Security", target: "providers.health" },
     { hash: "#/orgs/org-1/audit", title: "Activity", target: "audit.list" },
     { hash: "#/orgs/org-1/settings/api-keys", title: "API keys", target: "apiKeys.list" },
@@ -1007,5 +1007,76 @@ describe("the command palette", () => {
     await user.type(input, "zzzz");
 
     expect(await screen.findByText(/Nothing matches/)).toBeTruthy();
+  });
+});
+
+describe("the Database drill-in", () => {
+  function reachable(): Responder {
+    return (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+  }
+
+  it("replaces the project sidebar with the Database sub-menu, not a dropdown", async () => {
+    const url = await startApi(reachable());
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeTruthy();
+
+    // The project's own sections are gone: this is a replaced sidebar.
+    expect(screen.queryByRole("link", { name: /Deployments/ })).toBeNull();
+    // The Database sub-menu is what is in view.
+    for (const label of ["Table Editor", "SQL Editor", "Authentication", "Storage", "Logs"]) {
+      expect(screen.getByRole("link", { name: new RegExp(label) })).toBeTruthy();
+    }
+  });
+
+  it("returns from a sub-page to the Database Overview, then to the project", async () => {
+    const url = await startApi(reachable());
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/tables");
+
+    // First press: back to the section this sub-page belongs to.
+    await userEvent.setup().click(await screen.findByRole("button", { name: /Back/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/projects/p-1/database"));
+
+    // Second press: back out of the section entirely.
+    await userEvent.setup().click(await screen.findByRole("button", { name: /Back/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/projects/p-1"));
+  });
+
+  it("derives the active item and title from the URL alone", async () => {
+    const url = await startApi(reachable());
+    // A deep link, loaded cold, with no navigation beforehand.
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/sql");
+
+    expect(await screen.findByRole("heading", { name: "SQL Editor" })).toBeTruthy();
+    const active = screen.getByRole("link", { name: /SQL Editor/ });
+    expect(active.getAttribute("aria-current")).toBe("page");
+  });
+
+  it("says a sub-section is not built yet instead of rendering a blank page", async () => {
+    const url = await startApi(reachable());
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/auth");
+
+    expect(await screen.findByRole("heading", { name: "Authentication" })).toBeTruthy();
+    expect(
+      await screen.findByText(/Authentication is not available in this build yet/),
+    ).toBeTruthy();
+  });
+
+  it("does not offer a control that pretends to work", async () => {
+    const url = await startApi(reachable());
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+
+    // A coming-soon control is disabled; nothing on this page is a live button
+    // that would fail silently if pressed.
+    const autoSetup = await screen.findByRole("button", { name: /Auto Database Setup/ });
+    expect((autoSetup as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -30,7 +30,6 @@ import type { Route } from "../routes.js";
 import {
   loadApiKeys,
   loadAudit,
-  loadDataResources,
   loadDeployments,
   loadDomains,
   loadOrganization,
@@ -41,7 +40,6 @@ import {
   API_KEY_SCOPES,
   type ApiKeySummaryRow,
   type AuditSummary,
-  type DataResourceSummary,
   type DeploymentRequestSummary,
   type DeploymentSummary,
   type DomainChallengeSummary,
@@ -52,13 +50,7 @@ import {
   type ProjectSummary,
   type ProviderHealthRow,
 } from "../view-model.js";
-import {
-  ApiKeyStateBadge,
-  DataStateBadge,
-  Link,
-  Timestamp,
-  VerifiedBadge,
-} from "../components/page-parts.js";
+import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
 import { ComingSoon } from "../components/app-shell.js";
 
 /* ------------------------------------------------------------------ cards */
@@ -1110,52 +1102,6 @@ function RemoveDomainModal({
         ) : null}
       </div>
     </Modal>
-  );
-}
-
-/* ------------------------------------------------------------------ data */
-
-export function DataPage({ organizationId }: { readonly organizationId: string }) {
-  const { client } = useApp();
-  const { section, reload } = useSection(
-    () => loadDataResources(client, organizationId),
-    [client, organizationId],
-    "Databases and storage",
-  );
-
-  return (
-    <PageShell
-      title="Data"
-      subtitle="Tenant databases and object storage. These live in the data plane, not the control plane."
-      actions={
-        <>
-          <ComingSoon label="Provision database" />
-          <ComingSoon label="Back up" />
-        </>
-      }
-    >
-      <Card flush>
-        <SectionView<DataResourceSummary>
-          section={section}
-          columns={[
-            { key: "name", header: "Name", render: (item) => item.name },
-            {
-              key: "kind",
-              header: "Kind",
-              render: (item) => <span className="mono small">{item.kind}</span>,
-            },
-            {
-              key: "state",
-              header: "State",
-              render: (item) => <DataStateBadge state={item.state} />,
-            },
-          ]}
-          rowKey={(item) => item.id}
-          onRetry={reload}
-          emptyMessage="No data resources. Provisioning needs a configured database engine."
-        />
-      </Card>
-    </PageShell>
   );
 }
 

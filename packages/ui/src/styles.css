@@ -358,6 +358,23 @@ kbd,
   color: var(--accent);
 }
 
+/* The drill-in back control. It is a button, so it needs the font and cursor
+   the anchor-based items get from the browser for free. */
+.nav__back {
+  background: none;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink-3);
+}
+
+.nav__back:hover {
+  color: var(--ink);
+}
+
 .nav__count {
   margin-left: auto;
   color: var(--ink-3);

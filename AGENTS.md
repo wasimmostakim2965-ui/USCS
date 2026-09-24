@@ -85,3 +85,28 @@ pnpm format:check   # check formatting
   level by `supabase/migrations/0006_engine_column_guards.sql`, on INSERT and
   UPDATE. When you add such a column, add it to that migration and to
   `tests/isolation/rls/12_domain_verification_probe.sql`.
+
+## Navigation model
+
+`apps/web/src/navigation.ts` is the single source the sidebar, the command
+palette, the breadcrumb and the page titles read from. Each entry carries a
+`parseRoute`-compatible path, so every section is a deep link and a refresh lands
+where the user was.
+
+There are three drill-in levels, and `navForRoute` returns exactly one of them.
+The sidebar is *replaced*, not appended to, at each level:
+
+- **workspace** — Projects, API keys, Activity, Settings.
+- **project** — Overview, Deployments, Domains, Database, Security, Settings.
+- **database** — the Database sub-menu (Overview, Table Editor, SQL Editor,
+  Authentication, Storage, API, Roles & Extensions, Logs, Settings). Reached from
+  the project menu's Database entry. The back control steps up one level: from a
+  sub-page to the Database Overview, then from the Overview to the project menu.
+
+A sub-page is a real route: `.../database/tables` is not a query parameter or a
+client-side tab, so it can be linked, bookmarked and reloaded on its own. Adding
+a sub-section to `DATABASE_SECTIONS` in `routes.ts` without adding a glyph, a
+description and a title is a type error, not a blank sidebar item.
+
+The old `.../data` path still resolves, to the Database section that replaced it,
+so an existing bookmark does not 404.

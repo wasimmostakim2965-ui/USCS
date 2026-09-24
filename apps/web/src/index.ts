@@ -37,12 +37,16 @@ export type {
 } from "./view-model.js";
 export {
   backTargetFor,
+  databaseNav,
+  databaseSectionTitle,
   navForRoute,
   projectNav,
   titleForRoute,
   workspaceNav,
 } from "./navigation.js";
 export type { NavContext, NavItem } from "./navigation.js";
+export { DATABASE_SECTIONS } from "./routes.js";
+export type { DatabaseSection } from "./routes.js";
 export {
   createSessionController,
   sessionConfigFromEnv,

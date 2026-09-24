@@ -14,12 +14,43 @@ export type Route =
   | { readonly name: "project"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "deployments"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "domains"; readonly organizationId: string; readonly projectId: string }
-  | { readonly name: "data"; readonly organizationId: string; readonly projectId: string }
+  | {
+      readonly name: "database";
+      readonly organizationId: string;
+      readonly projectId: string;
+      /** Which Supabase-style sub-section is open. Absent means Overview. */
+      readonly section?: DatabaseSection | undefined;
+    }
   | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "audit"; readonly organizationId: string }
   | { readonly name: "settings"; readonly organizationId: string }
   | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "not_found"; readonly path: string };
+
+/**
+ * The Database section's sub-pages.
+ *
+ * These mirror the shape Supabase's own project view exposes, because that is
+ * the mental model the owner asked for. They are our routes and our UI; the
+ * engine is reached only through the adapter.
+ */
+export const DATABASE_SECTIONS = [
+  "overview",
+  "tables",
+  "sql",
+  "auth",
+  "storage",
+  "api",
+  "roles",
+  "logs",
+  "settings",
+] as const;
+
+export type DatabaseSection = (typeof DATABASE_SECTIONS)[number];
+
+function isDatabaseSection(value: string): value is DatabaseSection {
+  return (DATABASE_SECTIONS as readonly string[]).includes(value);
+}
 
 export function parseRoute(path: string): Route {
   const clean = path.replace(/\/+$/, "") || "/";
@@ -46,13 +77,37 @@ export function parseRoute(path: string): Route {
   }
   if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 5) {
     const section = segments[4];
-    if (section === "domains" || section === "data" || section === "security") {
+    if (section === "domains" || section === "security") {
       return {
         name: section,
         organizationId: segments[1]!,
         projectId: segments[3]!,
       };
     }
+    if (section === "database" || section === "data") {
+      // `data` is the old path. It still resolves, to the section that replaced
+      // it, so an existing bookmark does not 404.
+      return {
+        name: "database",
+        organizationId: segments[1]!,
+        projectId: segments[3]!,
+      };
+    }
+  }
+  if (
+    segments[0] === "orgs" &&
+    segments[2] === "projects" &&
+    segments[4] === "database" &&
+    segments.length === 6
+  ) {
+    const sub = segments[5]!;
+    if (!isDatabaseSection(sub)) return { name: "not_found", path: clean };
+    return {
+      name: "database",
+      organizationId: segments[1]!,
+      projectId: segments[3]!,
+      section: sub,
+    };
   }
   if (
     segments[0] === "orgs" &&
@@ -86,8 +141,10 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/deployments`;
     case "domains":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/domains`;
-    case "data":
-      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/data`;
+    case "database":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/database${
+        route.section ? `/${encodeURIComponent(route.section)}` : ""
+      }`;
     case "security":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`;
     case "apiKeys":
