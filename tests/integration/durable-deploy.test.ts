@@ -24,12 +24,7 @@ import {
   securityNotConfigured,
   domainVerifierNotConfigured,
 } from "@cloud-wai/adapters";
-import {
-  buildProcedures,
-  buildRouter,
-  type Procedure,
-  type RouterDeps,
-} from "@cloud-wai/api";
+import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
 import {
   InProcessWorker,
   buildDeploymentApplier,
@@ -250,12 +245,22 @@ function makeStore() {
     async getProjectDeploymentTarget(userId: UserId, projectId: ProjectId) {
       const p = projects.find((x) => x.id === projectId);
       if (!p || !isMember(userId, p.organizationId)) return null;
-      return targets.get(`${p.organizationId}::${p.id}`) ?? { provider: null, providerResourceId: null };
+      return (
+        targets.get(`${p.organizationId}::${p.id}`) ?? { provider: null, providerResourceId: null }
+      );
     },
-    async getProjectDeploymentTargetForService(organizationId: OrganizationId, projectId: ProjectId) {
+    async getProjectDeploymentTargetForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ) {
       const p = projects.find((x) => x.id === projectId && x.organizationId === organizationId);
       if (!p) return null;
-      return targets.get(`${organizationId}::${projectId}`) ?? { provider: null, providerResourceId: null };
+      return (
+        targets.get(`${organizationId}::${projectId}`) ?? {
+          provider: null,
+          providerResourceId: null,
+        }
+      );
     },
   } satisfies DataStore & Partial<ControlPlaneWrites>;
 
@@ -277,9 +282,11 @@ function enginesWith(hosting: Engines["hosting"]): Engines {
 function deps(store: StoreLike): RouterDeps {
   return {
     verifier,
-    memberships: { async membershipsFor(userId) {
-      return memberships.filter((m) => m.userId === userId);
-    } },
+    memberships: {
+      async membershipsFor(userId) {
+        return memberships.filter((m) => m.userId === userId);
+      },
+    },
     store,
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   };

@@ -12,7 +12,12 @@
  * returns the engine's own answer. It never decides success: a `succeeded` here
  * is one the adapter reported and then confirmed with `getDeployment`.
  */
-import type { AdapterResult, EngineStatus, OrganizationId, ProviderRef } from "@cloud-wai/contracts";
+import type {
+  AdapterResult,
+  EngineStatus,
+  OrganizationId,
+  ProviderRef,
+} from "@cloud-wai/contracts";
 import type { BuildPack, HostingAdapter } from "@cloud-wai/adapters";
 
 export interface DeploymentTarget {

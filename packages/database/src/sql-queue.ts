@@ -94,11 +94,7 @@ export class SqlJobQueue implements JobQueue {
 
     if (inserted.length > 0) return toJob(inserted[0]!) as unknown as Job<TPayload>;
 
-    const existing = await this.findByKey(
-      input.organizationId,
-      input.kind,
-      input.idempotencyKey,
-    );
+    const existing = await this.findByKey(input.organizationId, input.kind, input.idempotencyKey);
     // The row must exist: the insert was refused only because a peer wrote it,
     // or because the response body was empty for a reason this code cannot
     // interpret. Either way, returning a fabricated job would be a lie.

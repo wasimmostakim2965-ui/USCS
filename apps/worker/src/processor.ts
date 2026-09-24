@@ -56,10 +56,7 @@ export interface WorkerOptions {
    * what the engine reported — never a state derived from "the job finished".
    * A missing applier is not an error: the worker then owns only the job row.
    */
-  readonly apply?: (
-    job: Job,
-    result: AdapterResult<unknown>,
-  ) => Promise<void>;
+  readonly apply?: (job: Job, result: AdapterResult<unknown>) => Promise<void>;
 }
 
 export class InProcessWorker {

@@ -113,17 +113,15 @@ so an existing bookmark does not 404.
 
 ## Known gaps (do not paper over these)
 
-- **Data-engine and policy commands still run on the request path.** The
-  deployment writer is now durable: `deployments.create` and
-  `deployments.rollback` write the deployment row, enqueue a
-  `deployments.execute` job when a queue is wired (`apps/api/src/bootstrap.ts`),
-  and the worker executes it off the request path
-  (`apps/worker/src/deployment-job.ts`, `runtime.ts`). But `data.provision`,
-  `data.backup` and the policy procedures still call their adapters
-  synchronously and record `audit_logs` only — they do not enqueue. ADR-0006
-  phase 3's acceptance wording ("deploy/backup/policy run end-to-end against
-  fakes, recorded in `orchestration_jobs` + `audit_logs`") is therefore met for
-  deploy, not yet for backup and policy. Do not claim otherwise.
+- **Data-engine provisioning still runs on the request path.** The deployment,
+  backup and policy writers are durable: `deployments.create`/`rollback`,
+  `data.backup` and `security.policy.distribute` write their row, enqueue a job
+  when a queue is wired (`apps/api/src/bootstrap.ts`), and the worker executes it
+  off the request path (`apps/worker/src/{deployment,backup,policy}-job.ts`).
+  But `data.provision` still calls its adapter synchronously and records
+  `audit_logs` only — it does not enqueue. Provisioning is a fast idempotent
+  create, so this is deliberate; if it is ever made durable, enqueue it the same
+  way and move its test with it.
 
 ## Phase status
 
@@ -134,10 +132,12 @@ not when a commit message says so.
 - Phases 0–2 and 4–8: delivered (see `feat(phase-0)`…`feat(phase-8)` commits).
 - Phase 3: the adapter contracts, durable queue and worker landed in `5b1e536`.
   The API write paths for deploy, backup and policy landed in `d32b56a` and this
-  session's data/security work; the dashboard now drives them. The durable
-  writer for deployments landed in this session (SQL queue `bbe1060`, then the
-  API/worker wiring): a deploy or rollback is now a `deployments.execute` job.
-  The open item is the same treatment for backup and policy, above.
+  session's data/security work; the dashboard now drives them. The durable writer
+  is now complete for all three: SQL queue `bbe1060`, then the deployment
+  (`c9c7b1f` and prior), backup and policy (`ad649ff`) API/worker wiring. A
+  deploy, rollback, backup or policy distribution is a durable
+  `orchestration_jobs` row executed by the worker, and its outcome lands in
+  `audit_logs`.
 
 ## Closed gaps
 

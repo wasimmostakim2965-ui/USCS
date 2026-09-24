@@ -87,7 +87,9 @@ function fakePostgrest() {
     if (path.startsWith("/rpc/claim_orchestration_job")) {
       const workerId = body.p_worker_id as string;
       const leaseSeconds = body.p_lease_seconds as number;
-      const claimed = [...rows.values()].find((r) => r.state === "queued" && r.attempts < r.max_attempts);
+      const claimed = [...rows.values()].find(
+        (r) => r.state === "queued" && r.attempts < r.max_attempts,
+      );
       if (!claimed) return respond(201, []);
       claimed.state = "running";
       claimed.attempts += 1;
@@ -139,14 +141,20 @@ function fakePostgrest() {
     }
 
     if (method === "GET" && path.startsWith("/orchestration_jobs")) {
-      return respond(200, [...rows.values()].filter((r) => matches(r, path)));
+      return respond(
+        200,
+        [...rows.values()].filter((r) => matches(r, path)),
+      );
     }
 
     if (method === "PATCH" && path.startsWith("/orchestration_jobs")) {
       for (const row of rows.values()) {
         if (matches(row, path)) Object.assign(row, body);
       }
-      return respond(200, [...rows.values()].filter((r) => matches(r, path)));
+      return respond(
+        200,
+        [...rows.values()].filter((r) => matches(r, path)),
+      );
     }
 
     return respond(404, { message: "unknown" });
@@ -201,7 +209,12 @@ describe("sql job queue", () => {
   it("claims through the SQL function so a claim is exclusive", async () => {
     const fake = fakePostgrest();
     const q = queueWith(fake);
-    await q.enqueue({ organizationId: ORG_A, kind: "deployment.create", payload: {}, idempotencyKey: "k1" });
+    await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.create",
+      payload: {},
+      idempotencyKey: "k1",
+    });
 
     const first = await q.claim("worker-1", 30_000);
     const second = await q.claim("worker-2", 30_000);
@@ -216,7 +229,12 @@ describe("sql job queue", () => {
   it("writes succeeded only when complete is called", async () => {
     const fake = fakePostgrest();
     const q = queueWith(fake);
-    const job = await q.enqueue({ organizationId: ORG_A, kind: "deployment.create", payload: {}, idempotencyKey: "k1" });
+    const job = await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.create",
+      payload: {},
+      idempotencyKey: "k1",
+    });
     await q.claim("worker-1", 30_000);
     await q.complete(job.id);
 
@@ -250,7 +268,12 @@ describe("sql job queue", () => {
   it("terminates a job as failed, never succeeded", async () => {
     const fake = fakePostgrest();
     const q = queueWith(fake);
-    const job = await q.enqueue({ organizationId: ORG_A, kind: "deployment.create", payload: {}, idempotencyKey: "k1" });
+    const job = await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.create",
+      payload: {},
+      idempotencyKey: "k1",
+    });
     await q.terminate(job.id, "no handler for this kind");
     const stored = await q.get(job.id);
     expect(stored?.state).toBe("failed");
@@ -260,7 +283,12 @@ describe("sql job queue", () => {
   it("reaps through the SQL function", async () => {
     const fake = fakePostgrest();
     const q = queueWith(fake);
-    await q.enqueue({ organizationId: ORG_A, kind: "deployment.create", payload: {}, idempotencyKey: "k1" });
+    await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.create",
+      payload: {},
+      idempotencyKey: "k1",
+    });
     await q.claim("worker-1", 30_000);
     // Force the lease into the past, as a crashed worker would leave it.
     for (const row of fake.rows.values()) {

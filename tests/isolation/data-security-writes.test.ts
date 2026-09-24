@@ -867,7 +867,12 @@ describe("security.policy.get through the registered procedures", () => {
 describe("the durable writer: backup and policy as orchestration jobs", () => {
   const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
-  function workerOver(store: DataStoreLike, engines: Engines, queue: JobQueue, newId: () => string) {
+  function workerOver(
+    store: DataStoreLike,
+    engines: Engines,
+    queue: JobQueue,
+    newId: () => string,
+  ) {
     const backupWrites = {
       getDataResourceForService: (org: OrganizationId, resourceId: DataResourceId) =>
         store.getDataResourceForService!(org, resourceId),
@@ -884,7 +889,10 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
     return new InProcessWorker({
       queue,
       handlers: {
-        [BACKUP_JOB_KIND]: buildBackupJobHandler({ database: engines.database, writes: backupWrites }),
+        [BACKUP_JOB_KIND]: buildBackupJobHandler({
+          database: engines.database,
+          writes: backupWrites,
+        }),
         [POLICY_JOB_KIND]: buildPolicyJobHandler({
           securityEdge: engines.securityEdge,
           writes: policyWrites,
@@ -1039,4 +1047,3 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
     expect(policyEvents.some((e) => e.toState === "rejected")).toBe(true);
   });
 });
-
