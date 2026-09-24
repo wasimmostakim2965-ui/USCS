@@ -12,12 +12,25 @@ revisited whenever a trust boundary moves.
 
 ```text
 [1] Browser (untrusted)
-    |  HTTPS, Supabase session (JWT)
-    v
-[2] Cloud Wai API/BFF  <-- the ONLY server the browser talks to
-    |  server-side authz, no client-supplied org scope
+    |  HTTPS, Supabase session (JWT) -- two routes, not one
+    |
+    |-- (a) Cloud Wai API/BFF  <-- the server the product UI calls
+    |       |  server-side authz, no client-supplied org scope
+    |       v
+    |-- (b) PostgREST, straight to [3] with the anon key + the user's JWT
+    |       |  this path is reachable from the browser and is guarded by RLS
+    |       |  and the engine-column guards, NOT by the API's procedure layer
     v
 [3] Control-plane Supabase PostgreSQL  (RLS enabled on every table)
+```
+
+Route (b) is easy to forget and expensive to forget: the browser ships with the
+anon key by design, so a member can PATCH a table directly without the API ever
+seeing the request. Anything the API enforces in TypeScript must therefore also
+be enforced in the database, or a client can walk around it.
+
+```text
+[3] Control-plane Supabase PostgreSQL
     |
     v
 [4] Orchestrator -> queue -> Worker
@@ -52,6 +65,7 @@ in tenant databases and buckets, and the policy that governs the edge.
 | A10 | Policy rolls back to a weaker version at the edge | Policy version is monotonic; the edge rejects stale versions | policy version tests |
 | A11 | Credential theft from the control-plane DB | RLS on every table, least-privilege roles, tenant credentials cannot query control-plane tables | RLS matrix |
 | A12 | DDoS saturates the origin | Upstream/edge DDoS capacity, rate limiting with a fast cache, separate deep-inspection path | load tests |
+| A13 | A member forges a fact only an engine may assert — self-certifying a domain, marking a resource ready, activating a policy, or recording their own engine — to bypass verification or billing | RLS alone is not enough: it is a *row* rule, so a blanket UPDATE policy lets a member set any column. Engine-observed columns are guarded at the column level (`0006_engine_column_guards.sql`); they change only in a session that bypasses RLS | engine-column guard probe |
 
 ## Explicit non-goals and non-claims
 

@@ -43,8 +43,8 @@ authenticated Supabase principal, never from a request parameter.
 | `projects` | org member | member+ | member+ | owner/admin |
 | `environments` | org member | member+ | member+ | owner/admin |
 | `deployments` | org member | member+ | service only | owner/admin |
-| `data_resources` | org member | member+ | member+ | owner/admin |
-| `domains` | org member | member+ | member+ | owner/admin |
+| `data_resources` | org member | member+ | member+ (engine columns excepted) | owner/admin |
+| `domains` | org member | member+ (unverified) | member+ (engine columns excepted) | owner/admin |
 | `security_policies` | org member | admin+ | admin+ | owner |
 | `api_keys` | owner/admin (`read:sensitive`) | member+ (own keys) | owner (revoke) | owner/admin |
 | `orchestration_jobs` | org member | service only | service only | — |
@@ -59,6 +59,17 @@ Notes:
   a normal user session cannot insert or mutate them.
 - API keys are stored hashed. The plaintext is returned exactly once at creation
   and never selectable afterwards.
+- Engine-observed columns are not client-writable, on INSERT or UPDATE. The
+  `UPDATE` column above is the *row* permission; it does not mean every column
+  in the row is the customer's to set. `domains.verified`, `domains.verified_at`,
+  `domains.verification_token`, `data_resources.state`,
+  `security_policies.state`, and the `provider` / `provider_resource_id` pairs on
+  `domains`, `data_resources` and `projects` are the engine's answers. Migration
+  `0006_engine_column_guards.sql` enforces that with a guard trigger: a change is
+  accepted only in a session that already bypasses RLS (the service role, or a
+  superuser). `deployments` expresses the same rule more simply, by having no
+  client-facing UPDATE policy at all. Proved by
+  `tests/isolation/rls/12_domain_verification_probe.sql`.
 
 ## Mapping capability → RLS
 

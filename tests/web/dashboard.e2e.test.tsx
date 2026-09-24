@@ -843,3 +843,169 @@ describe("adding, verifying and removing a domain", () => {
     await waitFor(() => expect(screen.queryByText("app.example.test")).toBeNull());
   });
 });
+
+describe("the dashboard renders every state for every route", () => {
+  /** Answer one procedure with `answer`; everything else succeeds with nothing. */
+  function only(target: string, answer: RpcResponse): Responder {
+    return (procedure) => {
+      // The target is checked first: on the Organizations route the target *is*
+      // `organizations.list`, and the sidebar's copy of that list must not mask
+      // the answer under test.
+      if (procedure === target) return answer;
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+  }
+
+  const empty = { ok: true, status: 200, data: [] } as const;
+  const failure = {
+    ok: false,
+    status: 500,
+    error: { code: "engine_unavailable", message: "The control plane is unreachable." },
+  } as const;
+  const degraded = {
+    ok: true,
+    status: 200,
+    notConfigured: true,
+    error: { code: "not_configured", message: "No hosting engine is configured." },
+  } as const;
+
+  /**
+   * Every route, with the procedure whose answer decides its main section. A
+   * route is only finished when all five states are reachable on it, so this
+   * list is the acceptance test for "no route renders a blank page".
+   */
+  const routes: readonly {
+    readonly hash: string;
+    readonly title: string;
+    readonly target: string;
+  }[] = [
+    { hash: "#/", title: "Organizations", target: "organizations.list" },
+    { hash: "#/orgs/org-1/projects", title: "Projects", target: "projects.list" },
+    { hash: "#/orgs/org-1/projects/p-1", title: "Overview", target: "projects.get" },
+    {
+      hash: "#/orgs/org-1/projects/p-1/deployments",
+      title: "Deployments",
+      target: "deployments.list",
+    },
+    { hash: "#/orgs/org-1/projects/p-1/domains", title: "Domains", target: "domains.list" },
+    { hash: "#/orgs/org-1/projects/p-1/data", title: "Data", target: "data.list" },
+    { hash: "#/orgs/org-1/projects/p-1/security", title: "Security", target: "providers.health" },
+    { hash: "#/orgs/org-1/audit", title: "Activity", target: "audit.list" },
+    { hash: "#/orgs/org-1/settings/api-keys", title: "API keys", target: "apiKeys.list" },
+    { hash: "#/orgs/org-1/settings", title: "Settings", target: "providers.health" },
+  ];
+
+  it.each(routes)("$title shows an empty state, not a blank page", async ({ hash, target }) => {
+    const url = await startApi(only(target, empty));
+    renderApp(url, hash);
+
+    // The page names itself and says there is nothing, rather than rendering
+    // nothing at all — the difference between "empty" and "broken".
+    const heading = await screen.findByRole("heading", { level: 1 });
+    expect(heading.textContent).not.toBe("");
+    expect(await screen.findByText(/No |Nothing |not a member|does not exist/)).toBeTruthy();
+  });
+
+  it.each(routes)("$title shows an error, with a way to retry", async ({ hash, target }) => {
+    const url = await startApi(only(target, failure));
+    renderApp(url, hash);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The control plane is unreachable.");
+    // A failure is recoverable from the UI, not a dead end.
+    expect(within(alert).getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  it.each(routes)("$title never paints a failure as success", async ({ hash, target }) => {
+    const url = await startApi(only(target, failure));
+    renderApp(url, hash);
+
+    await screen.findByRole("alert");
+    // The anti-fake-success guarantee, per route: a failed load must not leave
+    // a positive badge behind anywhere on the page.
+    expect(screen.queryByText("Configured")).toBeNull();
+    expect(screen.queryByText("Verified")).toBeNull();
+  });
+
+  it("renders a not-configured engine as degraded on the Security route", async () => {
+    const url = await startApi(only("providers.health", degraded));
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/No hosting engine is configured/)).toBeTruthy();
+    expect(screen.queryByText("Configured")).toBeNull();
+  });
+
+  it("renders a not-configured engine as degraded on the Settings route", async () => {
+    const url = await startApi(only("providers.health", degraded));
+    renderApp(url, "#/orgs/org-1/settings");
+
+    expect(await screen.findByText(/No hosting engine is configured/)).toBeTruthy();
+  });
+
+  it("shows a loading state before the data arrives, never an empty one", async () => {
+    // A server that never answers: the only honest thing to render is loading.
+    const url = await startApi(() => new Promise<RpcResponse>(() => {}));
+    renderApp(url, "#/orgs/org-1/projects");
+
+    const loading = await screen.findByRole("status");
+    expect(loading.textContent).toMatch(/loading/i);
+    expect(screen.queryByText(/No projects yet/)).toBeNull();
+  });
+
+  it("renders a not-found route rather than falling back to the dashboard", async () => {
+    const url = await startApi(only("organizations.list", empty));
+    renderApp(url, "#/nowhere/at/all");
+
+    expect(await screen.findByRole("heading", { name: "Not found" })).toBeTruthy();
+  });
+});
+
+describe("the command palette", () => {
+  it("opens on the shortcut and navigates for real", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects");
+
+    // The palette is closed until asked for.
+    expect(screen.queryByPlaceholderText(/Jump to a section/)).toBeNull();
+
+    const user = userEvent.setup();
+    await user.keyboard("{Control>}k{/Control}");
+
+    const input = await screen.findByPlaceholderText(/Jump to a section/);
+    // The workspace and its sections are offered, not a hardcoded menu.
+    expect(screen.getByRole("button", { name: /API keys/ })).toBeTruthy();
+
+    // Typing filters, then Enter opens the highlighted command.
+    await user.type(input, "API keys");
+    await user.keyboard("{Enter}");
+
+    // Navigation is real: the URL changed and the page followed it.
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/settings/api-keys"));
+    expect(await screen.findByRole("heading", { name: "API keys" })).toBeTruthy();
+  });
+
+  it("says so when nothing matches, instead of showing an empty box", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects");
+
+    const user = userEvent.setup();
+    await user.keyboard("{Control>}k{/Control}");
+    const input = await screen.findByPlaceholderText(/Jump to a section/);
+    await user.type(input, "zzzz");
+
+    expect(await screen.findByText(/Nothing matches/)).toBeTruthy();
+  });
+});

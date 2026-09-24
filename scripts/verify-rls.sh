@@ -2,9 +2,9 @@
 # Prove the control-plane RLS policies against a real PostgreSQL.
 #
 # Boots a throwaway Postgres, applies the auth shim (auth.uid() + Supabase
-# roles), applies both migrations, then runs the two-organization isolation
-# probe. Any cross-tenant read or write, any client-side deployment-status
-# change, and any readable API-key hash makes the probe fail.
+# roles), applies every migration in order, then runs the probes. Any
+# cross-tenant read or write, any client-side deployment-status change, any
+# client-written engine column, and any readable API-key hash makes a probe fail.
 #
 # Requires a working Docker daemon. DOCKER may be overridden, e.g.
 # DOCKER="sudo docker" ./scripts/verify-rls.sh in environments where the socket
@@ -26,22 +26,38 @@ DSN="${CLOUDWAI_RLS_DSN:-}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# One list, applied in order, by both modes below. It used to be written out
+# twice — once per mode — and the two copies drifted, so a newly added probe ran
+# in one mode and was silently skipped in the other. A single list cannot drift.
+SQL_STEPS=(
+  "auth shim|tests/isolation/rls/00_auth_shim.sql"
+  "schema migration|supabase/migrations/0001_control_plane.sql"
+  "rls policies|supabase/migrations/0002_rls.sql"
+  "job lease/idempotency|supabase/migrations/0003_jobs_lease_and_idempotency.sql"
+  "security policy events|supabase/migrations/0004_security_policy_events.sql"
+  "domain verification|supabase/migrations/0005_domain_verification.sql"
+  "engine column guards|supabase/migrations/0006_engine_column_guards.sql"
+  "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
+  "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
+  "engine column guard probe|tests/isolation/rls/12_domain_verification_probe.sql"
+)
+
+run_all() {
+  local label file
+  for step in "${SQL_STEPS[@]}"; do
+    label="${step%%|*}"
+    file="$ROOT/${step#*|}"
+    echo "== $label =="
+    "$1" <"$file"
+  done
+}
+
 if [ -n "$DSN" ]; then
   # Existing server: every statement is applied with psql, in order.
-  run_sql() {
-    local label="$1" file="$2"
-    echo "== $label =="
-    psql "$DSN" -v ON_ERROR_STOP=1 -q -f - <"$file"
+  run_psql() {
+    psql "$DSN" -v ON_ERROR_STOP=1 -q -f -
   }
-
-  run_sql "auth shim"            "$ROOT/tests/isolation/rls/00_auth_shim.sql"
-  run_sql "schema migration"     "$ROOT/supabase/migrations/0001_control_plane.sql"
-  run_sql "rls policies"         "$ROOT/supabase/migrations/0002_rls.sql"
-  run_sql "job lease/idempotency" "$ROOT/supabase/migrations/0003_jobs_lease_and_idempotency.sql"
-  run_sql "security policy events" "$ROOT/supabase/migrations/0004_security_policy_events.sql"
-  run_sql "domain verification"  "$ROOT/supabase/migrations/0005_domain_verification.sql"
-  run_sql "job queue probe"      "$ROOT/tests/isolation/rls/11_jobs_probe.sql"
-  run_sql "isolation probe"      "$ROOT/tests/isolation/rls/10_isolation_probe.sql"
+  run_all run_psql
 
   echo
   echo "RLS verification complete: migrations applied, isolation probe passed."
@@ -75,21 +91,10 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-run_sql() {
-  local label="$1" file="$2"
-  echo "== $label =="
-  $DOCKER exec -i "$CONTAINER" psql -U postgres -d "$DB" \
-    -v ON_ERROR_STOP=1 -q -f - <"$file"
+run_via_docker() {
+  $DOCKER exec -i "$CONTAINER" psql -U postgres -d "$DB" -v ON_ERROR_STOP=1 -q -f -
 }
-
-run_sql "auth shim"          "$ROOT/tests/isolation/rls/00_auth_shim.sql"
-run_sql "schema migration"   "$ROOT/supabase/migrations/0001_control_plane.sql"
-run_sql "rls policies"       "$ROOT/supabase/migrations/0002_rls.sql"
-run_sql "job lease/idempotency" "$ROOT/supabase/migrations/0003_jobs_lease_and_idempotency.sql"
-run_sql "security policy events" "$ROOT/supabase/migrations/0004_security_policy_events.sql"
-run_sql "domain verification" "$ROOT/supabase/migrations/0005_domain_verification.sql"
-run_sql "job queue probe"    "$ROOT/tests/isolation/rls/11_jobs_probe.sql"
-run_sql "isolation probe"    "$ROOT/tests/isolation/rls/10_isolation_probe.sql"
+run_all run_via_docker
 
 echo
 echo "RLS verification complete: migrations applied, isolation probe passed."

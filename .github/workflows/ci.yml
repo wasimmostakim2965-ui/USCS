@@ -69,33 +69,14 @@ jobs:
 
       # The auth shim provides auth.uid() and the Supabase roles the policies
       # reference, so the RLS policies run exactly as they do against Supabase.
-      - name: Apply schema and policies
+      #
+      # The migration and probe list lives in `scripts/verify-rls.sh`, not here.
+      # It used to be written out in this file as well, which meant a new probe
+      # could be added to the script and silently skipped by CI — the same drift
+      # the script was refactored to end. `CLOUDWAI_RLS_DSN` points the script at
+      # this job's PostgreSQL service instead of booting its own container, and it
+      # applies the same SQL either way.
+      - name: Isolation and job-queue probes
         env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f tests/isolation/rls/00_auth_shim.sql
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f supabase/migrations/0001_control_plane.sql
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f supabase/migrations/0002_rls.sql
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f supabase/migrations/0003_jobs_lease_and_idempotency.sql
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f supabase/migrations/0004_security_policy_events.sql
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f supabase/migrations/0005_domain_verification.sql
-
-      - name: Isolation probe
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f tests/isolation/rls/10_isolation_probe.sql
-
-      - name: Job queue probe
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
-            -f tests/isolation/rls/11_jobs_probe.sql
+          CLOUDWAI_RLS_DSN: postgresql://postgres:postgres@localhost:5432/cloudwai
+        run: bash scripts/verify-rls.sh

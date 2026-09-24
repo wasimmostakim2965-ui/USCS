@@ -16,6 +16,15 @@ claim completion while any part of it is unverified.
 | 3 | Adapter contracts, durable jobs, fake providers | deploy/backup/policy run end-to-end against fakes, recorded in `orchestration_jobs` + `audit_logs` |
 | 4 | Real engines behind adapters (Coolify, Postgres, MinIO, edge) | Real deploy + rollback with real logs; tenant DB + bucket backup/restore verified; SQLi/XSS blocked at the edge; origin unreachable except via the edge |
 | 5 | UI, observability, polish | Every route calls a typed procedure and renders loading/empty/success/degraded/error; no mock data; keyboard accessible; ⌘K navigates for real |
+| 6 | Real data engines (PostgreSQL, MinIO/S3) behind the adapters | Tenant database and bucket lifecycle proven against the adapter contract, with credentials never returned to the caller (`tests/engines/data-engines.test.ts`) |
+| 7 | Security edge adapter: Cloud Wai policy compiled to Coraza/Envoy | Every enforcement action maps to a Coraza action; hostile host/path/origin input is refused, not escaped; a stale policy version is a failure (`tests/engines/security-edge.test.ts`) |
+| 8 | `security-control` app, CI, and the gate-13 runbooks | Policy version only moves forward; a rollback is refused before the edge is called; CI applies every migration to a real PostgreSQL and runs the probes |
+
+Phases 0–5 are the plan as first written. Phases 6–8 were added as the engine
+work landed, and are what the corresponding `feat(phase-6|7|8)` commits
+delivered; ADR-0011 records the data engines and the edge, ADR-0012 the gate
+evidence. A phase ends when `pnpm verify:all` is green, not when the commit
+message says so.
 
 ## Release gates (from the blueprint)
 
@@ -54,6 +63,28 @@ Verified in this repository today (runnable with `pnpm verify`):
   engine-reported success, and record `not_configured` when no hosting
   credentials exist (`tests/isolation/deployment-writes.test.ts`). The dashboard
   exposes both flows (`tests/web/dashboard.e2e.test.tsx`).
+- The domain write path is wired end to end: `domains.create` issues and stores
+  a challenge, `domains.verify` accepts only what the DNS verifier observed and
+  writes nothing when the verifier is absent, and `domains.remove` is
+  membership-scoped. `verified` is not an accepted input anywhere
+  (`tests/isolation/domain-writes.test.ts`), and the verifier's own honesty
+  rules — a broken lookup is `degraded`, never `verified: false` — are pinned in
+  `tests/adapters/domain-verification.test.ts`.
+- Engine-observed columns cannot be written by a client, on INSERT or UPDATE.
+  Gate 1 covers tenants reaching each other; this covers a tenant reaching a
+  *fact* it does not own. A member with their own JWT could previously run
+  `update domains set verified = true` through PostgREST and self-certify a
+  hostname they never controlled, insert a pre-verified row, mark a data
+  resource `ready`, declare a policy `active`, or record which engine hosts
+  their project. `supabase/migrations/0006_engine_column_guards.sql` accepts a
+  change to those columns only in a session that already bypasses RLS (the
+  service role, or a superuser), and
+  `tests/isolation/rls/12_domain_verification_probe.sql` proves both the refusals
+  and that a member may still edit their own inputs and the service role may
+  still verify a domain and provision a resource.
+- Every route calls a typed procedure and renders loading, empty, success,
+  degraded and error without a blank page, and ⌘K navigates for real
+  (`tests/web/dashboard.e2e.test.tsx`).
 
 Requires a configured engine to verify (must stay honestly `not_configured`
 until then):
