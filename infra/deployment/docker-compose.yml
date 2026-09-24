@@ -1,0 +1,80 @@
+# Cloud Wai — a single-host deployment.
+#
+# This is an AWS-EC2-equivalent shape (or any single VM with Docker): one host
+# runs the dashboard, the API and the worker; Supabase and the engines (Coolify,
+# MinIO, the edge) are external services reached over the network. It is the
+# smallest coherent production topology and the one the runbook documents.
+#
+#   1. Copy `.env.example` to `.env` and fill it in (the runbook lists each key).
+#   2. Apply the control-plane migrations to Supabase (see the runbook).
+#   3. `docker compose -f infra/deployment/docker-compose.yml up -d --build`
+#
+# The dashboard is served on :8080 and proxies /rpc and /healthz to the API, so
+# the browser has one origin and no CORS allow-list is needed.
+#
+# Nothing here runs a database: the control plane is Supabase (ADR-0004), and
+# tenant databases live behind Coolify (ADR-0011). A local Postgres would be a
+# second source of truth.
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/api.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      # The API is reached by the web container over the compose network, never
+      # directly from outside; the dashboard container is the only public port.
+      HOST: 0.0.0.0
+      PORT: "8787"
+      NODE_ENV: production
+    expose:
+      - "8787"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/worker.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/web.Dockerfile
+      args:
+        # Same-origin: the dashboard calls the API's own path, which nginx
+        # proxies. An empty value makes the client use a relative `/rpc`.
+        #
+        # These are compiled into the bundle. Supply them as shell environment
+        # variables at build time (see the runbook); only the anon/publishable
+        # key belongs here — never the service-role key.
+        VITE_CLOUD_WAI_API_URL: ""
+        VITE_SUPABASE_URL: "$VITE_SUPABASE_URL"
+        VITE_SUPABASE_ANON_KEY: "$VITE_SUPABASE_ANON_KEY"
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:8787
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_started

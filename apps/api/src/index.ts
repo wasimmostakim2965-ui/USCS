@@ -12,7 +12,7 @@ export { buildRouter } from "./router.js";
 export type { RouterDeps, RpcRequest, RpcResponse } from "./router.js";
 export { createHttpServer, listen } from "./server.js";
 export type { ServerDeps, HttpServer } from "./server.js";
-export { createDeployment, start } from "./bootstrap.js";
+export { createDeployment, start, allowedOriginsFromEnv } from "./bootstrap.js";
 export type { Deployment, ApiDeploymentDeps, StartupOptions, StartupResult } from "./bootstrap.js";
 export {
   listOrganizations,

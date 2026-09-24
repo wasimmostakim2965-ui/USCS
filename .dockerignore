@@ -1,0 +1,25 @@
+# Keep the build context small and deterministic.
+#
+# `node_modules` is installed inside the image from the lockfile, so sending the
+# host's copy would only slow the build and risk a native module built for the
+# wrong platform. `engines-src` holds read-only engine clones and is never part
+# of a build. Secrets are excluded so a stray `.env` cannot be baked into a layer.
+
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/.tsbuildinfo
+
+engines-src
+.git
+.github
+.agent_tmp
+
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
+docs
+tests

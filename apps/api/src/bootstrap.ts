@@ -66,6 +66,26 @@ export interface StartupOptions {
   readonly allowedOrigins?: readonly string[];
 }
 
+/**
+ * The origins allowed to call this API, read from the deployment's environment.
+ *
+ * An allow-list, never `*`: a control-plane response is per-user, so a wildcard
+ * would let any site read it with a stolen token. Empty (or unset) keeps CORS
+ * off, which is the correct setting for a same-origin deployment where the
+ * dashboard is served by the API's own host.
+ */
+export function allowedOriginsFromEnv(
+  env: Record<string, string | undefined>,
+): readonly string[] | undefined {
+  const raw = env.CLOUD_WAI_ALLOWED_ORIGINS;
+  if (!raw) return undefined;
+  const origins = raw
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  return origins.length > 0 ? origins : undefined;
+}
+
 export interface StartupResult {
   readonly server: HttpServer;
   readonly engines: Engines;
@@ -113,10 +133,11 @@ export async function start(
   const deployment = createDeployment({ store, verifier, engines, newId, queue });
 
   const { listen } = await import("./server.js");
+  const allowedOrigins = options.allowedOrigins ?? allowedOriginsFromEnv(env);
   const server = await listen(
     {
       route: (request) => deployment.router.route(request),
-      ...(options.allowedOrigins ? { allowedOrigins: options.allowedOrigins } : {}),
+      ...(allowedOrigins ? { allowedOrigins } : {}),
     },
     options.port ?? Number(env.PORT ?? 8787),
     options.host ?? env.HOST ?? "127.0.0.1",

@@ -156,6 +156,20 @@ not when a commit message says so.
   `EngineConfig.securityEdge`; absent means the honest `not_configured` edge,
   even when `SECURITY_EDGE_URL` is set.
 
+## Deploying the software
+
+- `docs/runbooks/deploy.md` is the operator runbook; `infra/deployment/` holds the
+  `api` / `worker` / `web` images and a compose file for a single host. The
+  dashboard image serves the bundle and reverse-proxies `/rpc` and `/healthz` to
+  the API, so the browser has one origin and the API's
+  `CLOUD_WAI_ALLOWED_ORIGINS` stays empty.
+- The API reads `HOST` / `PORT` / `CLOUD_WAI_ALLOWED_ORIGINS` from the
+  environment (`allowedOriginsFromEnv`). An allow-list, never `*`: a
+  control-plane response is per-user.
+- No engine is faked to make a deployment look healthy. Gates 6–9 stay **open**
+  until a real engine closes them — do not describe a host as complete while they
+  are open.
+
 ## Closed gaps
 
 - **`api_keys` scope forgery through PostgREST.** `apiKeys.create` narrows
