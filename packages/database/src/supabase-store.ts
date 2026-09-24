@@ -31,8 +31,10 @@ import type {
   ControlPlaneStore,
   DataBackup,
   DataBackupCreateInput,
+  DataBackupStatusInput,
   DataResource,
   DataResourceCreateInput,
+  DataResourceStateInput,
   Deployment,
   DeploymentCreateInput,
   DeploymentStatusInput,
@@ -175,6 +177,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       name: str(row, "name"),
       state: str(row, "state") as DataResource["state"],
       provider: nullableStr(row, "provider"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
       createdAt: str(row, "created_at"),
     };
   }
@@ -709,6 +712,42 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const row = Array.isArray(created) ? created[0] : undefined;
       if (!row) throw new ControlPlaneUnavailableError("createDataBackup", "no row returned");
       return toDataBackup(row);
+    },
+
+    async setDataResourceState(input: DataResourceStateInput): Promise<DataResource | null> {
+      // `organization_id` is in the filter, not only in the body: a transition
+      // can only touch a row in the tenant it was resolved for, even though the
+      // write runs with the service role.
+      const body: Record<string, unknown> = { state: input.state };
+      if (input.provider !== undefined) body["provider"] = input.provider;
+      if (input.providerResourceId !== undefined) {
+        body["provider_resource_id"] = input.providerResourceId;
+      }
+      const updated = await rows("setDataResourceState", {
+        method: "PATCH",
+        path: `/data_resources?select=*&id=eq.${q(input.id)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body,
+      });
+      const row = updated[0];
+      return row ? toDataResource(row) : null;
+    },
+
+    async updateDataBackupStatus(input: DataBackupStatusInput): Promise<DataBackup | null> {
+      const body: Record<string, unknown> = { status: input.status };
+      if (input.providerResourceId !== undefined) {
+        body["provider_resource_id"] = input.providerResourceId;
+      }
+      if (input.sizeBytes !== undefined) body["size_bytes"] = input.sizeBytes;
+      if (input.finishedAt !== undefined) body["finished_at"] = input.finishedAt;
+      const updated = await rows("updateDataBackupStatus", {
+        method: "PATCH",
+        path: `/data_backups?select=*&id=eq.${q(input.id)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body,
+      });
+      const row = updated[0];
+      return row ? toDataBackup(row) : null;
     },
 
     async createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary> {

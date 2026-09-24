@@ -38,6 +38,32 @@ export type {
   RollbackDeploymentInput,
 } from "./procedures/deployments.js";
 export { buildProcedures, procedureNames, ROUTE_SHAPES } from "./procedures/index.js";
+export {
+  backupDataResource,
+  listDataBackups,
+  provisionDataResource,
+  DATA_RESOURCE_KINDS,
+} from "./procedures/data.js";
+export type {
+  BackupDataInput,
+  BackupDataResult,
+  DataDeps,
+  DataResourceKind,
+  ListBackupsInput,
+  ProvisionDataInput,
+  ProvisionDataResult,
+} from "./procedures/data.js";
+export {
+  distributeSecurityPolicy,
+  readSecurityPolicy,
+  saveSecurityPolicy,
+} from "./procedures/security.js";
+export type {
+  DistributePolicyInput,
+  DistributePolicyResult,
+  SavePolicyInput,
+  SecurityDeps,
+} from "./procedures/security.js";
 
 export interface AppDescriptor {
   readonly name: string;

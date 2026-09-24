@@ -180,7 +180,53 @@ export interface DataResourceSummary {
   readonly id: string;
   readonly kind: "postgres" | "object_storage";
   readonly name: string;
-  readonly state: "provisioning" | "ready" | "degraded" | "failed" | "destroying";
+  /** Mirrors the `data_resource_state` enum. The server, never the client, writes it. */
+  readonly state: "provisioning" | "ready" | "restoring" | "failed" | "not_configured";
+}
+
+/** A provision or backup answer, with the engine's own words when it refused. */
+export interface ProvisionDataSummary {
+  readonly resource: DataResourceSummary;
+  readonly engineReason: string | null;
+}
+
+export interface BackupDataSummary {
+  readonly backup: {
+    readonly id: string;
+    readonly dataResourceId: string;
+    readonly status: "pending" | "running" | "succeeded" | "failed" | "not_configured";
+    readonly providerResourceId: string | null;
+    readonly createdAt: string;
+    readonly finishedAt: string | null;
+  };
+  readonly engineReason: string | null;
+}
+
+export interface SecurityPolicySummary {
+  readonly id: string;
+  readonly name: string;
+  readonly riskLevel: "low" | "medium" | "high" | "critical";
+  readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
+  readonly state: "draft" | "compiled" | "distributed" | "active" | "rejected" | "degraded";
+  readonly version: number;
+  readonly updatedAt: string;
+}
+
+export interface SecurityPolicyReadSummary {
+  readonly policy: SecurityPolicySummary | null;
+  readonly events: readonly {
+    readonly id: string;
+    readonly toState: string;
+    readonly version: number;
+    readonly detail: string | null;
+    readonly createdAt: string;
+  }[];
+}
+
+export interface DistributePolicySummary {
+  readonly policy: SecurityPolicySummary;
+  readonly distributed: boolean;
+  readonly engineReason: string | null;
 }
 
 export interface ApiKeySummaryRow {
@@ -265,6 +311,33 @@ export async function loadProviderHealth(
     organizationId,
   });
   return sectionFrom("Engine status", response);
+}
+
+/**
+ * Load the organization's security policy.
+ *
+ * A missing policy is not an error: it renders as an empty list under the same
+ * rule as every other section, so "no policy yet" and "the load failed" stay
+ * distinguishable. The policy state is the server's, never inferred here.
+ */
+export async function loadSecurityPolicy(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<SecurityPolicySummary>> {
+  const response = await client.call<SecurityPolicyReadSummary>("security.policy.get", {
+    organizationId,
+  });
+  if (response.notConfigured) {
+    return {
+      title: "Security policy",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Security policy", response.error?.message ?? "Request failed.");
+  }
+  const policy = response.data?.policy;
+  return ready("Security policy", policy ? [policy] : []);
 }
 
 /** Load the audit log of one organization. */

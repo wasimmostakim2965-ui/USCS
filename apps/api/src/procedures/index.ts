@@ -55,6 +55,23 @@ import {
   type RemoveDomainInput,
   type VerifyDomainInput,
 } from "./domains.js";
+import {
+  backupDataResource,
+  listDataBackups,
+  provisionDataResource,
+  type BackupDataInput,
+  type DataDeps,
+  type ListBackupsInput,
+  type ProvisionDataInput,
+} from "./data.js";
+import {
+  distributeSecurityPolicy,
+  readSecurityPolicy,
+  saveSecurityPolicy,
+  type DistributePolicyInput,
+  type SavePolicyInput,
+  type SecurityDeps,
+} from "./security.js";
 import { providerHealth, type HealthDeps } from "./health.js";
 import type { RequestContext } from "../context.js";
 
@@ -119,6 +136,18 @@ export function buildProcedures(
   };
   const healthDeps: HealthDeps = {
     engines: extras.engines ?? missingEngines,
+  };
+  const dataDeps: DataDeps = {
+    store,
+    newId,
+    engines: extras.engines ?? missingEngines,
+    ...(extras.now ? { now: extras.now } : {}),
+  };
+  const securityDeps: SecurityDeps = {
+    store,
+    newId,
+    engines: extras.engines ?? missingEngines,
+    ...(extras.now ? { now: extras.now } : {}),
   };
 
   return [
@@ -221,6 +250,40 @@ export function buildProcedures(
         ),
     },
     {
+      name: "data.provision",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        provisionDataResource(ctx, dataDeps, inputOf<ProvisionDataInput>(input)),
+    },
+    {
+      name: "data.backup",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        backupDataResource(ctx, dataDeps, inputOf<BackupDataInput>(input)),
+    },
+    {
+      name: "data.backups.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listDataBackups(ctx, dataDeps, inputOf<ListBackupsInput>(input)),
+    },
+    {
+      name: "security.policy.get",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readSecurityPolicy(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "security.policy.save",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        saveSecurityPolicy(ctx, securityDeps, inputOf<SavePolicyInput>(input)),
+    },
+    {
+      name: "security.policy.distribute",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        distributeSecurityPolicy(ctx, securityDeps, inputOf<DistributePolicyInput>(input)),
+    },
+    {
       name: "apiKeys.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listApiKeys(
@@ -300,6 +363,22 @@ export const ROUTE_SHAPES = {
   "domains.verify": { organizationId: "OrganizationId", domainId: "DomainId" },
   "domains.remove": { organizationId: "OrganizationId", domainId: "DomainId" },
   "data.list": { organizationId: "OrganizationId" },
+  "data.provision": {
+    organizationId: "OrganizationId",
+    name: "string",
+    kind: "postgres|object_storage",
+    projectId: "ProjectId?",
+  },
+  "data.backup": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
+  "data.backups.list": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
+  "security.policy.get": { organizationId: "OrganizationId" },
+  "security.policy.save": {
+    organizationId: "OrganizationId",
+    name: "string",
+    riskLevel: "RiskLevel",
+    action: "EnforcementAction",
+  },
+  "security.policy.distribute": { organizationId: "OrganizationId" },
   "apiKeys.list": { organizationId: "OrganizationId" },
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },

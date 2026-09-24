@@ -183,6 +183,17 @@ export interface ControlPlaneWrites {
   listDataBackups(userId: UserId, resourceId: DataResourceId): Promise<readonly DataBackup[]>;
   /** Request a backup. The worker performs it; status starts `pending`. */
   createDataBackup(input: DataBackupCreateInput): Promise<DataBackup>;
+  /**
+   * Record the engine's answer about a resource's lifecycle.
+   *
+   * `state` and the engine identifiers are the engine's to report, never a
+   * client's assertion: there is no procedure that accepts a state from the
+   * browser, and the guard trigger refuses a client write even through
+   * PostgREST.
+   */
+  setDataResourceState(input: DataResourceStateInput): Promise<DataResource | null>;
+  /** Record the outcome of a backup. Written only from the adapter's answer. */
+  updateDataBackupStatus(input: DataBackupStatusInput): Promise<DataBackup | null>;
 }
 
 /** The full store a control-plane deployment needs. */
@@ -342,6 +353,30 @@ export interface DataBackupCreateInput {
   readonly status: EngineStatus;
 }
 
+/**
+ * A resource lifecycle change the engine reported.
+ *
+ * `organizationId` is part of the where clause, not a convenience: the write runs
+ * with the service role, so the tenant is what stops it crossing a boundary.
+ */
+export interface DataResourceStateInput {
+  readonly id: DataResourceId;
+  readonly organizationId: OrganizationId;
+  readonly state: DataResource["state"];
+  readonly provider?: string | null;
+  readonly providerResourceId?: string | null;
+}
+
+/** A backup outcome. Only the adapter's answer may set `status`. */
+export interface DataBackupStatusInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly status: EngineStatus;
+  readonly providerResourceId?: string | null;
+  readonly sizeBytes?: number | null;
+  readonly finishedAt?: string | null;
+}
+
 export interface Domain {
   readonly id: DomainId;
   readonly organizationId: OrganizationId;
@@ -375,6 +410,12 @@ export interface DataResource {
    */
   readonly state: "provisioning" | "ready" | "restoring" | "failed" | "not_configured";
   readonly provider: string | null;
+  /**
+   * The engine's own handle for this resource, needed to address a backup or
+   * restore at the engine. Null until the engine has answered a provisioning
+   * call; recorded only from that answer, never supplied by a client.
+   */
+  readonly providerResourceId: string | null;
   readonly createdAt: string;
 }
 

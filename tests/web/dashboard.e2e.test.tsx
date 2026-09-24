@@ -1070,13 +1070,241 @@ describe("the Database drill-in", () => {
     ).toBeTruthy();
   });
 
-  it("does not offer a control that pretends to work", async () => {
+  it("offers real provisioning and backup controls, and still marks what is not built", async () => {
     const url = await startApi(reachable());
     renderApp(url, "#/orgs/org-1/projects/p-1/database");
 
-    // A coming-soon control is disabled; nothing on this page is a live button
-    // that would fail silently if pressed.
-    const autoSetup = await screen.findByRole("button", { name: /Auto Database Setup/ });
-    expect((autoSetup as HTMLButtonElement).disabled).toBe(true);
+    // Provisioning is now a live control on the Overview, not a disabled
+    // placeholder: it calls `data.provision`.
+    const provision = await screen.findByRole("button", { name: "Provision resource" });
+    expect((provision as HTMLButtonElement).disabled).toBe(false);
+
+    // The connection controls below are still not built, and they say so rather
+    // than appearing to work.
+    const addCustom = screen.getByRole("button", { name: /Add custom database/ });
+    expect((addCustom as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("provisions a resource through the API and shows the engine's own state", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const rows: unknown[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return { ok: true, status: 200, data: rows };
+      }
+      if (procedure === "data.provision") {
+        const body = input as { name: string; kind: string };
+        // The state is what the engine reported; the form never sets it.
+        const resource = { id: "r-1", kind: body.kind, name: body.name, state: "ready" };
+        rows.push(resource);
+        return { ok: true, status: 200, data: { resource, engineReason: null } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Provision resource" }));
+    await user.type(await screen.findByPlaceholderText("tenant-db"), "orders-db");
+    await user.click(screen.getByRole("button", { name: "Provision" }));
+
+    expect(
+      await screen.findByText(/The engine provisioned this resource and confirmed it/),
+    ).toBeTruthy();
+
+    const sent = calls.find((call) => call.procedure === "data.provision");
+    expect(sent?.input).toMatchObject({ name: "orders-db", kind: "postgres" });
+  });
+
+  it("reports an unconfigured engine instead of pretending a resource exists", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "data.provision") {
+        // Honest refusal: the row was recorded but the engine did not act.
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: {
+              id: "r-2",
+              kind: "postgres",
+              name: "orders-db",
+              state: "not_configured",
+            },
+            engineReason: "POSTGRES_URL is not set.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Provision resource" }));
+    await user.type(await screen.findByPlaceholderText("tenant-db"), "orders-db");
+    await user.click(screen.getByRole("button", { name: "Provision" }));
+
+    expect(await screen.findByText(/The engine did not provision this resource/)).toBeTruthy();
+    expect(await screen.findByText(/POSTGRES_URL is not set\./)).toBeTruthy();
+  });
+
+  it("backs up a ready resource and refuses one the engine never provisioned", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "r-ready", kind: "postgres", name: "ready-db", state: "ready" },
+            { id: "r-missing", kind: "postgres", name: "no-handle", state: "not_configured" },
+          ],
+        };
+      }
+      if (procedure === "data.backup") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            backup: {
+              id: "b-1",
+              dataResourceId: "r-ready",
+              status: "succeeded",
+              providerResourceId: "engine-1",
+              createdAt: new Date().toISOString(),
+              finishedAt: null,
+            },
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    const rows = await screen.findAllByRole("row");
+    const readyRow = rows.find((row) => within(row).queryByText("ready-db"));
+    expect(readyRow).toBeTruthy();
+    // The row whose resource is not ready cannot be backed up; the control is
+    // disabled rather than firing a call the server would refuse.
+    const missingRow = rows.find((row) => within(row).queryByText("no-handle"));
+    expect(
+      within(missingRow!).getByRole("button", { name: "Back up" }) as HTMLButtonElement,
+    ).toHaveProperty("disabled", true);
+
+    await user.click(within(readyRow!).getByRole("button", { name: "Back up" }));
+    // The dialog's own confirm button, distinct from the row control behind it.
+    const dialog = await screen.findByRole("dialog", { name: "Back up resource" });
+    await user.click(within(dialog).getByRole("button", { name: "Back up" }));
+
+    expect(await screen.findByText(/The engine returned a backup reference/)).toBeTruthy();
+    const sent = calls.find((call) => call.procedure === "data.backup");
+    expect(sent?.input).toMatchObject({ organizationId: "org-1", resourceId: "r-ready" });
+  });
+});
+
+describe("the Security policy write path", () => {
+  const draftPolicy = {
+    id: "pol-1",
+    name: "Default policy",
+    riskLevel: "high" as const,
+    action: "challenge" as const,
+    state: "draft" as const,
+    version: 2,
+    updatedAt: new Date().toISOString(),
+  };
+
+  it("saves a policy as a draft and never claims it is active", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    let stored: unknown = null;
+    const responder: Responder = (procedure, input) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "security.policy.save") {
+        calls.push({ procedure, input });
+        stored = draftPolicy;
+        return { ok: true, status: 200, data: draftPolicy };
+      }
+      if (procedure === "security.policy.get") {
+        return { ok: true, status: 200, data: { policy: stored, events: [] } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Save policy" }));
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    // The stored state is what is rendered, and it is a draft: not active.
+    expect(await screen.findByText("draft")).toBeTruthy();
+    expect(screen.queryByText("active")).toBeNull();
+
+    const sent = calls.find((call) => call.procedure === "security.policy.save");
+    expect(sent?.input).toMatchObject({ organizationId: "org-1", riskLevel: "medium" });
+  });
+
+  it("reports a distribution the edge did not apply as not applied", async () => {
+    const responder: Responder = (procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "security.policy.get") {
+        return { ok: true, status: 200, data: { policy: draftPolicy, events: [] } };
+      }
+      if (procedure === "security.policy.distribute") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            policy: draftPolicy,
+            distributed: false,
+            engineReason: "The security edge is not configured in this deployment.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Distribute to edge" }));
+    await user.click(screen.getByRole("button", { name: "Distribute" }));
+
+    expect(await screen.findByText(/The edge did not apply the policy/)).toBeTruthy();
+    expect(
+      await screen.findByText(/The security edge is not configured in this deployment/),
+    ).toBeTruthy();
   });
 });

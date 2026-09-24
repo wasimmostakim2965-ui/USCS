@@ -37,11 +37,13 @@ import {
   loadProject,
   loadProjects,
   loadProviderHealth,
+  loadSecurityPolicy,
   API_KEY_SCOPES,
   type ApiKeySummaryRow,
   type AuditSummary,
   type DeploymentRequestSummary,
   type DeploymentSummary,
+  type DistributePolicySummary,
   type DomainChallengeSummary,
   type DomainSummary,
   type DomainVerificationSummary,
@@ -49,9 +51,9 @@ import {
   type OrganizationSummary,
   type ProjectSummary,
   type ProviderHealthRow,
+  type SecurityPolicySummary,
 } from "../view-model.js";
 import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
-import { ComingSoon } from "../components/app-shell.js";
 
 /* ------------------------------------------------------------------ cards */
 
@@ -1110,9 +1112,11 @@ function RemoveDomainModal({
 /**
  * Security.
  *
- * This page reports what the deployment can actually do. Until the edge adapter
- * exists and an engine is wired, the honest answer is "not configured", and the
- * level cards below are shown as a preview rather than as working controls.
+ * This page reports what the deployment can actually do. The protection levels
+ * below are a preview of the vocabulary Cloud Wai compiles; the *policy* is a
+ * real row, saved as a draft and activated only when the edge accepts a
+ * distribution. Until an edge is wired, the honest answer is "not configured",
+ * and nothing here claims a policy is active that the edge never confirmed.
  */
 export function SecurityPage({ organizationId }: { readonly organizationId: string }) {
   const { client } = useApp();
@@ -1121,17 +1125,31 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Security engines",
   );
+  const policy = useSection(
+    () => loadSecurityPolicy(client, organizationId),
+    [client, organizationId],
+    "Security policy",
+  );
+  const [saving, setSaving] = useState(false);
+  const [distributing, setDistributing] = useState(false);
+
+  const current =
+    policy.section.state.kind === "ready" ? (policy.section.state.items[0] ?? null) : null;
 
   const levels = [
     {
       id: "none",
       name: "None",
+      riskLevel: "low" as const,
+      action: "allow" as const,
       summary: "No inspection. The origin is reachable directly.",
       enables: ["Host firewall only"],
     },
     {
       id: "normal",
       name: "Normal",
+      riskLevel: "medium" as const,
+      action: "log" as const,
       summary: "Hidden origin, TLS termination, managed rule set.",
       enables: [
         "Origin hidden behind the edge",
@@ -1143,6 +1161,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     {
       id: "high",
       name: "High",
+      riskLevel: "high" as const,
+      action: "challenge" as const,
       summary: "Normal plus behaviour-based blocking and rate limits.",
       enables: [
         "Everything in Normal",
@@ -1154,6 +1174,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     {
       id: "ultimate",
       name: "Ultimate",
+      riskLevel: "critical" as const,
+      action: "block" as const,
       summary: "High plus advanced anomaly scoring and quarantine.",
       enables: [
         "Everything in High",
@@ -1168,7 +1190,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     <PageShell
       title="Security"
       subtitle="Choose a protection level. Cloud Wai compiles it to an edge policy; the edge applies and confirms it."
-      actions={<ComingSoon label="Apply policy" />}
+      actions={
+        <Button variant="primary" onClick={() => setSaving(true)}>
+          {current ? "Edit policy" : "Save policy"}
+        </Button>
+      }
     >
       <div className="banner" role="status">
         <strong>Edge not configured yet.</strong>
@@ -1178,6 +1204,55 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
           active.
         </span>
       </div>
+
+      <SectionShell
+        title="Policy"
+        hint="Saved as a draft; the edge is what makes it active"
+        actions={
+          current ? (
+            <Button size="sm" onClick={() => setDistributing(true)}>
+              Distribute to edge
+            </Button>
+          ) : undefined
+        }
+      >
+        <Card flush>
+          <SectionView<SecurityPolicySummary>
+            section={policy.section}
+            onRetry={policy.reload}
+            emptyMessage="No policy saved yet. Saving writes a draft; the edge activates it."
+            columns={[
+              { key: "name", header: "Name", render: (item) => item.name },
+              {
+                key: "riskLevel",
+                header: "Risk",
+                render: (item) => <span className="mono small">{item.riskLevel}</span>,
+              },
+              {
+                key: "action",
+                header: "Action",
+                render: (item) => <span className="mono small">{item.action}</span>,
+              },
+              {
+                key: "state",
+                header: "State",
+                render: (item) => <PolicyStateBadge state={item.state} />,
+              },
+              {
+                key: "version",
+                header: "Version",
+                render: (item) => <span className="mono small">{item.version}</span>,
+              },
+              {
+                key: "updatedAt",
+                header: "Updated",
+                render: (item) => <Timestamp value={item.updatedAt} />,
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
 
       <SectionShell title="Protection level" hint="Selecting a level does not apply it yet">
         <div className="grid">
@@ -1190,7 +1265,13 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 ))}
               </ul>
               <div style={{ marginTop: "var(--space-4)" }}>
-                <ComingSoon label="Select" />
+                <Button
+                  size="sm"
+                  onClick={() => setSaving(true)}
+                  title="Opens the policy form; distribution is what activates it."
+                >
+                  Use this level
+                </Button>
               </div>
             </Card>
           ))}
@@ -1234,7 +1315,251 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
           />
         </Card>
       </SectionShell>
+
+      <SavePolicyModal
+        organizationId={organizationId}
+        policy={current}
+        open={saving}
+        onClose={() => setSaving(false)}
+        onSaved={() => {
+          setSaving(false);
+          policy.reload();
+        }}
+      />
+
+      <DistributePolicyModal
+        organizationId={organizationId}
+        policy={current}
+        open={distributing}
+        onClose={() => setDistributing(false)}
+        onDone={() => {
+          setDistributing(false);
+          policy.reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/** A policy's lifecycle. `active` is the edge's answer, never a form's. */
+function PolicyStateBadge({ state }: { readonly state: string }) {
+  const tone = state === "active" ? "positive" : state === "rejected" ? "danger" : "warning";
+  return <StatusBadge label={state} tone={tone} />;
+}
+
+/**
+ * Save a policy as a draft.
+ *
+ * The form changes the name, risk level and action only. It cannot set the
+ * state: the server always writes `draft`, and the badge afterwards is read back
+ * from the server rather than assumed here.
+ */
+function SavePolicyModal({
+  organizationId,
+  policy,
+  open,
+  onClose,
+  onSaved,
+}: {
+  readonly organizationId: string;
+  readonly policy: SecurityPolicySummary | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const { client } = useApp();
+  const [name, setName] = useState(policy?.name ?? "Default policy");
+  const [riskLevel, setRiskLevel] = useState<SecurityPolicySummary["riskLevel"]>(
+    policy?.riskLevel ?? "medium",
+  );
+  const [action, setAction] = useState<SecurityPolicySummary["action"]>(policy?.action ?? "log");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<SecurityPolicySummary>("security.policy.save", {
+      organizationId,
+      name,
+      riskLevel,
+      action,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The policy could not be saved.");
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title="Save policy"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Save draft
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Name" {...(error ? { error } : {})}>
+          {(id) => (
+            <TextInput
+              id={id}
+              value={name}
+              onChange={setName}
+              placeholder="Default policy"
+              error={Boolean(error)}
+              autoFocus
+            />
+          )}
+        </Field>
+        <Field label="Risk level">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={riskLevel}
+              onChange={(event) =>
+                setRiskLevel(event.target.value as SecurityPolicySummary["riskLevel"])
+              }
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          )}
+        </Field>
+        <Field label="Enforcement action" hint="How the edge treats a matching request.">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={action}
+              onChange={(event) => setAction(event.target.value as SecurityPolicySummary["action"])}
+            >
+              <option value="allow">Allow</option>
+              <option value="log">Log</option>
+              <option value="challenge">Challenge</option>
+              <option value="block">Block</option>
+              <option value="quarantine">Quarantine</option>
+            </select>
+          )}
+        </Field>
+        <p className="muted small">
+          Saving writes a draft with a version one higher than the current one. The edge is what
+          activates it.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Distribute the policy to the edge.
+ *
+ * The answer is the adapter's. A not-configured edge is reported as the reason
+ * the policy stayed a draft, never as an activation.
+ */
+function DistributePolicyModal({
+  organizationId,
+  policy,
+  open,
+  onClose,
+  onDone,
+}: {
+  readonly organizationId: string;
+  readonly policy: SecurityPolicySummary | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onDone: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DistributePolicySummary | null>(null);
+
+  if (!policy) return null;
+
+  const close = () => {
+    setError(null);
+    setResult(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DistributePolicySummary>("security.policy.distribute", {
+      organizationId,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The policy could not be distributed.");
+      return;
+    }
+    setResult(response.data);
+  };
+
+  return (
+    <Modal
+      title="Distribute policy"
+      open={policy !== null && open}
+      onClose={close}
+      footer={
+        result ? (
+          <Button variant="primary" onClick={onDone}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="primary" onClick={() => void submit()} busy={busy}>
+              Distribute
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="stack">
+        <p>
+          Send <span className="mono">{policy.name}</span> (version {policy.version}) to the edge.
+        </p>
+        {result ? (
+          <>
+            <PolicyStateBadge state={result.policy.state} />
+            {result.distributed ? (
+              <p className="small">The edge accepted the policy and it is now active.</p>
+            ) : (
+              <p className="muted small">
+                The edge did not apply the policy: {result.engineReason}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="muted small">
+            The edge confirms its own version; a lower version is refused before the call.
+          </p>
+        )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 

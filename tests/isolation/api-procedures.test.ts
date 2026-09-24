@@ -183,7 +183,10 @@ describe("the registered procedure table", () => {
       "apiKeys.list",
       "apiKeys.revoke",
       "audit.list",
+      "data.backup",
+      "data.backups.list",
       "data.list",
+      "data.provision",
       "deployments.create",
       "deployments.list",
       "deployments.rollback",
@@ -198,6 +201,9 @@ describe("the registered procedure table", () => {
       "projects.get",
       "projects.list",
       "providers.health",
+      "security.policy.distribute",
+      "security.policy.get",
+      "security.policy.save",
     ]);
   });
 
