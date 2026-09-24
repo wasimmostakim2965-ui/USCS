@@ -236,7 +236,10 @@ export function Table<T>({ caption, columns, items, rowKey, onRowClick }: TableP
               style={onRowClick ? { cursor: "pointer" } : undefined}
             >
               {columns.map((column) => (
-                <td key={column.key} className={column.align === "right" ? "table__num" : undefined}>
+                <td
+                  key={column.key}
+                  className={column.align === "right" ? "table__num" : undefined}
+                >
                   {column.render(item)}
                 </td>
               ))}
@@ -537,7 +540,9 @@ export function Modal({
     // focus while the operator types.
     if (!wasOpen.current) {
       wasOpen.current = true;
-      const firstField = panel.current?.querySelector<HTMLElement>("input, select, textarea, button");
+      const firstField = panel.current?.querySelector<HTMLElement>(
+        "input, select, textarea, button",
+      );
       firstField?.focus();
     }
     document.addEventListener("keydown", onKey);

@@ -653,3 +653,193 @@ describe("creating and revoking an API key", () => {
     expect(document.activeElement).toBe(field);
   });
 });
+
+describe("adding, verifying and removing a domain", () => {
+  /**
+   * A control plane that holds domain rows and answers the challenge the way
+   * the real adapter does: `verified` only ever comes from the verifier, and a
+   * failed challenge is a successful request with `verified: false`.
+   */
+  function domainPlane() {
+    const domains: {
+      id: string;
+      organizationId: string;
+      hostname: string;
+      verified: boolean;
+      verifiedAt: string | null;
+    }[] = [
+      {
+        id: "dm-1",
+        organizationId: "org-1",
+        hostname: "app.example.test",
+        verified: false,
+        verifiedAt: null,
+      },
+    ];
+    const calls: { procedure: string; input: unknown }[] = [];
+
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "domains.list") {
+        return { ok: true, status: 200, data: domains };
+      }
+      if (procedure === "domains.create") {
+        const body = input as { hostname: string };
+        const domain = {
+          id: "dm-2",
+          organizationId: "org-1",
+          hostname: body.hostname,
+          verified: false,
+          verifiedAt: null,
+        };
+        domains.push(domain);
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            domain,
+            recordName: `_cloud-wai-challenge.${body.hostname}`,
+            recordValue: "cw-domain-verify=testtoken",
+            recordType: "TXT",
+          },
+        };
+      }
+      if (procedure === "domains.verify") {
+        const body = input as { domainId: string };
+        const found = domains.find((d) => d.id === body.domainId);
+        if (!found)
+          return { ok: false, status: 404, error: { code: "not_found", message: "No domain." } };
+        // The challenge did not match: a real answer, not an error.
+        found.verified = false;
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            domain: found,
+            detail: "No TXT record carries the expected token.",
+          },
+        };
+      }
+      if (procedure === "domains.remove") {
+        const body = input as { domainId: string };
+        const index = domains.findIndex((d) => d.id === body.domainId);
+        if (index < 0)
+          return { ok: false, status: 404, error: { code: "not_found", message: "No domain." } };
+        domains.splice(index, 1);
+        return { ok: true, status: 200, data: { removed: true } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+    return { responder, domains, calls };
+  }
+
+  it("adds a hostname and shows the DNS challenge to publish", async () => {
+    const { responder, calls } = domainPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add domain" }));
+    await user.type(await screen.findByPlaceholderText("app.example.com"), "new.example.test");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    // The challenge is shown, and the domain is not claimed as verified.
+    expect(await screen.findByText("_cloud-wai-challenge.new.example.test")).toBeTruthy();
+    expect(screen.getByText("cw-domain-verify=testtoken")).toBeTruthy();
+    expect(screen.getByText(/not yet verified/)).toBeTruthy();
+
+    const create = calls.find((c) => c.procedure === "domains.create");
+    expect(create?.input).toMatchObject({
+      organizationId: "org-1",
+      projectId: "p-1",
+      hostname: "new.example.test",
+    });
+  });
+
+  it("shows the verifier's own answer when a challenge does not match", async () => {
+    const { responder, calls } = domainPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Verify" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Verify" }));
+
+    // The refusal is reported as a detail, not as an error the operator caused.
+    expect(await screen.findByText(/No TXT record carries the expected token/)).toBeTruthy();
+    // The dialog says so too, and neither the row nor the dialog claims verified.
+    expect(within(dialog).getByText("Unverified")).toBeTruthy();
+    expect(within(dialog).queryByText("Verified")).toBeNull();
+    const verify = calls.find((c) => c.procedure === "domains.verify");
+    expect(verify?.input).toMatchObject({ organizationId: "org-1", domainId: "dm-1" });
+  });
+
+  it("reports a not-configured verifier as degraded, never as verified", async () => {
+    const url = await startApi((procedure, input) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "domains.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "dm-1",
+              organizationId: "org-1",
+              hostname: "app.example.test",
+              verified: false,
+              verifiedAt: null,
+            },
+          ],
+        };
+      }
+      if (procedure === "domains.verify") {
+        void input;
+        return {
+          ok: false,
+          status: 503,
+          error: {
+            code: "engine_unavailable",
+            message: "The domain verifier could not confirm this hostname: not configured.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Verify" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Verify" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("could not confirm");
+    // Nothing on screen may claim the hostname is verified.
+    expect(screen.queryByText("Verified")).toBeNull();
+  });
+
+  it("removes a hostname through the API and reloads the list", async () => {
+    const { responder, calls, domains } = domainPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(calls.some((c) => c.procedure === "domains.remove")).toBe(true));
+    const remove = calls.find((c) => c.procedure === "domains.remove");
+    expect(remove?.input).toMatchObject({ organizationId: "org-1", domainId: "dm-1" });
+    expect(domains).toHaveLength(0);
+
+    // The reloaded list comes from the server, so the row is gone.
+    await waitFor(() => expect(screen.queryByText("app.example.test")).toBeNull());
+  });
+});

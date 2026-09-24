@@ -39,7 +39,10 @@ export interface SessionController {
   /** The token for `ApiClient`, or null. */
   getAccessToken(): string | null;
   signInWithPassword(email: string, password: string): Promise<void>;
-  signUpWithPassword(email: string, password: string): Promise<{ readonly needsConfirmation: boolean }>;
+  signUpWithPassword(
+    email: string,
+    password: string,
+  ): Promise<{ readonly needsConfirmation: boolean }>;
   signOut(): Promise<void>;
   /** Subscribe to sign-in/sign-out. Returns an unsubscribe function. */
   subscribe(listener: (session: BrowserSession | null) => void): () => void;
@@ -68,7 +71,9 @@ function toBrowserSession(session: Session | null): BrowserSession | null {
  * Both values are public: the anon key is designed to be shipped to a browser.
  * The service-role key is deliberately not read here, and must never be.
  */
-export function sessionConfigFromEnv(env: Record<string, string | undefined>): SessionConfig | null {
+export function sessionConfigFromEnv(
+  env: Record<string, string | undefined>,
+): SessionConfig | null {
   const url = env["VITE_SUPABASE_URL"];
   const anonKey = env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !anonKey) return null;

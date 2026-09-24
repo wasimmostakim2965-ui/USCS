@@ -12,15 +12,18 @@
 import {
   databaseNotConfigured,
   fakeDatabase,
+  fakeDomainVerifier,
   fakeHosting,
   hostingNotConfigured,
   securityNotConfigured,
   storageNotConfigured,
   createCoolifyHosting,
+  createDnsDomainVerifier,
   createPostgresDatabase,
   createMinioStorage,
   type CoolifyCredentials,
   type DatabaseAdapter,
+  type DomainVerifier,
   type HostingAdapter,
   type SecurityEdgeAdapter,
   type NotConfiguredBrand,
@@ -60,6 +63,11 @@ export interface EngineConfig {
     Readonly<Record<string, { accessKey: string; secretKey: string }>> | undefined;
   /** The security edge (Envoy) is not wired yet; it stays honestly unconfigured. */
   readonly securityEdgeConfigured?: boolean | undefined;
+  /**
+   * The edge host a domain may CNAME to. Absent means a hostname can only be
+   * verified by a TXT challenge, not by a CNAME the deployment cannot inspect.
+   */
+  readonly edgeHostname?: string | undefined;
   /** Use in-memory engines. Only for tests and local development. */
   readonly useFakes?: boolean | undefined;
 }
@@ -69,6 +77,12 @@ export interface Engines {
   readonly database: DatabaseAdapter;
   readonly storage: StorageAdapter;
   readonly securityEdge: SecurityEdgeAdapter;
+  /**
+   * Confirms a hostname points at this deployment. Not an "engine" in the
+   * billing sense, but it belongs here: it is a capability that is either wired
+   * with real configuration or honestly absent, the same as the others.
+   */
+  readonly domainVerifier: DomainVerifier;
 }
 
 /** Read engine configuration from an environment-style record. */
@@ -130,6 +144,7 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
+    edgeHostname: env.EDGE_HOSTNAME,
     useFakes: env.CLOUD_WAI_USE_FAKE_ENGINES === "true",
   };
 }
@@ -148,6 +163,9 @@ export function buildEngines(config: EngineConfig): Engines {
       database: fakeDatabase(),
       storage: storageNotConfigured("minio"),
       securityEdge: securityNotConfigured("envoy"),
+      // A deterministic lookup: unverified by default, so a test cannot pass a
+      // check production would fail.
+      domainVerifier: fakeDomainVerifier(),
     };
   }
 
@@ -214,6 +232,11 @@ export function buildEngines(config: EngineConfig): Engines {
         ? "The security edge adapter is not implemented in this build."
         : "Set SECURITY_EDGE_URL.",
     ),
+    // Verification needs only a resolver, so a real deployment always has one.
+    // The edge host is optional: without it, only the TXT challenge verifies.
+    domainVerifier: createDnsDomainVerifier(
+      config.edgeHostname ? { edgeHostname: config.edgeHostname } : {},
+    ),
   };
 }
 
@@ -233,5 +256,6 @@ export function engineReport(engines: Engines): readonly {
     { engine: "postgres", configured: isConfigured(engines.database) },
     { engine: "minio", configured: isConfigured(engines.storage) },
     { engine: "envoy", configured: isConfigured(engines.securityEdge) },
+    { engine: "dns", configured: isConfigured(engines.domainVerifier) },
   ];
 }

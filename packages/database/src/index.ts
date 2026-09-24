@@ -162,6 +162,20 @@ export interface ControlPlaneWrites {
   createDomain(input: DomainCreateInput): Promise<Domain>;
   /** Get a domain by id, scoped to a member's organization. */
   getDomain(userId: UserId, domainId: DomainId): Promise<Domain | null>;
+  /** Remove a hostname. Idempotent: removing an absent domain reports false. */
+  deleteDomain(
+    userId: UserId,
+    organizationId: OrganizationId,
+    domainId: DomainId,
+  ): Promise<boolean>;
+  /**
+   * Record that the edge confirmed or withdrew a hostname.
+   *
+   * Only the edge's answer may set `verified`. A client cannot reach this: there
+   * is no procedure that accepts a verified flag, and the write happens after the
+   * adapter has answered.
+   */
+  setDomainVerification(input: DomainVerificationInput): Promise<Domain | null>;
 
   /** Register a tenant data resource handle. */
   createDataResource(input: DataResourceCreateInput): Promise<DataResource>;
@@ -277,6 +291,24 @@ export interface DomainCreateInput {
   readonly organizationId: OrganizationId;
   readonly projectId: ProjectId | null;
   readonly hostname: string;
+  /** The generated DNS challenge the customer must publish. */
+  readonly verificationToken: string;
+}
+
+/**
+ * The edge's verdict on a hostname.
+ *
+ * `verified` is the edge's answer, never a client's request: there is no
+ * procedure that accepts a verified flag from the browser. `verifiedAt` is set
+ * to the moment the verdict was recorded, or null when it was not confirmed.
+ */
+export interface DomainVerificationInput {
+  readonly id: DomainId;
+  readonly organizationId: OrganizationId;
+  readonly verified: boolean;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  readonly verifiedAt: string | null;
 }
 
 export interface DataResourceCreateInput {
@@ -316,6 +348,16 @@ export interface Domain {
   readonly projectId: ProjectId | null;
   readonly hostname: string;
   readonly verified: boolean;
+  /** The edge that owns the hostname, when one has claimed it. */
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  /**
+   * The DNS challenge the customer must publish at
+   * `_cloud-wai-challenge.<hostname>`. Not a secret: it is meant to be public.
+   */
+  readonly verificationToken: string | null;
+  /** When the edge last confirmed the hostname; null means never. */
+  readonly verifiedAt: string | null;
   readonly createdAt: string;
 }
 

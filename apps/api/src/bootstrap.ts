@@ -45,10 +45,7 @@ export function createDeployment(deps: ApiDeploymentDeps): Deployment {
     engines: deps.engines,
     newId: deps.newId,
   });
-  const router = buildRouter(
-    { verifier: deps.verifier, memberships: deps.store },
-    procedures,
-  );
+  const router = buildRouter({ verifier: deps.verifier, memberships: deps.store }, procedures);
   return { router, engines: deps.engines };
 }
 
@@ -84,7 +81,8 @@ export async function start(
   const database = controlPlaneConfig(env);
   if (!database) {
     return {
-      reason: "Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY for the control-plane database.",
+      reason:
+        "Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY for the control-plane database.",
     };
   }
 

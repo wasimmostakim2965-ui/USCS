@@ -134,6 +134,24 @@ export interface DomainResellerAdapter extends NotConfiguredBrand {
   register(ctx: AdapterContext, input: { domain: string }): Promise<AdapterResult<OperationRef>>;
 }
 
+export interface DomainVerification {
+  readonly hostname: string;
+  /** The observed fact. False means "not confirmed", never "confirmed". */
+  readonly verified: boolean;
+  /** Which provider confirmed it. */
+  readonly provider: string;
+  readonly providerResourceId: string | null;
+  /** A human-readable reason, safe to show: no engine internals. */
+  readonly detail: string;
+}
+
+export interface DomainVerifier extends NotConfiguredBrand {
+  resolveDomainVerification(
+    ctx: AdapterContext,
+    input: { hostname: string; expectedToken: string },
+  ): Promise<AdapterResult<DomainVerification>>;
+}
+
 export * from "./http.js";
 export * from "./coolify.js";
 export * from "./postgres.js";
@@ -143,3 +161,4 @@ export * from "./engines.js";
 export * from "./conformance.js";
 export * from "./fakes.js";
 export * from "./queue.js";
+export * from "./domain-verification.js";

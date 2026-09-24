@@ -20,6 +20,7 @@ import type {
   AdapterContext,
   DatabaseAdapter,
   DeploymentState,
+  DomainVerifier,
   HostingAdapter,
   LogPage,
   SecurityEdgeAdapter,
@@ -134,6 +135,43 @@ export function securityNotConfigured(engine: string, hint?: string): SecurityEd
     applyPolicy: miss,
     quarantine: miss,
     inspectHealth: miss,
+  };
+}
+
+/**
+ * A working in-memory domain verifier, for tests and local development.
+ *
+ * By default every hostname is *unverified*: the honest default, because a fake
+ * that confirmed everything would let a test pass a check production does not.
+ * A test that wants a confirmation opts in with `verifiedHostnames`.
+ */
+export function fakeDomainVerifier(
+  options: {
+    readonly verifiedHostnames?: readonly string[];
+    readonly behaviour?: "succeeded" | "degraded" | "not_configured";
+  } = {},
+): DomainVerifier {
+  const verified = new Set((options.verifiedHostnames ?? []).map((h) => h.toLowerCase()));
+  return {
+    async resolveDomainVerification(_ctx, input) {
+      if (options.behaviour === "not_configured") {
+        return err("not_configured", "The domain verifier is not configured in this deployment.");
+      }
+      if (options.behaviour === "degraded") {
+        return err("degraded", "The DNS lookup did not complete.");
+      }
+      const hostname = input.hostname.toLowerCase();
+      const isVerified = verified.has(hostname);
+      return ok("succeeded", {
+        hostname,
+        verified: isVerified,
+        provider: "dns",
+        providerResourceId: isVerified ? `fake/${hostname}` : null,
+        detail: isVerified
+          ? "The fake verifier confirms this hostname."
+          : "The fake verifier does not confirm this hostname.",
+      });
+    },
   };
 }
 

@@ -44,7 +44,9 @@ import {
   type DataResourceSummary,
   type DeploymentRequestSummary,
   type DeploymentSummary,
+  type DomainChallengeSummary,
   type DomainSummary,
+  type DomainVerificationSummary,
   type IssuedApiKey,
   type OrganizationSummary,
   type ProjectSummary,
@@ -746,7 +748,13 @@ function RollbackDeploymentModal({
 
 /* ------------------------------------------------------------------ domains */
 
-export function DomainsPage({ organizationId }: { readonly organizationId: string }) {
+export function DomainsPage({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId?: string | undefined;
+}) {
   const { client } = useApp();
   const { section, reload } = useSection(
     () => loadDomains(client, organizationId),
@@ -754,11 +762,19 @@ export function DomainsPage({ organizationId }: { readonly organizationId: strin
     "Domains",
   );
 
+  const [adding, setAdding] = useState(false);
+  const [verifying, setVerifying] = useState<DomainSummary | null>(null);
+  const [removing, setRemoving] = useState<DomainSummary | null>(null);
+
   return (
     <PageShell
       title="Domains"
       subtitle="Hostnames routed through the security edge. Only the edge can verify a hostname."
-      actions={<ComingSoon label="Add domain" />}
+      actions={
+        <Button variant="primary" onClick={() => setAdding(true)}>
+          Add domain
+        </Button>
+      }
     >
       <Card flush>
         <SectionView<DomainSummary>
@@ -775,9 +791,28 @@ export function DomainsPage({ organizationId }: { readonly organizationId: strin
               render: (item) => <VerifiedBadge verified={item.verified} />,
             },
             {
-              key: "id",
-              header: "Id",
-              render: (item) => <span className="mono small">{item.id.slice(0, 12)}</span>,
+              key: "verifiedAt",
+              header: "Last verified",
+              render: (item) =>
+                item.verifiedAt ? (
+                  <Timestamp value={item.verifiedAt} />
+                ) : (
+                  <span className="muted">Never</span>
+                ),
+            },
+            {
+              key: "actions",
+              header: "",
+              render: (item) => (
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <Button size="sm" onClick={() => setVerifying(item)}>
+                    Verify
+                  </Button>
+                  <Button size="sm" onClick={() => setRemoving(item)}>
+                    Remove
+                  </Button>
+                </div>
+              ),
             },
           ]}
           rowKey={(item) => item.id}
@@ -785,7 +820,296 @@ export function DomainsPage({ organizationId }: { readonly organizationId: strin
           emptyMessage="No domains registered. A domain is created unverified and the edge confirms it."
         />
       </Card>
+
+      <AddDomainModal
+        organizationId={organizationId}
+        projectId={projectId}
+        open={adding}
+        onClose={() => setAdding(false)}
+        onAdded={() => {
+          reload();
+        }}
+      />
+
+      <VerifyDomainModal
+        organizationId={organizationId}
+        domain={verifying}
+        onClose={() => setVerifying(null)}
+        onVerified={() => {
+          setVerifying(null);
+          reload();
+        }}
+      />
+
+      <RemoveDomainModal
+        organizationId={organizationId}
+        domain={removing}
+        onClose={() => setRemoving(null)}
+        onRemoved={() => {
+          setRemoving(null);
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Add a hostname.
+ *
+ * The server creates it unverified and answers with the DNS challenge to
+ * publish; this dialog shows that record rather than claiming the domain is
+ * live. The final state is the verifier's to decide, not this form's.
+ */
+function AddDomainModal({
+  organizationId,
+  projectId,
+  open,
+  onClose,
+  onAdded,
+}: {
+  readonly organizationId: string;
+  readonly projectId?: string | undefined;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onAdded: () => void;
+}) {
+  const { client } = useApp();
+  const [hostname, setHostname] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState<DomainChallengeSummary | null>(null);
+
+  const close = () => {
+    setHostname("");
+    setError(null);
+    setChallenge(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DomainChallengeSummary>("domains.create", {
+      organizationId,
+      hostname,
+      ...(projectId ? { projectId } : {}),
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The domain could not be added.");
+      return;
+    }
+    setChallenge(response.data);
+  };
+
+  return (
+    <Modal
+      title={challenge ? "Publish this DNS record" : "Add domain"}
+      open={open}
+      onClose={close}
+      footer={
+        challenge ? (
+          <Button variant="primary" onClick={onAdded}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="primary" onClick={() => void submit()} busy={busy}>
+              Add
+            </Button>
+          </>
+        )
+      }
+    >
+      {challenge ? (
+        <div className="stack">
+          <p>
+            The domain is registered but not yet verified. Publish this record, then use Verify.
+          </p>
+          <dl className="dl">
+            <dt>Type</dt>
+            <dd className="mono">{challenge.recordType}</dd>
+            <dt>Name</dt>
+            <dd className="mono">{challenge.recordName}</dd>
+            <dt>Value</dt>
+            <dd className="mono">{challenge.recordValue}</dd>
+          </dl>
+        </div>
+      ) : (
+        <div className="stack">
+          <Field
+            label="Hostname"
+            hint="A hostname you control, e.g. app.example.com."
+            {...(error ? { error } : {})}
+          >
+            {(id) => (
+              <TextInput
+                id={id}
+                value={hostname}
+                onChange={setHostname}
+                placeholder="app.example.com"
+                error={Boolean(error)}
+                autoFocus
+              />
+            )}
+          </Field>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Verify a hostname.
+ *
+ * The request asks the verifier to look; the answer is the verifier's. A
+ * refusal is shown as its own detail, not as a failure the operator caused.
+ */
+function VerifyDomainModal({
+  organizationId,
+  domain,
+  onClose,
+  onVerified,
+}: {
+  readonly organizationId: string;
+  readonly domain: DomainSummary | null;
+  readonly onClose: () => void;
+  readonly onVerified: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DomainVerificationSummary | null>(null);
+
+  if (!domain) return null;
+
+  const close = () => {
+    setError(null);
+    setResult(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DomainVerificationSummary>("domains.verify", {
+      organizationId,
+      domainId: domain.id,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The domain could not be verified.");
+      return;
+    }
+    setResult(response.data);
+  };
+
+  return (
+    <Modal
+      title="Verify domain"
+      open={domain !== null}
+      onClose={close}
+      footer={
+        result ? (
+          <Button variant="primary" onClick={onVerified}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button variant="primary" onClick={() => void submit()} busy={busy}>
+              Verify
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="stack">
+        <p className="mono">{domain.hostname}</p>
+        {result ? (
+          <>
+            <VerifiedBadge verified={result.domain.verified} />
+            <p>{result.detail}</p>
+          </>
+        ) : (
+          <p>The edge will look for the challenge record you published.</p>
+        )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/** Remove a hostname. */
+function RemoveDomainModal({
+  organizationId,
+  domain,
+  onClose,
+  onRemoved,
+}: {
+  readonly organizationId: string;
+  readonly domain: DomainSummary | null;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!domain) return null;
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ removed: boolean }>("domains.remove", {
+      organizationId,
+      domainId: domain.id,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data?.removed) {
+      setError(response.error?.message ?? "The domain could not be removed.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title="Remove domain"
+      open={domain !== null}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Remove <span className="mono">{domain.hostname}</span>? Traffic to it will stop being
+          routed.
+        </p>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 

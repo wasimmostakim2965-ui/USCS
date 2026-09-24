@@ -41,10 +41,7 @@ let baseUrl = "";
 const requests: Recorded[] = [];
 
 /** Applications per team token, keyed by uuid. */
-const applications = new Map<
-  string,
-  Map<string, { name: string; status: string; fqdn: string }>
->();
+const applications = new Map<string, Map<string, { name: string; status: string; fqdn: string }>>();
 /** Queued deployments per team token, keyed by deployment_uuid. */
 const deployments = new Map<string, Map<string, { status: string }>>();
 
@@ -257,9 +254,9 @@ describe("Coolify adapter", () => {
   it("never calls a generic POST /applications, which Coolify does not have", async () => {
     requests.length = 0;
     await adapter().createApplication(ctx(ORG_A, "shape"), CREATE_INPUT);
-    expect(
-      requests.some((r) => r.path === "/api/v1/applications" && r.method === "POST"),
-    ).toBe(false);
+    expect(requests.some((r) => r.path === "/api/v1/applications" && r.method === "POST")).toBe(
+      false,
+    );
   });
 
   it("reads application state back with the state:health vocabulary", async () => {
@@ -553,9 +550,7 @@ describe("adapter routes exist in the pinned Coolify route table", () => {
       fixture.routes.some((r) => r.method === "POST" && r.path === "/api/v1/applications"),
     ).toBe(false);
     expect(
-      fixture.routes.some(
-        (r) => r.method === "POST" && r.path === "/api/v1/applications/public",
-      ),
+      fixture.routes.some((r) => r.method === "POST" && r.path === "/api/v1/applications/public"),
     ).toBe(true);
   });
 
@@ -587,10 +582,9 @@ describe("adapter routes exist in the pinned Coolify route table", () => {
       const exists = fixture.routes.some(
         (route) => route.method === call.method && patternFor(route.path).test(call.path),
       );
-      expect(
-        exists,
-        `${call.method} ${call.path} is not in the pinned Coolify route table`,
-      ).toBe(true);
+      expect(exists, `${call.method} ${call.path} is not in the pinned Coolify route table`).toBe(
+        true,
+      );
     }
   });
 });

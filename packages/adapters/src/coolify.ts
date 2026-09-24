@@ -209,7 +209,10 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       if (missingInput.length > 0) {
         // A request that cannot satisfy Coolify's schema is a caller error, not
         // a misconfiguration — and it is never reported as success.
-        return err("failed", `Coolify requires ${missingInput.join(", ")} to create an application.`);
+        return err(
+          "failed",
+          `Coolify requires ${missingInput.join(", ")} to create an application.`,
+        );
       }
 
       const response = await call<{ uuid?: string; message?: string }>(
@@ -266,7 +269,10 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
           "Coolify accepted the deploy request but returned no deployment_uuid.",
         );
       }
-      return ok("running", opRef(ctx, queued.deployment_uuid, "deployment", queued.deployment_uuid));
+      return ok(
+        "running",
+        opRef(ctx, queued.deployment_uuid, "deployment", queued.deployment_uuid),
+      );
     },
 
     /**

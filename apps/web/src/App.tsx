@@ -13,11 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ToastProvider } from "@cloud-wai/ui/react";
-import {
-  ApiClient,
-  type OrganizationSummary,
-  type SessionController,
-} from "./index.js";
+import { ApiClient, type OrganizationSummary, type SessionController } from "./index.js";
 import { AppProvider } from "./react/context.js";
 import {
   useDocumentTitle,
@@ -79,11 +75,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   }, [session]);
 
   // The workspace list drives the switcher and every sidebar.
-  const workspaces = useSection(
-    () => loadOrganizations(client),
-    [client],
-    "Organizations",
-  );
+  const workspaces = useSection(() => loadOrganizations(client), [client], "Organizations");
 
   const organizations: readonly WorkspaceOption[] =
     workspaces.section.state.kind === "ready"
@@ -95,8 +87,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
       : [];
 
   // Derive the active workspace from the URL first, then the remembered one.
-  const routeOrganizationId =
-    "organizationId" in router.route ? router.route.organizationId : null;
+  const routeOrganizationId = "organizationId" in router.route ? router.route.organizationId : null;
   const activeOrganizationId = routeOrganizationId ?? (workspaceId || null);
 
   // Remember whatever the URL says, so the sidebar is stable on a later visit.
@@ -147,20 +138,14 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         return <ProjectsPage organizationId={route.organizationId} />;
       case "project":
         return (
-          <ProjectOverviewPage
-            organizationId={route.organizationId}
-            projectId={route.projectId}
-          />
+          <ProjectOverviewPage organizationId={route.organizationId} projectId={route.projectId} />
         );
       case "deployments":
         return (
-          <DeploymentsPage
-            organizationId={route.organizationId}
-            projectId={route.projectId}
-          />
+          <DeploymentsPage organizationId={route.organizationId} projectId={route.projectId} />
         );
       case "domains":
-        return <DomainsPage organizationId={route.organizationId} />;
+        return <DomainsPage organizationId={route.organizationId} projectId={route.projectId} />;
       case "data":
         return <DataPage organizationId={route.organizationId} />;
       case "security":
@@ -191,7 +176,9 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
             router.navigate({ name: "projects", organizationId });
           }}
         >
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-3)" }}>
+          <div
+            style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-3)" }}
+          >
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -213,10 +200,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
  *
  * Kept here rather than in the shell so the shell stays presentational.
  */
-export function useProjectName(
-  client: ApiClient,
-  projectId: string | null,
-): string | null {
+export function useProjectName(client: ApiClient, projectId: string | null): string | null {
   const [name, setName] = useState<string | null>(null);
   useEffect(() => {
     if (!projectId) {

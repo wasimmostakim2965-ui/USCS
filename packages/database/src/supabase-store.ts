@@ -38,6 +38,7 @@ import type {
   DeploymentStatusInput,
   Domain,
   DomainCreateInput,
+  DomainVerificationInput,
   Organization,
   PolicyEventInput,
   Project,
@@ -157,6 +158,10 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       projectId: nullableStr(row, "project_id") as ProjectId | null,
       hostname: str(row, "hostname"),
       verified: bool(row, "verified"),
+      provider: nullableStr(row, "provider"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
+      verificationToken: nullableStr(row, "verification_token"),
+      verifiedAt: nullableStr(row, "verified_at"),
       createdAt: str(row, "created_at"),
     };
   }
@@ -334,6 +339,35 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/domains?select=*&id=eq.${q(domainId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
+      return row ? toDomain(row) : null;
+    },
+
+    async deleteDomain(
+      userId: UserId,
+      organizationId: OrganizationId,
+      domainId: DomainId,
+    ): Promise<boolean> {
+      const deleted = await rows("deleteDomain", {
+        method: "DELETE",
+        path: `/domains?select=id&id=eq.${q(domainId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return deleted.length > 0;
+    },
+
+    async setDomainVerification(input: DomainVerificationInput): Promise<Domain | null> {
+      const updated = await rows("setDomainVerification", {
+        method: "PATCH",
+        path: `/domains?select=*&id=eq.${q(input.id)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: {
+          verified: input.verified,
+          provider: input.provider,
+          provider_resource_id: input.providerResourceId,
+          verified_at: input.verifiedAt,
+        },
+      });
+      const row = updated[0];
       return row ? toDomain(row) : null;
     },
 
@@ -630,6 +664,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           organization_id: input.organizationId,
           project_id: input.projectId,
           hostname: input.hostname,
+          verification_token: input.verificationToken,
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;

@@ -154,6 +154,25 @@ export interface DomainSummary {
   readonly id: string;
   readonly hostname: string;
   readonly verified: boolean;
+  readonly verifiedAt: string | null;
+}
+
+/**
+ * The answer to a domain request.
+ *
+ * `recordName` and `recordValue` are the DNS challenge the customer must
+ * publish. It is a public value, so showing it is correct — unlike a key secret.
+ */
+export interface DomainChallengeSummary {
+  readonly domain: DomainSummary;
+  readonly recordName: string;
+  readonly recordValue: string;
+  readonly recordType: string;
+}
+
+export interface DomainVerificationSummary {
+  readonly domain: DomainSummary;
+  readonly detail: string;
 }
 
 export interface DataResourceSummary {

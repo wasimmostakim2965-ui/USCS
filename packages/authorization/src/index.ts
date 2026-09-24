@@ -32,6 +32,7 @@ export const CAPABILITIES = [
   "data:destroy",
   "domain:read",
   "domain:create",
+  "domain:verify",
   "domain:delete",
   "security:read",
   "security:update",

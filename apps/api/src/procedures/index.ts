@@ -12,6 +12,7 @@ import type { DataStore, Organization, Project } from "@cloud-wai/database";
 import type { ApiKeyId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import {
   databaseNotConfigured,
+  domainVerifierNotConfigured,
   hostingNotConfigured,
   securityNotConfigured,
   storageNotConfigured,
@@ -45,6 +46,15 @@ import {
   revokeApiKey,
   type SettingsDeps,
 } from "./settings.js";
+import {
+  addDomain,
+  removeDomain,
+  verifyDomain,
+  type AddDomainInput,
+  type DomainDeps,
+  type RemoveDomainInput,
+  type VerifyDomainInput,
+} from "./domains.js";
 import { providerHealth, type HealthDeps } from "./health.js";
 import type { RequestContext } from "../context.js";
 
@@ -66,6 +76,7 @@ const missingEngines: Engines = {
   database: databaseNotConfigured("postgres"),
   storage: storageNotConfigured("minio"),
   securityEdge: securityNotConfigured("envoy"),
+  domainVerifier: domainVerifierNotConfigured("dns"),
 };
 
 export interface ProcedureExtras {
@@ -73,6 +84,8 @@ export interface ProcedureExtras {
   readonly engines?: HealthDeps["engines"];
   /** Injected id source, so a new key gets a Cloud Wai UUID. */
   readonly newId?: () => string;
+  /** Injected challenge source, so a domain token is deterministic in tests. */
+  readonly newToken?: (() => string) | undefined;
   readonly now?: () => Date;
 }
 
@@ -96,6 +109,13 @@ export function buildProcedures(
     store,
     newId,
     ...(extras.now ? { now: extras.now } : {}),
+  };
+  const domainDeps: DomainDeps = {
+    store,
+    newId,
+    engines: extras.engines ?? missingEngines,
+    ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.newToken ? { newToken: extras.newToken } : {}),
   };
   const healthDeps: HealthDeps = {
     engines: extras.engines ?? missingEngines,
@@ -175,6 +195,21 @@ export function buildProcedures(
           settingsDeps,
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
+    },
+    {
+      name: "domains.create",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        addDomain(ctx, domainDeps, inputOf<AddDomainInput>(input)),
+    },
+    {
+      name: "domains.verify",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        verifyDomain(ctx, domainDeps, inputOf<VerifyDomainInput>(input)),
+    },
+    {
+      name: "domains.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeDomain(ctx, domainDeps, inputOf<RemoveDomainInput>(input)),
     },
     {
       name: "data.list",
@@ -257,6 +292,13 @@ export const ROUTE_SHAPES = {
   },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId" },
+  "domains.create": {
+    organizationId: "OrganizationId",
+    projectId: "ProjectId?",
+    hostname: "string",
+  },
+  "domains.verify": { organizationId: "OrganizationId", domainId: "DomainId" },
+  "domains.remove": { organizationId: "OrganizationId", domainId: "DomainId" },
   "data.list": { organizationId: "OrganizationId" },
   "apiKeys.list": { organizationId: "OrganizationId" },
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },

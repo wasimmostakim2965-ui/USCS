@@ -329,7 +329,12 @@ export function AppShell({
 
         <span className="topbar__spacer" />
 
-        <Button variant="ghost" size="sm" onClick={() => setPaletteOpen(true)} title="Command palette">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setPaletteOpen(true)}
+          title="Command palette"
+        >
           Search <span className="kbd">⌘K</span>
         </Button>
 
@@ -396,9 +401,7 @@ export function AppShell({
       {activeOrganizationId ? (
         <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`}>
           <nav className="nav" aria-label="Sections">
-            <div className="nav__group">
-              {nav.projectId ? "Project" : organizationName}
-            </div>
+            <div className="nav__group">{nav.projectId ? "Project" : organizationName}</div>
             {nav.items.map((item) => (
               <NavLink
                 key={item.id}

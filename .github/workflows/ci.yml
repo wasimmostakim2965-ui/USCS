@@ -81,6 +81,10 @@ jobs:
             -f supabase/migrations/0002_rls.sql
           psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
             -f supabase/migrations/0003_jobs_lease_and_idempotency.sql
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f supabase/migrations/0004_security_policy_events.sql
+          psql -h localhost -U postgres -d cloudwai -v ON_ERROR_STOP=1 -q \
+            -f supabase/migrations/0005_domain_verification.sql
 
       - name: Isolation probe
         env:

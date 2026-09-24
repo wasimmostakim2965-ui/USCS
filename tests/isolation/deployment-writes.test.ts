@@ -46,6 +46,7 @@ import {
   databaseNotConfigured,
   storageNotConfigured,
   securityNotConfigured,
+  domainVerifierNotConfigured,
   type Engines,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
@@ -307,6 +308,7 @@ function unconfiguredEngines(): Engines {
     database: databaseNotConfigured("postgres", "Set COOLIFY_URL."),
     storage: storageNotConfigured("minio", "Set STORAGE_ENDPOINT."),
     securityEdge: securityNotConfigured("envoy", "Set SECURITY_EDGE_URL."),
+    domainVerifier: domainVerifierNotConfigured("dns"),
   };
 }
 

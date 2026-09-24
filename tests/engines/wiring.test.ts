@@ -22,10 +22,13 @@ const ctx = (org: AdapterContext["organizationId"]): AdapterContext => ({
 });
 
 describe("engine configuration", () => {
-  it("has no engines configured by default", () => {
+  it("has only the resolver-based engines configured by default", () => {
     const engines = buildEngines({});
     const report = engineReport(engines);
-    expect(report.every((r) => !r.configured)).toBe(true);
+    // Every credentialed engine is absent. DNS verification is the exception:
+    // it needs a resolver, not a secret, so a real deployment always has it.
+    expect(report.filter((r) => r.engine !== "dns").every((r) => !r.configured)).toBe(true);
+    expect(report.find((r) => r.engine === "dns")?.configured).toBe(true);
   });
 
   it("does not wire a fake when configuration is missing", async () => {

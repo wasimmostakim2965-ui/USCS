@@ -21,7 +21,7 @@ import type {
   Organization,
   Project,
 } from "@cloud-wai/database";
-import type { ApiKeyId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
+import type { ApiKeyId, DomainId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 import { buildProcedures, buildRouter, procedureNames, type RouterDeps } from "@cloud-wai/api";
 
 const ALICE = "u-alice";
@@ -187,7 +187,10 @@ describe("the registered procedure table", () => {
       "deployments.create",
       "deployments.list",
       "deployments.rollback",
+      "domains.create",
       "domains.list",
+      "domains.remove",
+      "domains.verify",
       "organizations.create",
       "organizations.get",
       "organizations.list",
@@ -223,6 +226,9 @@ describe("the registered procedure table", () => {
       "deployments.rollback": { projectId: "p-1", commit: "abc123" },
       "audit.list": { organizationId: ORG_A },
       "domains.list": { organizationId: ORG_A },
+      "domains.create": { organizationId: ORG_A, hostname: "sneak.example.com" },
+      "domains.verify": { organizationId: ORG_A, domainId: "d-1" as DomainId },
+      "domains.remove": { organizationId: ORG_A, domainId: "d-1" as DomainId },
       "data.list": { organizationId: ORG_A },
       "apiKeys.list": { organizationId: ORG_A },
       "apiKeys.create": { organizationId: ORG_A, name: "Sneak", scopes: ["org:delete"] },
