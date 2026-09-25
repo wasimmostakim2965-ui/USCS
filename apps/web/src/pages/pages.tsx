@@ -307,6 +307,11 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
         section={section}
         onRetry={reload}
         emptyMessage="No projects yet. Create one to deploy your first application."
+        emptyActions={
+          <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+            Create your first project
+          </Button>
+        }
         renderReady={(items) => (
           <div className="grid">
             {items.map((project) => (

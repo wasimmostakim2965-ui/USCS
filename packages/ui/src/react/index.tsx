@@ -505,6 +505,7 @@ export function SectionView<T>({
   renderReady,
   filterText,
   filterLabel,
+  emptyActions,
 }: {
   readonly section: Section<T>;
   readonly columns?: readonly Column<T>[];
@@ -516,6 +517,8 @@ export function SectionView<T>({
   /** Passed to `Table`: turns on a live filter box over the loaded rows. */
   readonly filterText?: (item: T) => string;
   readonly filterLabel?: string;
+  /** A control to offer on the empty state, so "nothing here" can be acted on. */
+  readonly emptyActions?: ReactNode;
 }) {
   const state: SectionState<T> = section.state;
 
@@ -533,7 +536,13 @@ export function SectionView<T>({
         />
       );
     case "empty":
-      return <EmptyState title={section.title} message={emptyMessage ?? state.message} />;
+      return (
+        <EmptyState
+          title={section.title}
+          message={emptyMessage ?? state.message}
+          {...(emptyActions ? { actions: emptyActions } : {})}
+        />
+      );
     case "ready":
       if (renderReady) return <>{renderReady(state.items)}</>;
       if (columns && rowKey) {
