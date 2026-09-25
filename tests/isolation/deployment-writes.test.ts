@@ -106,6 +106,7 @@ function makeStore() {
       organizationId: ORG_A,
       name: "Alpha",
       slug: "alpha",
+      productionDeploymentId: null,
       createdAt: "2026-01-01T00:00:00Z",
     },
   ];
@@ -226,6 +227,7 @@ function makeStore() {
       providerResourceId: string | null;
       url: string | null;
       failureReason: string | null;
+      kind?: "production" | "preview";
     }) {
       const d: Deployment = {
         id: `d-${deployments.length + 1}` as Deployment["id"],
@@ -233,8 +235,14 @@ function makeStore() {
         projectId: input.projectId,
         status: input.status,
         url: input.url,
+        kind: input.kind ?? "production",
+        gitBranch: null,
+        gitCommit: null,
+        pullRequest: null,
+        previewKey: null,
         providerResourceId: input.providerResourceId,
         deploymentResourceId: null,
+        isCurrent: false,
         failureReason: input.failureReason,
         createdAt: "2026-01-01T00:00:00Z",
       };
@@ -293,6 +301,39 @@ function makeStore() {
       const p = projects.find((x) => x.id === projectId);
       if (!p || !isMember(userId, p.organizationId)) return null;
       return { provider: null, providerResourceId: null };
+    },
+    /**
+     * The promote move, mirroring the SQL function's rules: only a succeeded
+     * production deployment of this project in this organization becomes live,
+     * the previous current row is cleared, and the pointer moves atomically.
+     */
+    async promoteDeployment(input: {
+      organizationId: OrganizationId;
+      projectId: ProjectId;
+      deploymentId: string;
+    }) {
+      const previous =
+        projects.find((p) => p.id === input.projectId)?.productionDeploymentId ?? null;
+      const target = deployments.find(
+        (d) =>
+          d.id === input.deploymentId &&
+          d.projectId === input.projectId &&
+          d.organizationId === input.organizationId &&
+          d.kind === "production" &&
+          d.status === "succeeded",
+      );
+      if (!target) return { deployment: null, previousDeploymentId: previous };
+      deployments.forEach((d, i) => {
+        if (d.projectId === input.projectId && d.isCurrent) {
+          deployments[i] = { ...d, isCurrent: false };
+        }
+      });
+      const at = deployments.findIndex((d) => d.id === input.deploymentId);
+      const promoted: Deployment = { ...deployments[at]!, isCurrent: true };
+      deployments[at] = promoted;
+      const pAt = projects.findIndex((p) => p.id === input.projectId);
+      projects[pAt] = { ...projects[pAt]!, productionDeploymentId: promoted.id };
+      return { deployment: promoted, previousDeploymentId: previous };
     },
   } satisfies DataStoreLike;
 
@@ -903,5 +944,108 @@ describe("deployments.logs through the registered procedures", () => {
     const data = res.data as { lines: readonly string[]; engineReason: string | null };
     expect(data.lines).toEqual([]);
     expect(data.engineReason).toMatch(/not configured/i);
+  });
+});
+
+describe("deployments.promote — the production pointer", () => {
+  it("makes a succeeded production deployment live and records the previous one", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    // Two production deploys; the second succeeds.
+    const first = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-1", gitBranch: "main" },
+    });
+    const second = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-2", gitBranch: "main" },
+    });
+    const firstId = (first.data as { deployment: Deployment }).deployment.id;
+    const secondId = (second.data as { deployment: Deployment }).deployment.id;
+
+    // The fake engine reports succeeded, so the second deploy is already live
+    // (auto-promote) and the first is not.
+    expect(deployments.find((d) => d.id === secondId)?.isCurrent).toBe(true);
+
+    // An explicit promote of the older deployment is a rollback-by-pointer.
+    const promoted = await router.route({
+      procedure: "deployments.promote",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: firstId },
+    });
+    expect(promoted.ok).toBe(true);
+    const data = promoted.data as { deployment: Deployment; previousDeploymentId: string | null };
+    expect(data.deployment.isCurrent).toBe(true);
+    expect(data.previousDeploymentId).toBe(secondId);
+    // Exactly one current row: the denormalised flag agrees with the pointer.
+    expect(deployments.filter((d) => d.isCurrent).map((d) => d.id)).toEqual([firstId]);
+  });
+
+  it("refuses a deployment that is not a succeeded production build", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-1", gitBranch: "main" },
+    });
+
+    // A preview row of the same project must never become live.
+    deployments.push({
+      ...deployments[0]!,
+      id: "d-preview" as Deployment["id"],
+      kind: "preview",
+      isCurrent: false,
+      previewKey: "pr-7",
+    });
+
+    const res = await router.route({
+      procedure: "deployments.promote",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-preview" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+  });
+
+  it("refuses a deployment in another project as not found", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "req-1", gitBranch: "main" },
+    });
+    // A same-tenant deployment of a *different* project (fabricated id).
+    deployments.push({
+      ...deployments[0]!,
+      id: "d-other" as Deployment["id"],
+      projectId: "proj-other" as ProjectId,
+      isCurrent: false,
+    });
+
+    const res = await router.route({
+      procedure: "deployments.promote",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-other" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses a non-member without revealing the project", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.promote",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, deploymentId: "d-1" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
   });
 });

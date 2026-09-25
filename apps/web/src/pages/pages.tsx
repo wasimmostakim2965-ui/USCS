@@ -60,6 +60,7 @@ import {
   type DeploymentRequestSummary,
   type DeploymentLogsSummary,
   type DeploymentSummary,
+  type PromoteDeploymentSummary,
   type DistributePolicySummary,
   type DomainChallengeSummary,
   type DomainSummary,
@@ -90,13 +91,44 @@ function DeploymentColumns(): readonly Column<DeploymentSummary>[] {
       header: "Status",
       render: (item) => {
         const presentation = presentDeploymentStatus(item.status);
-        return <StatusBadge label={presentation.label} tone={presentation.tone} />;
+        // A succeeded deployment that is also the one the domains serve carries
+        // a "Live" marker: Vercel's whole model is immutable builds plus a
+        // pointer, and this is where that pointer is legible.
+        return (
+          <div className="row" style={{ alignItems: "center" }}>
+            <StatusBadge label={presentation.label} tone={presentation.tone} />
+            {item.isCurrent ? <StatusBadge label="Live" tone="positive" /> : null}
+          </div>
+        );
       },
+    },
+    {
+      key: "kind",
+      header: "Type",
+      render: (item) =>
+        item.kind === "preview" ? (
+          <StatusBadge
+            label={item.pullRequest ? `Preview · PR #${String(item.pullRequest)}` : "Preview"}
+            tone="neutral"
+          />
+        ) : (
+          <StatusBadge label="Production" tone="neutral" />
+        ),
     },
     {
       key: "id",
       header: "Deployment",
       render: (item) => <span className="mono small">{item.id.slice(0, 12)}</span>,
+    },
+    {
+      key: "branch",
+      header: "Branch",
+      render: (item) =>
+        item.gitBranch ? (
+          <span className="mono small">{item.gitBranch}</span>
+        ) : (
+          <span className="faint">—</span>
+        ),
     },
     {
       key: "url",
@@ -624,11 +656,12 @@ export function DeploymentsPage({
   const [rollingBack, setRollingBack] = useState<DeploymentSummary | null>(null);
   const [viewingLogs, setViewingLogs] = useState<DeploymentSummary | null>(null);
   const [cancelling, setCancelling] = useState<DeploymentSummary | null>(null);
+  const [promoting, setPromoting] = useState<DeploymentSummary | null>(null);
 
   return (
     <PageShell
       title="Deployments"
-      subtitle="Every deployment this project has requested, newest first. A status is the hosting engine's, never the request's."
+      subtitle="Every deployment this project has requested, newest first. A status is the hosting engine's, never the request's. The Live badge marks the immutable build the domains currently serve."
       actions={
         <Button variant="primary" onClick={() => setDeploying(true)}>
           New deployment
@@ -648,6 +681,11 @@ export function DeploymentsPage({
                   <Button variant="ghost" size="sm" onClick={() => setViewingLogs(item)}>
                     Logs
                   </Button>
+                  {item.status === "succeeded" && item.kind === "production" && !item.isCurrent ? (
+                    <Button variant="ghost" size="sm" onClick={() => setPromoting(item)}>
+                      Promote
+                    </Button>
+                  ) : null}
                   {item.status === "succeeded" ? (
                     <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
                       Rollback
@@ -665,7 +703,9 @@ export function DeploymentsPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="Nothing has been deployed yet."
-          filterText={(item) => `${item.status} ${item.url ?? ""} ${item.id}`}
+          filterText={(item) =>
+            `${item.status} ${item.kind} ${item.gitBranch ?? ""} ${item.url ?? ""} ${item.id}`
+          }
           filterLabel="Filter deployments"
         />
       </Card>
@@ -711,7 +751,99 @@ export function DeploymentsPage({
           reload();
         }}
       />
+
+      <PromoteDeploymentModal
+        key={`promote-${promoting?.id ?? "none"}`}
+        projectId={projectId}
+        deployment={promoting}
+        onClose={() => setPromoting(null)}
+        onPromoted={() => {
+          setPromoting(null);
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Promote a build to production, or roll the pointer back to it.
+ *
+ * Vercel's "Promote" and its "Instant rollback" are the same operation: point
+ * production at a build that already succeeded. Nothing is rebuilt, so the
+ * dialog says that plainly. The server is the one that decides whether the move
+ * is allowed (a preview or an un-succeeded build is refused), and its refusal is
+ * shown verbatim rather than retried into a success.
+ */
+function PromoteDeploymentModal({
+  projectId,
+  deployment,
+  onClose,
+  onPromoted,
+}: {
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary | null;
+  readonly onClose: () => void;
+  readonly onPromoted: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!deployment) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<PromoteDeploymentSummary>("deployments.promote", {
+      projectId,
+      deploymentId: deployment.id,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The deployment could not be promoted.");
+      return;
+    }
+    onPromoted();
+  };
+
+  return (
+    <Modal
+      title="Promote to production"
+      open={deployment !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Promote
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          This points the project&apos;s domains at this build. Nothing is rebuilt, so what goes
+          live is exactly the artifact that was already verified.
+        </p>
+        {deployment ? (
+          <dl className="dl">
+            <dt>Deployment</dt>
+            <dd className="mono small">{deployment.id}</dd>
+            {deployment.gitBranch ? (
+              <>
+                <dt>Branch</dt>
+                <dd className="mono small">{deployment.gitBranch}</dd>
+              </>
+            ) : null}
+          </dl>
+        ) : null}
+        {error ? (
+          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 

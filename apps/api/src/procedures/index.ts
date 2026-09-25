@@ -35,6 +35,7 @@ import {
 import {
   cancelDeployment,
   deploymentsLogs,
+  promoteDeployment,
   requestDeployment,
   listAuditEvents,
   listDeployments,
@@ -43,6 +44,7 @@ import {
   type CreateDeploymentInput,
   type DeploymentDeps,
   type DeploymentLogsInput,
+  type PromoteDeploymentRequest,
   type RollbackDeploymentInput,
 } from "./deployments.js";
 import {
@@ -280,6 +282,11 @@ export function buildProcedures(
       name: "deployments.rollback",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         rollbackDeployment(ctx, depDeps, inputOf<RollbackDeploymentInput>(input)),
+    },
+    {
+      name: "deployments.promote",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        promoteDeployment(ctx, depDeps, inputOf<PromoteDeploymentRequest>(input)),
     },
     {
       name: "deployments.logs",
@@ -548,6 +555,7 @@ export const ROUTE_SHAPES = {
     idempotencyKey: "string?",
   },
   "deployments.logs": { projectId: "ProjectId", deploymentId: "string" },
+  "deployments.promote": { projectId: "ProjectId", deploymentId: "string" },
   "deployments.cancel": { projectId: "ProjectId", deploymentId: "string" },
   "git.links.list": { projectId: "ProjectId" },
   "git.connect": {

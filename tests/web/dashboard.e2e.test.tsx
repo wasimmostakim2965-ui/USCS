@@ -473,6 +473,11 @@ describe("requesting and rolling back a deployment", () => {
       status: string;
       url: string | null;
       failureReason: string | null;
+      kind: "production" | "preview";
+      isCurrent: boolean;
+      gitBranch: string | null;
+      gitCommit: string | null;
+      pullRequest: number | null;
     }[] = [
       {
         id: "d-existing",
@@ -480,6 +485,11 @@ describe("requesting and rolling back a deployment", () => {
         status: "succeeded",
         url: "https://web-app.example.test",
         failureReason: null,
+        kind: "production",
+        isCurrent: true,
+        gitBranch: "main",
+        gitCommit: null,
+        pullRequest: null,
       },
     ];
     const calls: { procedure: string; input: unknown }[] = [];
@@ -505,7 +515,13 @@ describe("requesting and rolling back a deployment", () => {
           status: "not_configured",
           url: null,
           failureReason: "Coolify is not configured in this deployment.",
+          kind: "production" as const,
+          isCurrent: false,
+          gitBranch: null,
+          gitCommit: null,
+          pullRequest: null,
         };
+        // A not-configured deploy is never live, so the pointer does not move.
         deployments.push(deployment);
         return {
           ok: true,
@@ -522,12 +538,41 @@ describe("requesting and rolling back a deployment", () => {
           status: "running",
           url: null,
           failureReason: null,
+          kind: "production" as const,
+          isCurrent: false,
+          gitBranch: null,
+          gitCommit: body.commit,
+          pullRequest: null,
         };
         deployments.push(deployment);
         return {
           ok: true,
           status: 200,
           data: { deployment, replayed: false, engineReason: null, commit: body.commit },
+        };
+      }
+      if (procedure === "deployments.promote") {
+        const body = input as { deploymentId: string };
+        const target = deployments.find((d) => d.id === body.deploymentId);
+        if (!target || target.kind !== "production" || target.status !== "succeeded") {
+          return {
+            ok: false,
+            status: 409,
+            error: {
+              code: "conflict",
+              message: "Only a succeeded production deployment can be promoted.",
+            },
+          };
+        }
+        const previous = deployments.find((d) => d.isCurrent)?.id ?? null;
+        deployments.forEach((d) => {
+          d.isCurrent = false;
+        });
+        target.isCurrent = true;
+        return {
+          ok: true,
+          status: 200,
+          data: { deployment: target, previousDeploymentId: previous },
         };
       }
       if (procedure === "deployments.cancel") {
@@ -664,6 +709,11 @@ describe("requesting and rolling back a deployment", () => {
       status: "running",
       url: null,
       failureReason: null,
+      kind: "production",
+      isCurrent: false,
+      gitBranch: null,
+      gitCommit: null,
+      pullRequest: null,
     });
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
@@ -694,6 +744,11 @@ describe("requesting and rolling back a deployment", () => {
       status: "running",
       url: null,
       failureReason: null,
+      kind: "production",
+      isCurrent: false,
+      gitBranch: null,
+      gitCommit: null,
+      pullRequest: null,
     });
     const refusing: Responder = (procedure, input) => {
       if (procedure === "deployments.cancel") {
@@ -719,6 +774,107 @@ describe("requesting and rolling back a deployment", () => {
 
     const alert = await within(dialog).findByRole("alert");
     expect(alert.textContent).toContain("Only a pending or running deployment");
+  });
+
+  it("promotes an older production build and moves the Live badge to it", async () => {
+    const { responder, calls, deployments } = deploymentPlane();
+    // A second, older, succeeded production build that is not live yet. Its
+    // Promote button is the whole point of the immutable-build model.
+    deployments.push({
+      id: "d-older",
+      projectId: "p-1",
+      status: "succeeded",
+      url: "https://web-app-old.example.test",
+      failureReason: null,
+      kind: "production",
+      isCurrent: false,
+      gitBranch: "main",
+      gitCommit: "aaa1111",
+      pullRequest: null,
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    // Only the non-live succeeded production row offers Promote; the live one
+    // does not (it is already the pointer).
+    const promotes = await screen.findAllByRole("button", { name: "Promote" });
+    expect(promotes).toHaveLength(1);
+
+    await user.click(promotes[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Promote" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.procedure === "deployments.promote")).toBe(true),
+    );
+    expect(calls.find((c) => c.procedure === "deployments.promote")?.input).toMatchObject({
+      projectId: "p-1",
+      deploymentId: "d-older",
+    });
+    // The pointer moved: exactly one row is current, and it is the promoted one.
+    expect(deployments.filter((d) => d.isCurrent).map((d) => d.id)).toEqual(["d-older"]);
+  });
+
+  it("shows a preview build's type so its own URL is legible, never as production", async () => {
+    const { responder, deployments } = deploymentPlane();
+    deployments.push({
+      id: "d-preview",
+      projectId: "p-1",
+      status: "succeeded",
+      url: "https://web-app-pr-7.example.test",
+      failureReason: null,
+      kind: "preview",
+      isCurrent: false,
+      gitBranch: "feature/login",
+      gitCommit: null,
+      pullRequest: 7,
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    expect(await screen.findByText("Preview · PR #7")).toBeTruthy();
+    // A preview is never promotable: it has no Promote action at all.
+    expect(screen.queryByRole("button", { name: "Promote" })).toBeNull();
+  });
+
+  it("surfaces a refused promote as an alert, never as a success", async () => {
+    const { responder, deployments } = deploymentPlane();
+    deployments.push({
+      id: "d-older",
+      projectId: "p-1",
+      status: "succeeded",
+      url: "https://web-app-old.example.test",
+      failureReason: null,
+      kind: "production",
+      isCurrent: false,
+      gitBranch: "main",
+      gitCommit: "aaa1111",
+      pullRequest: null,
+    });
+    const refusing: Responder = (procedure, input) => {
+      if (procedure === "deployments.promote") {
+        return {
+          ok: false,
+          status: 409,
+          error: {
+            code: "conflict",
+            message: "Only a succeeded production deployment can be promoted.",
+          },
+        };
+      }
+      return responder(procedure, input);
+    };
+    const url = await startApi(refusing);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click((await screen.findAllByRole("button", { name: "Promote" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Promote" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain("Only a succeeded production deployment");
   });
 
   it("surfaces a refused deployment request as an alert, never as success", async () => {

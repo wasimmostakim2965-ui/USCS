@@ -242,6 +242,7 @@ describe("the registered procedure table", () => {
       "deployments.create",
       "deployments.list",
       "deployments.logs",
+      "deployments.promote",
       "deployments.rollback",
       "domains.create",
       "domains.list",

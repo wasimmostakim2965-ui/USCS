@@ -30,6 +30,29 @@ export interface DeploymentSummary {
   readonly status: "pending" | "running" | "succeeded" | "failed" | "degraded" | "not_configured";
   readonly url: string | null;
   readonly failureReason: string | null;
+  /** `production` builds the project's domains; `preview` gets its own URL. */
+  readonly kind: "production" | "preview";
+  /**
+   * Whether this is the deployment the project's domains currently serve.
+   *
+   * Vercel's model: a deployment is immutable, and "live" is a pointer to one of
+   * them. Only the host may set this, so the badge here is the server's answer.
+   */
+  readonly isCurrent: boolean;
+  readonly gitBranch: string | null;
+  readonly gitCommit: string | null;
+  readonly pullRequest: number | null;
+}
+
+/**
+ * The answer to a promote (or an instant rollback, which is the same move).
+ *
+ * `previousDeploymentId` names what was live before, so the UI can say "X is now
+ * live, replacing Y" rather than a bare success.
+ */
+export interface PromoteDeploymentSummary {
+  readonly deployment: DeploymentSummary;
+  readonly previousDeploymentId: string | null;
 }
 
 /**
@@ -263,6 +286,26 @@ export async function loadDeployments(
     projectId,
   });
   return sectionFrom("Deployments", response);
+}
+
+/**
+ * Make a succeeded production deployment live.
+ *
+ * This is Vercel's "Promote" and its "Instant rollback" in one call: the build
+ * already exists, so nothing is rebuilt. The server refuses a preview, an
+ * in-flight build and a failed run, and the caller renders that refusal rather
+ * than a fabricated success.
+ */
+export async function promoteDeployment(
+  client: ApiClient,
+  projectId: string,
+  deploymentId: string,
+): Promise<Section<PromoteDeploymentSummary>> {
+  const response = await client.call<PromoteDeploymentSummary>("deployments.promote", {
+    projectId,
+    deploymentId,
+  });
+  return itemFrom("Deployment", response, "That deployment cannot be promoted.");
 }
 
 export interface DeploymentLogsSummary {

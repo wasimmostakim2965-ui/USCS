@@ -288,6 +288,18 @@ export interface CancelDeploymentInput {
   readonly deploymentId: string;
 }
 
+export interface PromoteDeploymentRequest {
+  readonly projectId: ProjectId;
+  /** The succeeded production deployment to make live. */
+  readonly deploymentId: string;
+}
+
+export interface PromoteDeploymentOutcome {
+  readonly deployment: Deployment;
+  /** The deployment that was live before, so the UI can name what changed. */
+  readonly previousDeploymentId: string | null;
+}
+
 export interface CancelDeploymentResult {
   readonly deployment: Deployment;
   /** The engine's own words when it could not act, for an honest UI. */
@@ -403,6 +415,100 @@ export async function cancelDeployment(
   });
 
   return { deployment: updated ?? deployment, engineReason };
+}
+
+/**
+ * Make one of a project's deployments live.
+ *
+ * This is Vercel's "Promote" and its "Instant Rollback" in one operation,
+ * because they are the same move: point the production pointer at a build that
+ * already succeeded. Nothing is rebuilt, so the artifact that goes live is byte
+ * for byte the one that was reviewed — which is the entire reason the deployment
+ * record is immutable.
+ *
+ * The rules that keep it honest:
+ *   * only a `succeeded` `production` deployment may be promoted. A preview, a
+ *     build still in flight, and a failed run are each refused with the reason,
+ *     never silently promoted;
+ *   * the row must belong to the project, and the project to the caller's
+ *     organization — a deployment outside the tenant is `not_found`, exactly as
+ *     everywhere else;
+ *   * the move itself is one database transaction, so a reader never sees zero
+ *     or two live deployments.
+ */
+export async function promoteDeployment(
+  ctx: RequestContext,
+  deps: DeploymentDeps,
+  input: PromoteDeploymentRequest,
+): Promise<PromoteDeploymentOutcome> {
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!project) throw new ApiError("not_found", "Project not found.");
+  requireCapability(ctx, project.organizationId, "deployment:rollback");
+
+  const store = writesFor(deps);
+  if (typeof store.getDeployment !== "function") {
+    throw new ApiError("engine_unavailable", "This deployment cannot read a deployment yet.");
+  }
+  const promote = (deps.store as Partial<ControlPlaneWrites>).promoteDeployment;
+  if (typeof promote !== "function") {
+    throw new ApiError(
+      "engine_unavailable",
+      "This deployment cannot move a production pointer yet.",
+    );
+  }
+
+  const deployment = await store.getDeployment(
+    ctx.principal.userId,
+    input.deploymentId as DeploymentId,
+  );
+  // A deployment outside the tenant, or one that does not exist, is the same
+  // answer: `not_found`, never a hint that another tenant's id is real.
+  if (!deployment || deployment.projectId !== project.id) {
+    throw new ApiError("not_found", "Deployment not found.");
+  }
+
+  if (deployment.kind !== "production") {
+    throw new ApiError(
+      "conflict",
+      "Only a production deployment can be live. A preview has its own URL and is never promoted.",
+    );
+  }
+  if (deployment.status !== "succeeded") {
+    throw new ApiError(
+      "conflict",
+      `Only a succeeded deployment can be promoted; this one is ${deployment.status}.`,
+    );
+  }
+
+  const result = await promote({
+    organizationId: project.organizationId,
+    projectId: project.id,
+    deploymentId: deployment.id,
+  });
+
+  // A refused move (an unexpected store answer) is reported as a conflict, not
+  // as a promotion that happened.
+  if (!result.deployment) {
+    throw new ApiError("conflict", "The production pointer could not be moved.");
+  }
+
+  await deps.store.recordAuditEvent({
+    organizationId: project.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "deployment.promoted",
+    targetType: "deployment",
+    targetId: deployment.id,
+    metadata: {
+      projectId: project.id,
+      previousDeploymentId: result.previousDeploymentId,
+    },
+  });
+
+  return {
+    deployment: result.deployment,
+    previousDeploymentId: result.previousDeploymentId,
+  };
 }
 
 export interface DeploymentLogsResult {
@@ -753,6 +859,20 @@ export async function requestDeployment(
     providerResourceId: application?.resourceId ?? null,
     deploymentResourceId,
   });
+
+  // A production build the engine confirmed is live immediately — the same move
+  // `deployments.promote` makes, so the synchronous and durable paths agree. A
+  // preview is never promoted.
+  if (nextStatus === "succeeded" && kind === "production") {
+    const promote = (deps.store as Partial<ControlPlaneWrites>).promoteDeployment;
+    if (typeof promote === "function") {
+      await promote({
+        organizationId: project.organizationId,
+        projectId: project.id,
+        deploymentId: deployment.id,
+      });
+    }
+  }
 
   await deps.store.recordAuditEvent({
     organizationId: project.organizationId,

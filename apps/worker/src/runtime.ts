@@ -88,6 +88,8 @@ export function buildWorkerWiring(
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>
       store.updateDeploymentStatus(input),
+    promoteDeployment: (input: Parameters<typeof store.promoteDeployment>[0]) =>
+      store.promoteDeployment(input),
     recordUsage: (input: { organizationId: string; metric: string; quantity: number }) =>
       store.recordUsage(input),
   };

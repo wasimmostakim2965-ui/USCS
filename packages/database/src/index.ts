@@ -186,6 +186,18 @@ export interface ControlPlaneWrites {
    */
   setProjectProviderResource(input: ProjectProviderInput): Promise<Project | null>;
   /**
+   * Point a project's domains at one of its deployments.
+   *
+   * This is the single write behind "promote", "roll back" and "the first
+   * production success": it moves the production pointer and sets
+   * `deployments.is_current` accordingly, in one service-role transaction. The
+   * caller has already proved the deployment is a succeeded production build of
+   * this project — this method is a mechanism, not a policy.
+   *
+   * Scoped by `organization_id`, so a promote can never reach across a tenant.
+   */
+  promoteDeployment(input: PromoteDeploymentInput): Promise<PromoteDeploymentResult>;
+  /**
    * Rename a project. Scoped to a member's organization.
    *
    * Only the caller-owned columns (`name`, `slug`) are writable; the engine-owned
@@ -539,6 +551,27 @@ export interface ProjectProviderInput {
   readonly projectId: ProjectId;
   readonly provider: string;
   readonly providerResourceId: string;
+}
+
+/**
+ * Move a project's production pointer to one of its deployments.
+ *
+ * `previousDeploymentId` is informational - the store clears the old row's
+ * `is_current` itself, from whatever the project pointed at - but carrying it
+ * lets the API report what changed without a second read.
+ */
+export interface PromoteDeploymentInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly deploymentId: DeploymentId;
+}
+
+/** What a promote changed, for the audit trail and the response. */
+export interface PromoteDeploymentResult {
+  /** The deployment now live, or null when the write was refused by the store. */
+  readonly deployment: Deployment | null;
+  /** The deployment that was live before, or null when there was none. */
+  readonly previousDeploymentId: string | null;
 }
 
 /** What a project rename may change. Engine-owned columns are not here. */
@@ -945,6 +978,15 @@ export interface Project {
   readonly organizationId: OrganizationId;
   readonly name: string;
   readonly slug: string;
+  /**
+   * The deployment the project's domains currently serve.
+   *
+   * Null until a production deployment has succeeded. It is stored, not derived:
+   * a promote (and a rollback, which is a promote of an older row) can point at
+   * any succeeded production deployment, so "which one is live" is not derivable
+   * from `created_at`.
+   */
+  readonly productionDeploymentId: string | null;
   readonly createdAt: string;
 }
 
@@ -981,6 +1023,14 @@ export interface Deployment {
    * application's runtime log is available.
    */
   readonly deploymentResourceId: string | null;
+  /**
+   * Whether this production deployment is the one the project's domains serve.
+   *
+   * Written by the promote path (and by the first production success), never by
+   * a client. A preview never carries it. It is a denormalised view of
+   * `projects.production_deployment_id` so the history can mark the live row.
+   */
+  readonly isCurrent: boolean;
   readonly failureReason: string | null;
   readonly createdAt: string;
 }

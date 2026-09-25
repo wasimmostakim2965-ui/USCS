@@ -37,6 +37,19 @@ export interface DeploymentJobOutcomeWriter {
     readonly finishedAt: string | null;
   }): Promise<unknown>;
   /**
+   * Point the project's domains at a deployment that just succeeded.
+   *
+   * A production deployment that the engine confirmed is live the moment it is
+   * promoted, and Vercel's model is that a new production build becomes the live
+   * one without a second click. The move is the same one `deployments.promote`
+   * performs: it sets the pointer atomically. A preview is never promoted.
+   */
+  promoteDeployment(input: {
+    readonly organizationId: string;
+    readonly projectId: string;
+    readonly deploymentId: string;
+  }): Promise<unknown>;
+  /**
    * Record one unit of usage when the engine confirmed the deployment.
    *
    * Only a `succeeded` deployment is a unit the organization consumed; a failed
@@ -110,21 +123,35 @@ export function buildDeploymentApplier(
 
     if (result.ok) {
       const value = result.value as DeploymentExecutionResult | undefined;
+      const finalStatus = value?.status ?? result.status;
       await deps.outcome.updateDeploymentStatus({
         id: payload.deploymentId,
         organizationId: payload.organizationId,
-        status: value?.status ?? result.status,
+        status: finalStatus,
         url: value?.url ?? null,
         failureReason: null,
         providerResourceId: value?.providerResourceId ?? null,
         deploymentResourceId: value?.deploymentResourceId ?? null,
         startedAt: finished,
-        finishedAt: isTerminal(value?.status ?? result.status) ? finished : null,
+        finishedAt: isTerminal(finalStatus) ? finished : null,
       });
-      // A deployment the engine confirmed is one unit of usage. A run that is
-      // still `running` is not counted here: the job is requeued and will be
-      // counted once, when it finally settles as succeeded.
-      if ((value?.status ?? result.status) === "succeeded") {
+      // A production build the engine confirmed becomes the live one, exactly as
+      // Vercel auto-aliases a new production deployment. A preview is never
+      // promoted: its own URL is the point of a preview. The move is best-effort
+      // with respect to the job's own success — a pointer that could not move is
+      // reported by `deployments.rollback`'s read model, not by failing a
+      // deployment that genuinely built.
+      if (finalStatus === "succeeded") {
+        if ((payload.kind ?? "production") === "production") {
+          await deps.outcome.promoteDeployment({
+            organizationId: payload.organizationId,
+            projectId: payload.projectId,
+            deploymentId: payload.deploymentId,
+          });
+        }
+        // A deployment the engine confirmed is one unit of usage. A run that is
+        // still `running` is not counted here: the job is requeued and will be
+        // counted once, when it finally settles as succeeded.
         await deps.outcome.recordUsage({
           organizationId: payload.organizationId,
           metric: "deployments",

@@ -58,6 +58,8 @@ import type {
   ProjectGitLink,
   ProjectProviderInput,
   ProjectUpdateInput,
+  PromoteDeploymentInput,
+  PromoteDeploymentResult,
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
@@ -160,6 +162,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       organizationId: str(row, "organization_id") as OrganizationId,
       name: str(row, "name"),
       slug: str(row, "slug"),
+      productionDeploymentId: nullableStr(row, "production_deployment_id"),
       createdAt: str(row, "created_at"),
     };
   }
@@ -199,6 +202,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       previewKey: nullableStr(row, "preview_key"),
       providerResourceId: nullableStr(row, "provider_resource_id"),
       deploymentResourceId: nullableStr(row, "deployment_resource_id"),
+      isCurrent: bool(row, "is_current"),
       failureReason: nullableStr(row, "failure_reason"),
       createdAt: str(row, "created_at"),
     };
@@ -939,6 +943,47 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       });
       const row = updated[0];
       return row ? toProject(row) : null;
+    },
+
+    /**
+     * Move the production pointer to a deployment.
+     *
+     * The move is one database function so the old flag is cleared and the new
+     * one set atomically: a reader between two separate PATCHes would see either
+     * zero live deployments or, worse, two. The function is SECURITY DEFINER and
+     * only `service_role` may execute it, because it writes an engine-owned
+     * column the guard trigger would otherwise refuse.
+     *
+     * A `false` from the function is the honest "this deployment cannot be made
+     * live" (a preview, an in-flight build, a failed run, a row in another
+     * tenant); this method never turns that into a success.
+     */
+    async promoteDeployment(input: PromoteDeploymentInput): Promise<PromoteDeploymentResult> {
+      const project = await rows("promoteDeployment:project", {
+        method: "GET",
+        path: `/projects?select=production_deployment_id&id=eq.${q(input.projectId)}&organization_id=eq.${q(input.organizationId)}&limit=1`,
+      });
+      const previous = project[0] ? nullableStr(project[0], "production_deployment_id") : null;
+
+      const moved = await must<boolean>("promoteDeployment", {
+        method: "POST",
+        path: "/rpc/promote_deployment",
+        body: {
+          p_organization_id: input.organizationId,
+          p_project_id: input.projectId,
+          p_deployment_id: input.deploymentId,
+        },
+      });
+      // A refused move changes nothing, so report the deployment that is still
+      // live rather than a row that was never promoted.
+      if (moved !== true) return { deployment: null, previousDeploymentId: previous };
+
+      const promoted = await rows("promoteDeployment:read", {
+        method: "GET",
+        path: `/deployments?select=*&id=eq.${q(input.deploymentId)}&organization_id=eq.${q(input.organizationId)}&limit=1`,
+      });
+      const row = promoted[0];
+      return { deployment: row ? toDeployment(row) : null, previousDeploymentId: previous };
     },
 
     async updateProject(input: ProjectUpdateInput): Promise<Project | null> {
