@@ -585,3 +585,96 @@ export async function listDataRestores(
   }
   return writes.listDataRestores(ctx.principal.userId, input.resourceId);
 }
+
+export interface RotateCredentialsInput {
+  readonly organizationId: OrganizationId;
+  readonly resourceId: DataResourceId;
+  /** The operator must echo the resource's own name, as for a restore. */
+  readonly confirmName: string;
+}
+
+export interface RotateCredentialsResult {
+  readonly resource: DataResource;
+  /**
+   * The engine's own words when it could not act, and — deliberately — never the
+   * new credential. The engine writes the new password into its own store and
+   * the control plane keeps no copy, so there is nothing here to leak.
+   */
+  readonly engineReason: string | null;
+}
+
+/**
+ * Rotate a database's credentials.
+ *
+ * Rotation is destructive in a way the engine's success does not reveal: every
+ * client using the old password is about to break. It is therefore guarded like
+ * a restore — membership, the resource must belong to the named organization, it
+ * must have an engine handle, it must be a database (a bucket's credentials are
+ * the storage engine's, not this adapter's), and the operator must echo the
+ * resource's name.
+ *
+ * The new credential is deliberately not returned: the engine holds it, the
+ * control plane does not. A caller that needs it reads it from the engine.
+ */
+export async function rotateDataCredentials(
+  ctx: RequestContext,
+  deps: DataDeps,
+  input: RotateCredentialsInput,
+): Promise<RotateCredentialsResult> {
+  requireCapability(ctx, input.organizationId, "data:rotate");
+
+  const writes = writesFor(deps);
+  const resource = await writes.getDataResource(ctx.principal.userId, input.resourceId);
+  if (!resource || resource.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Data resource not found.");
+  }
+  if (!resource.providerResourceId) {
+    throw new ApiError(
+      "conflict",
+      "This resource has no engine handle yet, so its credentials cannot be rotated.",
+    );
+  }
+  if (resource.kind !== "postgres") {
+    throw new ApiError(
+      "engine_unavailable",
+      "Rotating the credentials of an object-storage bucket is not available in this build.",
+    );
+  }
+  if (input.confirmName.trim() !== resource.name) {
+    throw new ApiError(
+      "invalid_input",
+      "Type the resource's name to confirm the rotation.",
+    );
+  }
+
+  const ref: ProviderRef = {
+    organizationId: resource.organizationId,
+    provider: (resource.provider ?? "postgres") as ProviderRef["provider"],
+    resourceType: "database",
+    resourceId: resource.providerResourceId,
+  };
+
+  const rotated = await deps.engines.database.rotateCredentials(
+    {
+      organizationId: resource.organizationId,
+      idempotencyKey: `rotate-${resource.id}`,
+      timeoutMs: ADAPTER_TIMEOUT_MS,
+    },
+    ref,
+  );
+
+  const engineReason = rotated.ok ? null : rotated.reason;
+
+  await deps.store.recordAuditEvent({
+    organizationId: resource.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: rotated.ok ? "data.credentials_rotated" : "data.credentials_rotation_failed",
+    targetType: "data_resource",
+    targetId: resource.id,
+    metadata: { dataResourceId: resource.id, status: rotated.ok ? "succeeded" : rotated.status },
+  });
+
+  return { resource, engineReason };
+}
+

@@ -29,6 +29,7 @@ export const CAPABILITIES = [
   "data:create",
   "data:backup",
   "data:restore",
+  "data:rotate",
   "data:destroy",
   "domain:read",
   "domain:create",

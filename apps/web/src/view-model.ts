@@ -405,6 +405,18 @@ export interface RestoreDataSummary {
   readonly engineReason: string | null;
 }
 
+/**
+ * The answer to a credential rotation.
+ *
+ * It deliberately carries no credential: the engine writes the new password into
+ * its own store and the control plane keeps no copy, so there is nothing here to
+ * render beside the outcome.
+ */
+export interface RotateCredentialsSummary {
+  readonly resource: DataResourceSummary;
+  readonly engineReason: string | null;
+}
+
 /** One restore attempt, naming both the backup it read and the resource it wrote. */
 export interface DataRestoreSummary {
   readonly id: string;

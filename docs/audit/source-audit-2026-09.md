@@ -108,13 +108,13 @@ Traced from the code, not from prose:
 | B1 | Tenant Postgres and buckets are provisioned through the engine; backup and backup-history are real; a bucket backup is correctly refused rather than faked. | `apps/api/src/procedures/data.ts`; `packages/adapters/src/postgres.ts`, `minio.ts` | Implemented |
 | B2 | Seven sub-pages (Table Editor, SQL Editor, Authentication, API, Roles & Extensions, Logs, Settings) are honest placeholders. They are blocked by ADR-0011 ("Cloud Wai never opens a data-plane connection to a tenant database"), which is in direct tension with the brief's "full Supabase surface". | `apps/web/src/pages/database.tsx:70-105,600-646`; `docs/adr/0011-…md` | Missing (blocked on an ADR decision) |
 | B3 | `restore` is now reachable: `data.restore` / `data.restores.list` (`apps/api/src/procedures/data.ts`), the `data_restores` table with RLS and engine-column guards (`supabase/migrations/0012_data_restores.sql`), the worker's `buildRestoreJobHandler`/`buildRestoreApplier`, and the Dashboard `RestoreResourceModal`. The restore refuses a bucket, a resource with no engine handle, an incomplete backup, a backup of another resource, and a name mismatch — and records the engine's own status. Gate 9 stays open only because a *verified* restore against a real PostgreSQL/MinIO pair is not configured here. | `apps/api/src/procedures/index.ts`; `apps/worker/src/restore-job.ts`; `apps/web/src/pages/database.tsx` | Implemented (gate 9 still needs a live engine) |
-| B4 | No credential rotation on the request path (`rotateCredentials` exists, unreachable). | `packages/adapters/src/postgres.ts:rotateCredentials` | Contract-only |
+| B4 | Credential rotation is now reachable: `data.rotateCredentials` (`apps/api/src/procedures/data.ts`) gathers the resource's own name as confirmation, refuses a bucket, a resource with no engine handle, a non-member, and returns no credential (the engine holds it; the control plane keeps no copy). The Dashboard exposes a per-database `Rotate credentials` action and `RotateCredentialsModal`. Audit events `data.credentials_rotated` / `data.credentials_rotation_failed` are recorded. | `apps/api/src/procedures/index.ts`; `apps/web/src/pages/database.tsx`; `packages/authorization/src/index.ts` (`data:rotate`) | Implemented |
 
 ### Honesty / test integrity
 
 | # | Finding | Where | Status |
 |---|---|---|---|
-| H1 | `pnpm verify` is green: 442 tests / 29 files. `pnpm verify:rls` runs a real PostgreSQL 17 probe. | reproduced this session | Implemented |
+| H1 | `pnpm verify` is green: 507 tests / 30 files. `pnpm verify:rls` runs a real PostgreSQL 17 probe. | reproduced this session | Implemented |
 | H2 | No `TODO`/`FIXME`/`@ts-ignore`/`as any` in `apps`/`packages`. | grep, this session | Implemented |
 | H3 | Fakes are refused in production (`buildEngines` throws when `useFakes` and `NODE_ENV=production`). | `packages/adapters/src/engines.ts:150-170` | Implemented |
 

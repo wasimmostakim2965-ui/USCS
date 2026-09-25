@@ -2120,6 +2120,65 @@ describe("the Database drill-in", () => {
       confirmName: "ready-db",
     });
   });
+
+  it("rotates credentials only after the database name is typed, and never shows one", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [{ id: "r-ready", kind: "postgres", name: "ready-db", state: "ready" }],
+        };
+      }
+      if (procedure === "data.rotateCredentials") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: {
+              id: "r-ready",
+              kind: "postgres",
+              name: "ready-db",
+              state: "ready",
+            },
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    const rows = await screen.findAllByRole("row");
+    const readyRow = rows.find((row) => within(row).queryByText("ready-db"));
+    await user.click(within(readyRow!).getByRole("button", { name: "Rotate credentials" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Rotate credentials" });
+    const rotate = within(dialog).getByRole("button", { name: "Rotate" }) as HTMLButtonElement;
+    expect(rotate.disabled).toBe(true);
+
+    await user.type(within(dialog).getByRole("textbox"), "ready-db");
+    expect(rotate.disabled).toBe(false);
+    await user.click(rotate);
+
+    expect(await screen.findByText(/The engine rotated the credentials/)).toBeTruthy();
+    // The control plane holds no copy, so the dialog must not render one.
+    expect(within(dialog).queryByText(/password\s*:/i)).toBeNull();
+    const sent = calls.find((call) => call.procedure === "data.rotateCredentials");
+    expect(sent?.input).toMatchObject({
+      organizationId: "org-1",
+      resourceId: "r-ready",
+      confirmName: "ready-db",
+    });
+  });
 });
 
 describe("filtering a loaded table", () => {

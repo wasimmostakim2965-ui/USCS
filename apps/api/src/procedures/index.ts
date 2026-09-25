@@ -68,12 +68,14 @@ import {
   listDataRestores,
   provisionDataResource,
   restoreDataResource,
+  rotateDataCredentials,
   type BackupDataInput,
   type DataDeps,
   type ListBackupsInput,
   type ListRestoresInput,
   type ProvisionDataInput,
   type RestoreDataInput,
+  type RotateCredentialsInput,
 } from "./data.js";
 import {
   addSecurityRule,
@@ -370,6 +372,11 @@ export function buildProcedures(
         listDataRestores(ctx, dataDeps, inputOf<ListRestoresInput>(input)),
     },
     {
+      name: "data.rotateCredentials",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        rotateDataCredentials(ctx, dataDeps, inputOf<RotateCredentialsInput>(input)),
+    },
+    {
       name: "security.policy.get",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         readSecurityPolicy(
@@ -544,6 +551,11 @@ export const ROUTE_SHAPES = {
     confirmName: "string",
   },
   "data.restores.list": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
+  "data.rotateCredentials": {
+    organizationId: "OrganizationId",
+    resourceId: "DataResourceId",
+    confirmName: "string",
+  },
   "security.policy.get": { organizationId: "OrganizationId" },
   "security.policy.save": {
     organizationId: "OrganizationId",

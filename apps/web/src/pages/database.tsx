@@ -38,6 +38,7 @@ import {
   type DataRestoreSummary,
   type ProvisionDataSummary,
   type RestoreDataSummary,
+  type RotateCredentialsSummary,
 } from "../view-model.js";
 import { DataStateBadge, Timestamp } from "../components/page-parts.js";
 
@@ -170,6 +171,7 @@ function ResourcesPanel({
   const [provisioning, setProvisioning] = useState(false);
   const [backingUp, setBackingUp] = useState<DataResourceSummary | null>(null);
   const [restoring, setRestoring] = useState<DataResourceSummary | null>(null);
+  const [rotating, setRotating] = useState<DataResourceSummary | null>(null);
 
   const reload = resources.reload;
   // This page is project-scoped. Show this project's resources plus any
@@ -258,6 +260,20 @@ function ResourcesPanel({
                     >
                       Restore
                     </Button>
+                    <Button
+                      size="sm"
+                      disabled={item.state !== "ready" || item.kind !== "postgres"}
+                      title={
+                        item.kind !== "postgres"
+                          ? "Rotating a bucket's credentials is not available yet."
+                          : item.state === "ready"
+                            ? "Rotate this database's credentials"
+                            : "A resource must be ready before its credentials can be rotated."
+                      }
+                      onClick={() => setRotating(item)}
+                    >
+                      Rotate credentials
+                    </Button>
                   </div>
                 ),
               },
@@ -299,6 +315,12 @@ function ResourcesPanel({
           setRestoring(null);
           reload();
         }}
+      />
+
+      <RotateCredentialsModal
+        organizationId={organizationId}
+        resource={rotating}
+        onClose={() => setRotating(null)}
       />
     </>
   );
@@ -853,6 +875,127 @@ function RestoreResourceModal({
             rowKey={(item) => item.id}
           />
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Rotate a database's credentials.
+ *
+ * Rotation breaks every client still holding the old password, so it is a
+ * confirm-by-name action like a restore. The new credential is deliberately not
+ * shown: the engine writes it into its own store and the control plane keeps no
+ * copy, so there is nothing here to display — only the engine's own outcome.
+ */
+function RotateCredentialsModal({
+  organizationId,
+  resource,
+  onClose,
+}: {
+  readonly organizationId: string;
+  readonly resource: DataResourceSummary | null;
+  readonly onClose: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmName, setConfirmName] = useState("");
+  const [result, setResult] = useState<RotateCredentialsSummary | null>(null);
+
+  if (!resource) return null;
+
+  const close = () => {
+    setError(null);
+    setResult(null);
+    setConfirmName("");
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<RotateCredentialsSummary>("data.rotateCredentials", {
+      organizationId,
+      resourceId: resource.id,
+      confirmName,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The credentials could not be rotated.");
+      return;
+    }
+    setResult(response.data);
+  };
+
+  return (
+    <Modal
+      title="Rotate credentials"
+      open={resource !== null}
+      onClose={close}
+      footer={
+        result ? (
+          <Button variant="primary" onClick={close}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => void submit()}
+              busy={busy}
+              disabled={confirmName.trim() !== resource.name}
+              title={
+                confirmName.trim() === resource.name
+                  ? "Rotate this database's credentials"
+                  : `Type ${resource.name} to confirm`
+              }
+            >
+              Rotate
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="stack">
+        <p>
+          Rotate the credentials of <span className="mono">{resource.name}</span>.
+        </p>
+        {result ? (
+          result.engineReason ? (
+            <p className="muted small">
+              The engine did not rotate the credentials: {result.engineReason}
+            </p>
+          ) : (
+            <p className="small">
+              The engine rotated the credentials. It holds the new password; Cloud Wai keeps no
+              copy, so read it from the engine.
+            </p>
+          )
+        ) : (
+          <>
+            <p className="muted small">
+              Every client using the current password will stop connecting. Type the database name
+              to confirm.
+            </p>
+            <Field label={`Type "${resource.name}" to confirm`}>
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={confirmName}
+                  placeholder={resource.name}
+                  onChange={setConfirmName}
+                />
+              )}
+            </Field>
+          </>
+        )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

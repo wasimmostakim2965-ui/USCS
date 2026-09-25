@@ -764,6 +764,109 @@ describe("data.backup through the registered procedures", () => {
   });
 });
 
+describe("data.rotateCredentials through the registered procedures", () => {
+  async function provisionPostgres(router: ReturnType<typeof routerWith>) {
+    const res = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    return (res.data as { resource: DataResource }).resource;
+  }
+
+  it("rotates a provisioned database, and never returns the new credential", async () => {
+    const { store, audit } = makeStore();
+    const router = routerWith(store, workingEngines());
+    const resource = await provisionPostgres(router);
+
+    const res = await router.route({
+      procedure: "data.rotateCredentials",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id, confirmName: resource.name },
+    });
+
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    const body = res.data as { engineReason: string | null };
+    expect(body.engineReason).toBeNull();
+    // The engine holds the new password; the control plane keeps no copy, so the
+    // response carries no credential-shaped field at all.
+    expect(JSON.stringify(body)).not.toMatch(/password|secret|credential["']?\s*:/i);
+    expect(audit.some((a) => a.event === "data.credentials_rotated")).toBe(true);
+  });
+
+  it("refuses rotation until the resource's own name is typed", async () => {
+    const { store, audit } = makeStore();
+    const router = routerWith(store, workingEngines());
+    const resource = await provisionPostgres(router);
+
+    const res = await router.route({
+      procedure: "data.rotateCredentials",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id, confirmName: "not-the-name" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(audit.some((a) => a.event === "data.credentials_rotated")).toBe(false);
+  });
+
+  it("refuses rotation for a resource with no engine handle", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    const resource = await provisionPostgres(router);
+    expect(resource.providerResourceId).toBeNull();
+
+    const res = await router.route({
+      procedure: "data.rotateCredentials",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id, confirmName: resource.name },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+  });
+
+  it("refuses to rotate a bucket through the database engine", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, {
+      ...unconfiguredEngines(),
+      database: fakeDatabase(),
+      storage: workingStorage(),
+    });
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput({ kind: "object_storage", name: "tenant-bucket" }),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+
+    const res = await router.route({
+      procedure: "data.rotateCredentials",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id, confirmName: resource.name },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(503);
+  });
+
+  it("refuses a non-member rotating another organization's credentials", async () => {
+    const { store, audit } = makeStore();
+    const router = routerWith(store, workingEngines());
+    const resource = await provisionPostgres(router);
+
+    const res = await router.route({
+      procedure: "data.rotateCredentials",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A, resourceId: resource.id, confirmName: resource.name },
+    });
+
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
+    expect(audit.some((a) => a.event === "data.credentials_rotated")).toBe(false);
+  });
+});
+
 describe("security.policy.save through the registered procedures", () => {
   it("saves a draft and never activates it", async () => {
     const { store, policies, policyEvents, audit } = makeStore();

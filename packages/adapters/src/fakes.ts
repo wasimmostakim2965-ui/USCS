@@ -311,11 +311,11 @@ export function fakeDatabase(options: FakeEngineOptions = {}): DatabaseAdapter {
         return ok("succeeded", ref);
       }),
 
-    rotateCredentials: (ctx) =>
+    rotateCredentials: (_ctx, ref) =>
       gate(() =>
-        created.has(ctx.idempotencyKey)
+        [...created.values()].some((c) => c.resourceId === ref.resourceId)
           ? ok("succeeded", undefined)
-          : err("not_configured", `${label} has no database for ${ctx.idempotencyKey}.`),
+          : err("not_configured", `${label} has no database ${ref.resourceId}.`),
       ),
 
     backup: (ctx, ref) =>
