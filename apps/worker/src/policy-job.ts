@@ -28,6 +28,11 @@ export interface PolicyExecutionWrites {
     readonly riskLevel: SecurityPolicy["riskLevel"];
     readonly action: SecurityPolicy["action"];
     readonly state: SecurityPolicy["state"];
+    // Carried explicitly so activating a policy preserves the posture it was
+    // saved with. Omitting them would depend on the store dropping absent
+    // columns — true today, but not a contract worth resting on.
+    readonly protectionMode: SecurityPolicy["protectionMode"];
+    readonly protectionExpiresAt: SecurityPolicy["protectionExpiresAt"];
     readonly version: number;
     readonly createdBy: string;
   }): Promise<SecurityPolicy>;
@@ -165,6 +170,8 @@ export function buildPolicyApplier(
       riskLevel: policy.riskLevel,
       action: policy.action,
       state: "active",
+      protectionMode: policy.protectionMode,
+      protectionExpiresAt: policy.protectionExpiresAt,
       version: value.version,
       createdBy: payload.actorId,
     });

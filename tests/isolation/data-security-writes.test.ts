@@ -1278,4 +1278,34 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
     expect(policies[0]?.state).toBe("draft");
     expect(policyEvents.some((e) => e.toState === "rejected")).toBe(true);
   });
+
+  it("preserves the attack posture through distribution, not just the save", async () => {
+    const { store, policies } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingSecurityEngines(edgeAnswering(() => ok("succeeded", { version: 1 })));
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Under attack",
+        riskLevel: "critical",
+        action: "challenge",
+        protectionMode: "attack",
+      },
+    });
+    await router.route({
+      procedure: "security.policy.distribute",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+
+    await workerOver(store, engines, queue, () => "evt").drain();
+    // The activation write carries the posture: a distribution must not quietly
+    // drop the attack mode the customer turned on.
+    expect(policies[0]?.state).toBe("active");
+    expect(policies[0]?.protectionMode).toBe("attack");
+  });
 });
