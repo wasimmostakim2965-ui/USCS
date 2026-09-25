@@ -52,6 +52,41 @@ const PILLARS = [
   },
 ] as const;
 
+/**
+ * How this differs from a deploy-button platform.
+ *
+ * Kept as data so the left column cannot drift from the right one. Each row
+ * states a capability the software actually has, not a promise: the third
+ * column is why it matters to an operator, and none of it claims the deployment
+ * already runs an engine it has no credentials for.
+ */
+const COMPARISON = [
+  {
+    topic: "Data",
+    generic: "A managed database attached to a project.",
+    cloudWai:
+      "A database system: tenant Postgres and object storage provisioned through engines, backups recorded as their own lifecycle.",
+  },
+  {
+    topic: "Security",
+    generic: "A WAF toggle and a dashboard warning.",
+    cloudWai:
+      "A compiled, versioned policy pushed to the edge. Hostile input is refused before it becomes a rule; the origin stays private.",
+  },
+  {
+    topic: "Isolation",
+    generic: "A filter the application is asked to apply.",
+    cloudWai:
+      "Scope resolved from the session and enforced by row-level security in Postgres. A client-supplied organization id is never the authority.",
+  },
+  {
+    topic: "State",
+    generic: "A green badge that renders whether or not anything ran.",
+    cloudWai:
+      "An engine this deployment cannot act on reports not_configured. A success is only ever the engine's own answer.",
+  },
+] as const;
+
 export function LandingPage({
   onEnterDashboard,
   signedIn,
@@ -132,6 +167,42 @@ export function LandingPage({
               <p className="landing__card-body">{feature.body}</p>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="landing__band" aria-labelledby="compare-heading">
+        <h2 id="compare-heading" className="landing__band-title">
+          The same jobs, answered differently
+        </h2>
+        <div className="compare">
+          <div className="compare__head" aria-hidden="true">
+            <span className="compare__topic" />
+            <span className="compare__col-label">A deploy-button platform</span>
+            <span className="compare__col-label compare__col-label--us">Cloud Wai</span>
+          </div>
+          {COMPARISON.map((row) => (
+            <div className="compare__row" key={row.topic}>
+              <span className="compare__topic">{row.topic}</span>
+              <p className="compare__cell compare__cell--them">{row.generic}</p>
+              <p className="compare__cell compare__cell--us">{row.cloudWai}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing__cta-band" aria-labelledby="start-heading">
+        <h2 id="start-heading" className="landing__band-title">
+          Bring your first project
+        </h2>
+        <p className="landing__band-lede">
+          Create a workspace, add a project, and connect an engine. Until an engine is configured,
+          every affected section says so — you will never see a green badge for work that did not
+          run.
+        </p>
+        <div className="landing__cta">
+          <Button variant="primary" onClick={onEnterDashboard}>
+            {signedIn ? "Go to your dashboard" : "Get started"}
+          </Button>
         </div>
       </section>
 

@@ -408,6 +408,10 @@ describe("the public landing page", () => {
     // A second heading for the "how it is built" band, so the page is more than
     // a hero that would render blank if the copy were removed.
     expect(screen.getByText("Three layers, one contract")).toBeTruthy();
+    // A comparison band answers the reader's "why not a deploy button?" without
+    // promising an engine this deployment may not hold credentials for.
+    expect(screen.getByText("The same jobs, answered differently")).toBeTruthy();
+    expect(screen.getByText("Bring your first project")).toBeTruthy();
     // The landing page is static: it must not spend the visitor's request budget
     // on an API call it has no session to make.
     expect(called).toBe(false);

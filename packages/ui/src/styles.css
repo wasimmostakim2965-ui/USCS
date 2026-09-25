@@ -1765,10 +1765,136 @@ a.card:hover,
   font-size: var(--step--1);
 }
 
+/* ---- comparison band ---- */
+
+.landing__band-lede {
+  max-width: 62ch;
+  margin: 0 auto var(--space-6);
+  color: var(--ink-2);
+  font-size: var(--step-0);
+  line-height: 1.6;
+}
+
+.compare {
+  max-width: 1100px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.compare__head,
+.compare__row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  align-items: start;
+}
+
+.compare__head {
+  /* Tinted so the header reads as a label row, not a data row. */
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.compare__row + .compare__row {
+  border-top: 1px solid var(--line);
+}
+
+.compare__topic {
+  color: var(--ink);
+  font-size: var(--step--1);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.compare__col-label {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.compare__col-label--us {
+  color: var(--accent);
+}
+
+.compare__cell {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--step-0);
+  line-height: 1.55;
+}
+
+/* The Cloud Wai column carries the accent rule, so the eye lands on the answer
+   the page is arguing for without a second colour system. */
+.compare__cell--us {
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--accent-soft);
+  color: var(--ink);
+}
+
+/* ---- closing call to action ---- */
+
+.landing__cta-band {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 7vw, 4.5rem) var(--space-5);
+  border-top: 1px solid var(--line);
+  text-align: center;
+}
+
+.landing__cta-band .landing__cta {
+  margin-top: var(--space-5);
+}
+
 @media (max-width: 860px) {
   .landing__flow,
   .landing__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Stacked, the header row would label nothing, so it is dropped and each cell
+     carries its own label line. */
+  .compare__head {
+    display: none;
+  }
+
+  .compare__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .compare__topic {
+    font-size: var(--step-0);
+  }
+
+  .compare__cell--them::before,
+  .compare__cell--us::before {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--ink-3);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .compare__cell--them::before {
+    content: "A deploy-button platform";
+  }
+
+  .compare__cell--us::before {
+    content: "Cloud Wai";
+    color: var(--accent);
+  }
+
+  .compare__cell--us {
+    padding-left: 0;
+    border-left: 0;
   }
 }
 
