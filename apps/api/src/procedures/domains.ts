@@ -28,6 +28,9 @@ type DomainWrites = Pick<
   "createDomain" | "getDomain" | "deleteDomain" | "setDomainVerification"
 >;
 
+/** Bound on an engine call so a hung edge cannot hold the request open. */
+const ADAPTER_TIMEOUT_MS = 20_000;
+
 const REQUIRED_WRITES = [
   "createDomain",
   "getDomain",
@@ -155,6 +158,17 @@ export interface VerifyDomainResult {
   readonly domain: Domain;
   /** The verifier's own words, so the UI can say why it did not confirm. */
   readonly detail: string;
+  /**
+   * Whether the edge now serves this hostname, and why not when it does not.
+   *
+   * Verification and route publication are separate facts: the DNS verifier can
+   * confirm a hostname while the edge is unconfigured, and reporting the second
+   * as a verification failure would be a lie in the other direction. `null` means
+   * the hostname is not verified yet, so there is no route to publish — not a
+   * failure. This is the same honesty rule the rest of the product keeps: an
+   * unconfigured engine is reported, never papered over.
+   */
+  readonly edge: { readonly published: boolean; readonly reason: string | null } | null;
 }
 
 /**
@@ -164,6 +178,13 @@ export interface VerifyDomainResult {
  * answers becomes the row's state — including a refusal, which leaves the domain
  * unverified rather than failing the request. A verifier that is not configured
  * is reported honestly and writes nothing.
+ *
+ * When the verifier confirms the hostname, the route is then published to the
+ * edge. That step is what makes the domain reachable *through* the edge at all;
+ * without it the edge never learns the hostname and the firewall is bypassed by
+ * simply not being on the path. A publication that does not succeed (the edge
+ * unconfigured, or a refusal) does not undo the verification — the two are
+ * distinct — but it is reported, never swallowed.
  */
 export async function verifyDomain(
   ctx: RequestContext,
@@ -211,6 +232,42 @@ export async function verifyDomain(
     verifiedAt: result.value.verified ? (deps.now?.() ?? new Date()).toISOString() : null,
   });
 
+  // A verified hostname must be served by the edge, or the firewall is not on
+  // the path at all. Publish after the row is written, so the edge resolves the
+  // hostname through the same verified state the customer sees — never from a
+  // value that only exists in this request.
+  let edge: VerifyDomainResult["edge"] = null;
+  if (result.value.verified) {
+    const published = await deps.engines.securityEdge.publishRoute(
+      {
+        organizationId: domain.organizationId,
+        idempotencyKey: `publish-route-${domain.id}`,
+        timeoutMs: ADAPTER_TIMEOUT_MS,
+      },
+      {
+        routeRef: {
+          organizationId: domain.organizationId,
+          provider: "envoy",
+          resourceType: "route",
+          resourceId: domain.hostname,
+        },
+      },
+    );
+    edge = published.ok
+      ? { published: true, reason: null }
+      : { published: false, reason: published.reason };
+
+    await deps.store.recordAuditEvent({
+      organizationId: domain.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: published.ok ? "domain.route_published" : "domain.route_publish_failed",
+      targetType: "domain",
+      targetId: domain.id,
+      metadata: { hostname: domain.hostname, status: published.ok ? "succeeded" : published.status },
+    });
+  }
+
   await deps.store.recordAuditEvent({
     organizationId: domain.organizationId,
     actorId: ctx.principal.userId,
@@ -224,6 +281,7 @@ export async function verifyDomain(
   return {
     domain: updated ?? { ...domain, verified: result.value.verified },
     detail: result.value.detail,
+    edge,
   };
 }
 
@@ -241,12 +299,40 @@ export async function removeDomain(
   requireCapability(ctx, input.organizationId, "domain:delete");
 
   const writes = writesFor(deps);
+  // Read first: the hostname is what names the edge route, and after the delete
+  // there is nothing left to derive it from. A domain the caller cannot see
+  // returns not_found, the same as a missing one, so a non-member cannot probe.
+  const domain = await writes.getDomain(ctx.principal.userId, input.domainId);
+  if (!domain || domain.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Domain not found.");
+  }
+
   const removed = await writes.deleteDomain(
     ctx.principal.userId,
     input.organizationId,
     input.domainId,
   );
   if (!removed) throw new ApiError("not_found", "Domain not found.");
+
+  // Withdraw the route so the edge stops serving a hostname the customer has
+  // released. A route that fails to withdraw leaves the edge serving a hostname
+  // the control plane no longer lists, which is worse than a loud failure — so
+  // the outcome is recorded either way, never assumed to have worked.
+  const withdrawn = await deps.engines.securityEdge.removeRoute(
+    {
+      organizationId: input.organizationId,
+      idempotencyKey: `remove-route-${input.domainId}`,
+      timeoutMs: ADAPTER_TIMEOUT_MS,
+    },
+    {
+      routeRef: {
+        organizationId: input.organizationId,
+        provider: "envoy",
+        resourceType: "route",
+        resourceId: domain.hostname,
+      },
+    },
+  );
 
   await deps.store.recordAuditEvent({
     organizationId: input.organizationId,
@@ -255,6 +341,11 @@ export async function removeDomain(
     event: "domain.removed",
     targetType: "domain",
     targetId: input.domainId,
+    metadata: {
+      hostname: domain.hostname,
+      routeWithdrawn: withdrawn.ok,
+      ...(withdrawn.ok ? {} : { routeWithdrawReason: withdrawn.reason }),
+    },
   });
 
   return { removed: true };

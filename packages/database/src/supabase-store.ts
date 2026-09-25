@@ -848,13 +848,14 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toDomain(row) : null;
     },
 
-    async getRoutableDomainForService(organizationId: OrganizationId): Promise<Domain | null> {
-      const found = await rows("getRoutableDomainForService", {
+    async listRoutableDomainsForService(
+      organizationId: OrganizationId,
+    ): Promise<readonly Domain[]> {
+      const found = await rows("listRoutableDomainsForService", {
         method: "GET",
-        path: `/domains?select=*&organization_id=eq.${q(organizationId)}&verified=is.true&order=verified_at.asc&limit=1`,
+        path: `/domains?select=*&organization_id=eq.${q(organizationId)}&verified=is.true&order=verified_at.asc`,
       });
-      const row = found[0];
-      return row ? toDomain(row) : null;
+      return found.map(toDomain);
     },
 
     async listPolicyEvents(

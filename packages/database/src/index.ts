@@ -271,15 +271,16 @@ export interface ControlPlaneWrites {
     hostname: string,
   ): Promise<Domain | null>;
   /**
-   * The organization's oldest verified domain, or null when it has none.
+   * The organization's verified domains, oldest first.
    *
-   * The edge compiles one artifact per policy, and that artifact carries a route
-   * fragment, so a policy distribution needs *a* verified route to target. This
-   * is the deterministic choice (oldest first) rather than an arbitrary one; an
-   * organization with no verified route gets null, and the distribution is
-   * refused honestly instead of naming a host that does not serve it.
+   * The edge compiles one artifact per policy, and that artifact must carry a
+   * route fragment for *every* hostname the organization serves — one firewall,
+   * covering all of the organization's domains. Returning only the oldest (the
+   * previous behaviour) meant a second verified domain was silently unprotected:
+   * it was neither routed nor inspected. The order is deterministic (oldest
+   * first) so the compiled config is comparable between distributions.
    */
-  getRoutableDomainForService(organizationId: OrganizationId): Promise<Domain | null>;
+  listRoutableDomainsForService(organizationId: OrganizationId): Promise<readonly Domain[]>;
   /** Insert or advance the policy. Version increases monotonically. */
   saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
   /** Record a policy state transition. Append-only. */

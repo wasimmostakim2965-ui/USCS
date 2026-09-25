@@ -36,6 +36,7 @@ import type {
   Project,
 } from "@cloud-wai/database";
 import type { DomainId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
+import type { ProviderRef } from "@cloud-wai/contracts";
 import {
   domainVerifierNotConfigured,
   createDnsDomainVerifier,
@@ -45,6 +46,7 @@ import {
   securityNotConfigured,
   type DnsResolver,
   type Engines,
+  type SecurityEdgeAdapter,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type RouterDeps } from "@cloud-wai/api";
 import type { DataStore } from "@cloud-wai/database";
@@ -530,6 +532,200 @@ describe("domains.verify through the registered procedures", () => {
 
     expect(res.status).toBe(404);
     expect(domains[0]?.verified).toBe(false);
+  });
+});
+
+describe("the edge route follows the domain lifecycle", () => {
+  /**
+   * A recording edge adapter.
+   *
+   * The defect these tests pin: `publishRoute` and `removeRoute` existed on the
+   * interface but no production caller invoked either, so a verified hostname was
+   * never published to the edge — traffic never reached the firewall at all. A
+   * real adapter (not a stub that always succeeds) is what makes the call sites
+   * observable here.
+   */
+  function recordingEdge(): {
+    edge: SecurityEdgeAdapter;
+    published: ProviderRef[];
+    removed: ProviderRef[];
+    failPublish: (reason: string) => void;
+  } {
+    const published: ProviderRef[] = [];
+    const removed: ProviderRef[] = [];
+    let publishFailure: string | null = null;
+    const edge: SecurityEdgeAdapter = {
+      async publishRoute(_ctx, input) {
+        if (publishFailure) {
+          return { ok: false, status: "not_configured", reason: publishFailure } as const;
+        }
+        published.push(input.routeRef);
+        return {
+          ok: true,
+          status: "succeeded",
+          value: { jobId: `edge-route-${input.routeRef.resourceId}` },
+        } as unknown as Awaited<ReturnType<SecurityEdgeAdapter["publishRoute"]>>;
+      },
+      async removeRoute(_ctx, input) {
+        removed.push(input.routeRef);
+        return { ok: true, status: "succeeded", value: undefined } as const;
+      },
+      async applyPolicy() {
+        return { ok: false, status: "not_configured", reason: "not used" } as const;
+      },
+      async quarantine() {
+        return { ok: false, status: "not_configured", reason: "not used" } as const;
+      },
+      async inspectHealth() {
+        return { ok: true, status: "succeeded", value: { healthy: false } } as const;
+      },
+    };
+    return { edge, published, removed, failPublish: (reason) => (publishFailure = reason) };
+  }
+
+  function enginesWithEdge(edge: SecurityEdgeAdapter, resolver: DnsResolver): Engines {
+    return { ...enginesWith(resolver), securityEdge: edge };
+  }
+
+  it("publishes the hostname to the edge once the verifier confirms it", async () => {
+    const { store, audit } = makeStore();
+    const { edge, published } = recordingEdge();
+    const engines = enginesWithEdge(
+      edge,
+      stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": [KNOWN_TOKEN] } }),
+    );
+    const router = routerWith(store, engines);
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { edge: { published: boolean } | null };
+    expect(data.edge).toEqual({ published: true, reason: null });
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ resourceType: "route", resourceId: "app.example.com" });
+    expect(audit.some((a) => a.event === "domain.route_published")).toBe(true);
+  });
+
+  it("does not publish a hostname the verifier did not confirm", async () => {
+    const { store } = makeStore();
+    const { edge, published } = recordingEdge();
+    const engines = enginesWithEdge(
+      edge,
+      stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": ["wrong"] } }),
+    );
+    const router = routerWith(store, engines);
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    const data = res.data as { edge: unknown };
+    expect(data.edge).toBeNull();
+    expect(published).toHaveLength(0);
+  });
+
+  it("keeps the verification when the edge cannot publish, and says so", async () => {
+    const { store, domains } = makeStore();
+    const { edge, failPublish } = recordingEdge();
+    failPublish("envoy is not configured in this deployment.");
+    const engines = enginesWithEdge(
+      edge,
+      stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": [KNOWN_TOKEN] } }),
+    );
+    const router = routerWith(store, engines);
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    // The two facts are separate: the DNS record was confirmed, the route was
+    // not published. The domain stays verified and the caller is told why.
+    expect((res.data as { domain: Domain }).domain.verified).toBe(true);
+    expect(domains[0]?.verified).toBe(true);
+    expect((res.data as { edge: { published: boolean; reason: string } }).edge).toEqual({
+      published: false,
+      reason: "envoy is not configured in this deployment.",
+    });
+  });
+
+  it("withdraws the edge route when the domain is removed", async () => {
+    const { store, domains, audit } = makeStore();
+    const { edge, removed } = recordingEdge();
+    const router = routerWith(store, enginesWithEdge(edge, stubResolver({})));
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "gone.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(domains).toHaveLength(0);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatchObject({ resourceType: "route", resourceId: "gone.example.com" });
+    const removal = audit.find((a) => a.event === "domain.removed");
+    expect(removal?.metadata?.routeWithdrawn).toBe(true);
+  });
+
+  it("records a failed withdrawal instead of assuming it worked", async () => {
+    const { store, audit } = makeStore();
+    const { edge } = recordingEdge();
+    const failing: SecurityEdgeAdapter = {
+      ...edge,
+      async removeRoute() {
+        return { ok: false, status: "failed", reason: "the edge refused the withdrawal" } as const;
+      },
+    };
+    const router = routerWith(store, enginesWithEdge(failing, stubResolver({})));
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "stuck.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const removal = audit.find((a) => a.event === "domain.removed");
+    expect(removal?.metadata?.routeWithdrawn).toBe(false);
+    expect(removal?.metadata?.routeWithdrawReason).toBe("the edge refused the withdrawal");
   });
 });
 

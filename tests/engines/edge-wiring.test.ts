@@ -20,6 +20,7 @@ import {
   createSupabaseControlPlaneStore,
   securityEdgeConfigFromEnv,
 } from "@cloud-wai/database";
+import { compileEdge } from "@cloud-wai/adapters";
 import type { OrganizationId, ProviderRef } from "@cloud-wai/contracts";
 
 const ORG_A = "org-a" as OrganizationId;
@@ -224,6 +225,50 @@ describe("security edge loaders", () => {
     });
     const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
     expect(await loaders.loadPolicy(ref(ORG_A, "pol-1"))).toBeNull();
+  });
+
+  it("covers every verified domain, not only the oldest", async () => {
+    // The regression this guards: the loader used to read one domain (`limit=1`),
+    // so a second verified hostname was compiled out of the policy and served
+    // without inspection.
+    const { store } = storeOver({
+      security_policies: [policyRow("org-a")],
+      domains: [
+        domainRow("org-a", "one.example.com", true, "2026-01-02T00:00:00.000Z"),
+        domainRow("org-a", "two.example.com", true, "2026-01-03T00:00:00.000Z"),
+        domainRow("org-a", "three.example.com", true, "2026-01-04T00:00:00.000Z"),
+        domainRow("org-a", "unverified.example.com", false, null),
+        domainRow("org-b", "other.example.com", true, "2026-01-05T00:00:00.000Z"),
+      ],
+    });
+    const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    const hosts = [input!.route.host, ...(input!.routes ?? []).map((r) => r.host)];
+    expect(hosts).toEqual(["one.example.com", "two.example.com", "three.example.com"]);
+    // The unverified host and the other organization's host are both absent.
+    expect(hosts).not.toContain("unverified.example.com");
+    expect(hosts).not.toContain("other.example.com");
+  });
+
+  it("compiles one policy artifact that names every host it protects", async () => {
+    const { store } = storeOver({
+      security_policies: [policyRow("org-a")],
+      domains: [
+        domainRow("org-a", "one.example.com", true, "2026-01-02T00:00:00.000Z"),
+        domainRow("org-a", "two.example.com", true, "2026-01-03T00:00:00.000Z"),
+      ],
+    });
+    const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    const compiled = compileEdge(input!);
+    // One firewall, both domains: the directives are shared and the fragments
+    // tell the edge to serve each host from the same private origin.
+    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual([
+      "one.example.com",
+      "two.example.com",
+    ]);
+    expect(compiled.envoyRoutes.every((r) => r.privateOrigin === "10.0.1.5")).toBe(true);
+    expect(compiled.envoyRoutes.every((r) => r.wafEnabled)).toBe(true);
   });
 });
 

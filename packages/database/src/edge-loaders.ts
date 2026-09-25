@@ -134,8 +134,8 @@ export function createSecurityEdgeLoaders(
       const policy = await store.getSecurityPolicyForService(ref.organizationId);
       if (!policy) return null;
 
-      const route = await store.getRoutableDomainForService(ref.organizationId);
-      if (!route) return null;
+      const routes = await store.listRoutableDomainsForService(ref.organizationId);
+      if (routes.length === 0) return null;
 
       const rules = await store.listSecurityRulesForService(ref.organizationId);
       const trusted = await store.listTrustedSourcesForService(ref.organizationId);
@@ -152,8 +152,16 @@ export function createSecurityEdgeLoaders(
         )
         .map((source) => ({ kind: source.kind, value: source.value }));
 
+      const [primary, ...rest] = routes.map((domain) =>
+        routeFor(domain.hostname, ref.organizationId),
+      );
+
       return {
-        route: routeFor(route.hostname, ref.organizationId),
+        route: primary!,
+        // Every verified host, not just the first: one policy artifact must
+        // cover the organization's whole domain set, or a second domain is
+        // served without inspection.
+        routes: rest,
         policy: {
           riskLevel: policy.riskLevel,
           action: policy.action,

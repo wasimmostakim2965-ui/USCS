@@ -216,6 +216,17 @@ function verifiedBotDirective(id: number, bot: VerifiedBot): string {
 
 export interface CompileInput {
   readonly route: EdgeRoute;
+  /**
+   * Every other host this artifact also applies to.
+   *
+   * One firewall covers the whole organization, so a policy artifact must name
+   * all of the organization's verified hosts. `route` stays the primary (it is
+   * what a single-route publish compiles), and `routes` carries the rest; the
+   * compiled config emits a route fragment for each. Without this, a second
+   * verified domain was neither routed nor inspected — it was simply absent from
+   * the artifact, which is the gap this field closes.
+   */
+  readonly routes?: readonly EdgeRoute[] | undefined;
   readonly policy?: {
     readonly riskLevel: RiskLevel;
     readonly action: EnforcementAction;
@@ -246,22 +257,37 @@ export interface CompileInput {
   readonly trustedSources?: readonly TrustedSource[] | undefined;
 }
 
+export interface EnvoyRouteFragment {
+  readonly host: string;
+  readonly pathPrefix: string;
+  readonly cluster: string;
+  readonly privateOrigin: string;
+  readonly wafEnabled: boolean;
+  /**
+   * Whether browsers are challenged at the edge. Envoy performs the challenge
+   * (a bot check / interstitial); the WAF only inspects what passes.
+   */
+  readonly challengeBrowsers: boolean;
+}
+
 export interface CompiledEdge {
   /** Coraza / SecLang directives for the route. */
   readonly corazaDirectives: readonly string[];
-  /** An Envoy route fragment: cluster, host match, and the WAF filter hook. */
-  readonly envoyConfig: {
-    readonly host: string;
-    readonly pathPrefix: string;
-    readonly cluster: string;
-    readonly privateOrigin: string;
-    readonly wafEnabled: boolean;
-    /**
-     * Whether browsers are challenged at the edge. Envoy performs the challenge
-     * (a bot check / interstitial); the WAF only inspects what passes.
-     */
-    readonly challengeBrowsers: boolean;
-  };
+  /**
+   * The primary route fragment. Kept as the single-route shape a `publishRoute`
+   * compiles, so a caller that publishes one hostname reads it directly.
+   */
+  readonly envoyConfig: EnvoyRouteFragment;
+  /**
+   * One route fragment per host this artifact applies to.
+   *
+   * The Coraza directives are host-agnostic (they match `REQUEST_URI`), so one
+   * compiled policy inspects every host it is deployed with; the route fragments
+   * are what tell the edge which hosts to serve and from which private origin.
+   * An organization with three verified domains therefore gets three fragments
+   * under one policy — one firewall, all its domains.
+   */
+  readonly envoyRoutes: readonly EnvoyRouteFragment[];
   /**
    * The decision ladder, in evaluation order. This is the reviewable form of
    * "what happens to a request": each step names its stage and its action, so a
@@ -315,7 +341,6 @@ export function validateEdgeRoute(route: EdgeRoute): { ok: true } | { ok: false;
  */
 export function compileEdge(input: CompileInput): CompiledEdge {
   const { route, policy } = input;
-  const cluster = `origin-${route.host.replace(/\./g, "-")}`;
   const attackMode = input.protection === "attack";
   const bots = [...VERIFIED_BOTS, ...(input.botAllowList ?? [])];
 
@@ -395,16 +420,29 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id: ruleId, stage: "waf", action: policy.action, directive: wafRule });
   }
 
-  return {
-    corazaDirectives: directives,
-    envoyConfig: {
-      host: route.host,
-      pathPrefix: route.pathPrefix,
-      cluster,
-      privateOrigin: route.origin,
+  // One fragment per host, primary first. The directives above are shared: they
+  // inspect the request, not the host, so a policy deployed with three hosts
+  // inspects all three.
+  const allRoutes = [route, ...(input.routes ?? [])];
+  const seen = new Set<string>();
+  const envoyRoutes: EnvoyRouteFragment[] = [];
+  for (const one of allRoutes) {
+    if (seen.has(one.host)) continue;
+    seen.add(one.host);
+    envoyRoutes.push({
+      host: one.host,
+      pathPrefix: one.pathPrefix,
+      cluster: `origin-${one.host.replace(/\./g, "-")}`,
+      privateOrigin: one.origin,
       wafEnabled: policy !== undefined,
       challengeBrowsers: attackMode,
-    },
+    });
+  }
+
+  return {
+    corazaDirectives: directives,
+    envoyConfig: envoyRoutes[0]!,
+    envoyRoutes,
     ladder,
     version: policy?.version ?? 1,
   };

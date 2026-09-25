@@ -342,6 +342,30 @@ describe("the decision ladder", () => {
     expect(JSON.stringify(compileEdge(input))).toBe(JSON.stringify(compileEdge(input)));
   });
 
+  it("compiles one shared rule set with a fragment per host", () => {
+    const compiled = compileEdge({
+      route: route({ host: "one.example.com" }),
+      routes: [
+        route({ host: "two.example.com" }),
+        // A duplicate host must not produce a duplicate fragment.
+        route({ host: "one.example.com" }),
+      ],
+      policy,
+    });
+    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual([
+      "one.example.com",
+      "two.example.com",
+    ]);
+    // The primary is the first fragment, so a single-route caller reads the
+    // same shape it always did.
+    expect(compiled.envoyConfig).toEqual(compiled.envoyRoutes[0]);
+    // One set of directives covers both hosts, because they inspect the request,
+    // not the host.
+    expect(compiled.corazaDirectives.length).toBe(
+      compileEdge({ route: route({ host: "one.example.com" }), policy }).corazaDirectives.length,
+    );
+  });
+
   it("lets a deployment add its own bots without removing the curated ones", () => {
     const compiled = compileEdge({
       route: route(),
