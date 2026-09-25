@@ -224,6 +224,20 @@ export interface ControlPlaneWrites {
     organizationId: OrganizationId,
   ): Promise<readonly SecurityPolicyEvent[]>;
 
+  /** The organization's deny-list rules, newest first. Membership-scoped. */
+  listSecurityRules(userId: UserId, organizationId: OrganizationId): Promise<readonly SecurityRule[]>;
+  /** Add a deny-list rule. The value grammar is enforced by the table and the API. */
+  createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule>;
+  /**
+   * Remove a rule. Idempotent: removing an absent rule reports false rather than
+   * throwing, because a retried click must not be an error.
+   */
+  deleteSecurityRule(
+    userId: UserId,
+    organizationId: OrganizationId,
+    ruleId: string,
+  ): Promise<boolean>;
+
   /** Register a hostname. Always unverified: only the edge may verify it. */
   createDomain(input: DomainCreateInput): Promise<Domain>;
   /** Get a domain by id, scoped to a member's organization. */
@@ -352,9 +366,36 @@ export interface SecurityPolicy {
   readonly riskLevel: "low" | "medium" | "high" | "critical";
   readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
   readonly state: "draft" | "compiled" | "distributed" | "active" | "rejected" | "degraded";
+  /**
+   * The scoped "under attack" posture. `normal` inspects; `attack` challenges
+   * browser traffic while the compiled ladder still allows verified bots and
+   * internal requests before the challenge. The customer's own input.
+   */
+  readonly protectionMode: "normal" | "attack";
+  /**
+   * When attack mode lapses on its own. `null` means it does not expire. The
+   * compiler treats a past timestamp as `normal`, so a forgotten attack mode
+   * cannot become a permanent self-inflicted outage.
+   */
+  readonly protectionExpiresAt: string | null;
   readonly version: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/**
+ * Whether the stored protection is currently in effect.
+ *
+ * A single place for the expiry rule, so the API, the worker and the view-model
+ * cannot disagree about whether attack mode is on.
+ */
+export function protectionIsActive(
+  policy: Pick<SecurityPolicy, "protectionMode" | "protectionExpiresAt">,
+  now: Date = new Date(),
+): boolean {
+  if (policy.protectionMode !== "attack") return false;
+  if (policy.protectionExpiresAt === null) return true;
+  return new Date(policy.protectionExpiresAt).getTime() > now.getTime();
 }
 
 export interface SecurityPolicyInput {
@@ -364,8 +405,36 @@ export interface SecurityPolicyInput {
   readonly riskLevel: SecurityPolicy["riskLevel"];
   readonly action: SecurityPolicy["action"];
   readonly state: SecurityPolicy["state"];
+  readonly protectionMode: SecurityPolicy["protectionMode"];
+  readonly protectionExpiresAt: SecurityPolicy["protectionExpiresAt"];
   /** Monotonic per organization; the edge rejects a lower version. */
   readonly version: number;
+  readonly createdBy: UserId;
+}
+
+/**
+ * One entry of an organization's deny list.
+ *
+ * The value is a customer's own input, validated against a strict grammar at the
+ * API boundary and again at compile time, so a value that would be directive
+ * syntax never becomes one.
+ */
+export interface SecurityRule {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: "ip" | "cidr" | "asn" | "user-agent";
+  readonly value: string;
+  readonly note: string | null;
+  readonly createdBy: UserId;
+  readonly createdAt: string;
+}
+
+export interface SecurityRuleCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: SecurityRule["kind"];
+  readonly value: string;
+  readonly note: string | null;
   readonly createdBy: UserId;
 }
 

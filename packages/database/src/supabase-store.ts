@@ -53,6 +53,8 @@ import type {
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
+  SecurityRule,
+  SecurityRuleCreateInput,
   UsageRecord,
 } from "./index.js";
 
@@ -289,9 +291,23 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       riskLevel: str(row, "risk_level") as SecurityPolicy["riskLevel"],
       action: str(row, "action") as SecurityPolicy["action"],
       state: str(row, "state") as SecurityPolicy["state"],
+      protectionMode: (nullableStr(row, "protection_mode") ?? "normal") as SecurityPolicy["protectionMode"],
+      protectionExpiresAt: nullableStr(row, "protection_expires_at"),
       version: num(row, "version"),
       createdAt: str(row, "created_at"),
       updatedAt: str(row, "updated_at"),
+    };
+  }
+
+  function toSecurityRule(row: Row): SecurityRule {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      kind: str(row, "kind") as SecurityRule["kind"],
+      value: str(row, "value"),
+      note: nullableStr(row, "note"),
+      createdBy: str(row, "created_by") as UserId,
+      createdAt: str(row, "created_at"),
     };
   }
 
@@ -557,6 +573,17 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toPolicyEvent);
     },
 
+    async listSecurityRules(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly SecurityRule[]> {
+      const found = await rows("listSecurityRules", {
+        method: "GET",
+        path: `/security_rules?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toSecurityRule);
+    },
+
     // --------------------------------------------------------------- writes
 
     async createOrganization(input: {
@@ -777,6 +804,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           risk_level: input.riskLevel,
           action: input.action,
           state: input.state,
+          protection_mode: input.protectionMode,
+          protection_expires_at: input.protectionExpiresAt,
           version: input.version,
           created_by: input.createdBy,
         },
@@ -806,6 +835,40 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const row = Array.isArray(created) ? created[0] : undefined;
       if (!row) throw new ControlPlaneUnavailableError("recordPolicyEvent", "no row returned");
       return toPolicyEvent(row);
+    },
+
+    async createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule> {
+      const created = await must<Row[]>("createSecurityRule", {
+        method: "POST",
+        path: "/security_rules?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          kind: input.kind,
+          value: input.value,
+          note: input.note,
+          created_by: input.createdBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createSecurityRule", "no row returned");
+      return toSecurityRule(row);
+    },
+
+    async deleteSecurityRule(
+      userId: UserId,
+      organizationId: OrganizationId,
+      ruleId: string,
+    ): Promise<boolean> {
+      // Membership is re-asserted in the where clause: a service-role connection
+      // must not turn this into a cross-tenant delete.
+      await must<Row[]>("deleteSecurityRule", {
+        method: "DELETE",
+        path: `/security_rules?id=eq.${q(ruleId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return true;
     },
 
     async createDomain(input: DomainCreateInput): Promise<Domain> {

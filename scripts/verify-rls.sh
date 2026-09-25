@@ -40,12 +40,14 @@ SQL_STEPS=(
   "api key scope guard|supabase/migrations/0007_api_key_scope_guard.sql"
   "job claim/reap functions|supabase/migrations/0008_jobs_claim_and_reap_functions.sql"
   "deployment status guard|supabase/migrations/0009_deployment_status_guard.sql"
+  "security protection and events|supabase/migrations/0010_security_protection_and_events.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
   "engine column guard probe|tests/isolation/rls/12_domain_verification_probe.sql"
   "api key scope probe|tests/isolation/rls/13_api_key_scope_probe.sql"
   "deployment status guard probe|tests/isolation/rls/15_deployment_status_probe.sql"
+  "security protection probe|tests/isolation/rls/16_security_protection_probe.sql"
 )
 
 run_all() {

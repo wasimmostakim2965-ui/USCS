@@ -44,6 +44,8 @@ import type {
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
+  SecurityRule,
+  SecurityRuleCreateInput,
 } from "@cloud-wai/database";
 import type { AdapterContext, JobQueue, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
 import {
@@ -150,6 +152,7 @@ function makeStore() {
   const backups: DataBackup[] = [];
   const policies: SecurityPolicy[] = [];
   const policyEvents: SecurityPolicyEvent[] = [];
+  const securityRules: SecurityRule[] = [];
   const audit: AuditEvent[] = [];
   const deployments: Deployment[] = [];
   const domains: Domain[] = [];
@@ -348,6 +351,8 @@ function makeStore() {
         riskLevel: input.riskLevel,
         action: input.action,
         state: input.state,
+        protectionMode: input.protectionMode,
+        protectionExpiresAt: input.protectionExpiresAt,
         version: input.version,
         createdAt: existing?.createdAt ?? nextTime(),
         updatedAt: nextTime(),
@@ -376,9 +381,35 @@ function makeStore() {
       if (!isMember(userId, org)) return [];
       return policyEvents.filter((e) => e.organizationId === org);
     },
+    async listSecurityRules(userId: UserId, org: OrganizationId) {
+      if (!isMember(userId, org)) return [];
+      return securityRules.filter((r) => r.organizationId === org);
+    },
+    async createSecurityRule(input: SecurityRuleCreateInput) {
+      const rule: SecurityRule = {
+        id: input.id,
+        organizationId: input.organizationId,
+        kind: input.kind,
+        value: input.value,
+        note: input.note,
+        createdBy: input.createdBy,
+        createdAt: nextTime(),
+      };
+      securityRules.push(rule);
+      return rule;
+    },
+    async deleteSecurityRule(userId: UserId, org: OrganizationId, ruleId: string) {
+      if (!isMember(userId, org)) return false;
+      const index = securityRules.findIndex(
+        (r) => r.id === ruleId && r.organizationId === org,
+      );
+      if (index < 0) return false;
+      securityRules.splice(index, 1);
+      return true;
+    },
   } satisfies DataStoreLike;
 
-  return { store, resources, backups, policies, policyEvents, audit };
+  return { store, resources, backups, policies, policyEvents, securityRules, audit };
 }
 
 type DataStoreLike = import("@cloud-wai/database").DataStore & Partial<ControlPlaneWrites>;
@@ -738,6 +769,202 @@ describe("security.policy.save through the registered procedures", () => {
 
     expect(res.ok).toBe(false);
     expect(res.status).toBe(400);
+  });
+
+  it("raises the protection posture to attack and clears it on the way back to normal", async () => {
+    const { store, policies } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const raised = await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Block SQLi",
+        riskLevel: "high",
+        action: "block",
+        protectionMode: "attack",
+      },
+    });
+    expect(raised.ok, JSON.stringify(raised.error)).toBe(true);
+    expect((raised.data as SecurityPolicy).protectionMode).toBe("attack");
+
+    // Back to normal: the expiry is dropped, so a lapsed posture leaves nothing
+    // behind that a later save could resurrect.
+    const lowered = await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Block SQLi",
+        riskLevel: "high",
+        action: "block",
+        protectionMode: "normal",
+      },
+    });
+    const policy = lowered.data as SecurityPolicy;
+    expect(policy.protectionMode).toBe("normal");
+    expect(policy.protectionExpiresAt).toBeNull();
+    expect(policies[0]?.protectionMode).toBe("normal");
+  });
+
+  it("keeps a live attack mode across a routine save that does not mention it", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Block SQLi",
+        riskLevel: "high",
+        action: "block",
+        protectionMode: "attack",
+        protectionExpiresAt: "2026-09-25T00:00:00.000Z",
+      },
+    });
+    // A save that only changes the risk level must not drop the posture.
+    const res = await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, name: "Block SQLi", riskLevel: "critical", action: "block" },
+    });
+    const policy = res.data as SecurityPolicy;
+    expect(policy.protectionMode).toBe("attack");
+    expect(policy.protectionExpiresAt).toBe("2026-09-25T00:00:00.000Z");
+  });
+
+  it("refuses an attack window longer than a day, and a malformed one", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const tooLong = await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Block SQLi",
+        riskLevel: "high",
+        action: "block",
+        protectionMode: "attack",
+        protectionExpiresAt: "2027-01-01T00:00:00.000Z",
+      },
+    });
+    expect(tooLong.ok).toBe(false);
+    expect(tooLong.status).toBe(400);
+
+    const malformed = await router.route({
+      procedure: "security.policy.save",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        name: "Block SQLi",
+        riskLevel: "high",
+        action: "block",
+        protectionMode: "attack",
+        protectionExpiresAt: "not-a-date",
+      },
+    });
+    expect(malformed.ok).toBe(false);
+    expect(malformed.status).toBe(400);
+  });
+});
+
+describe("security.rules through the registered procedures", () => {
+  it("adds a rule the compiler will emit, and reads it back for a member", async () => {
+    const { store, securityRules, audit } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.rules.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "ip", value: "203.0.113.9", note: "abuse report" },
+    });
+    expect(added.ok, JSON.stringify(added.error)).toBe(true);
+    expect(securityRules).toHaveLength(1);
+    expect(audit.some((a) => a.event === "security_rule.added")).toBe(true);
+
+    const listed = await router.route({
+      procedure: "security.rules.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(listed.ok).toBe(true);
+    expect(listed.data as readonly SecurityRule[]).toHaveLength(1);
+  });
+
+  it("refuses a rule value that would become directive syntax", async () => {
+    const { store, securityRules } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const res = await router.route({
+      procedure: "security.rules.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "user-agent", value: 'x" \nSecRuleEngine Off' },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    // Nothing was written, so the compiler never sees it either.
+    expect(securityRules).toHaveLength(0);
+  });
+
+  it("removes a rule, and reports an absent one honestly", async () => {
+    const { store, securityRules } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.rules.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "ip", value: "203.0.113.9" },
+    });
+    const rule = added.data as SecurityRule;
+
+    const removed = await router.route({
+      procedure: "security.rules.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, ruleId: rule.id },
+    });
+    expect(removed.ok).toBe(true);
+    expect(securityRules).toHaveLength(0);
+
+    // Removing again is idempotent, not an error, because a retried click must
+    // not fail.
+    const again = await router.route({
+      procedure: "security.rules.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, ruleId: rule.id },
+    });
+    expect(again.ok).toBe(true);
+    expect((again.data as { removed: boolean }).removed).toBe(false);
+  });
+
+  it("refuses a member who is not an admin", async () => {
+    const { store, securityRules } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    // Dave is only a member of ORG_A (he owns ORG_B), so the admin-only add is
+    // refused even though he legitimately belongs to the organization.
+    const res = await router.route({
+      procedure: "security.rules.add",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_A, kind: "ip", value: "203.0.113.9" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(securityRules).toHaveLength(0);
+  });
+
+  it("lists the verified-bot directory a member can rely on in attack mode", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    const res = await router.route({
+      procedure: "security.bots.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    const bots = (res.data as { bots: readonly { name: string }[] }).bots;
+    expect(bots.some((b) => b.name === "googlebot")).toBe(true);
   });
 });
 

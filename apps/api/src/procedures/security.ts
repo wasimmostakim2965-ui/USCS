@@ -25,12 +25,13 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { Engines, JobQueue } from "@cloud-wai/adapters";
+import { VERIFIED_BOTS, validateDenyRule, type Engines, type JobQueue } from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
   DataStore,
   SecurityPolicy,
   SecurityPolicyEvent,
+  SecurityRule,
 } from "@cloud-wai/database";
 import type { SecurityPolicyId, OrganizationId, ProviderRef } from "@cloud-wai/contracts";
 import { POLICY_JOB_KIND, type PolicyJobPayload } from "@cloud-wai/contracts";
@@ -50,11 +51,22 @@ type SecurityWrites = Pick<
   "getSecurityPolicy" | "saveSecurityPolicy" | "recordPolicyEvent" | "listPolicyEvents"
 >;
 
+type SecurityRuleWrites = Pick<
+  ControlPlaneWrites,
+  "listSecurityRules" | "createSecurityRule" | "deleteSecurityRule"
+>;
+
 const REQUIRED_WRITES = [
   "getSecurityPolicy",
   "saveSecurityPolicy",
   "recordPolicyEvent",
   "listPolicyEvents",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+const REQUIRED_RULE_WRITES = [
+  "listSecurityRules",
+  "createSecurityRule",
+  "deleteSecurityRule",
 ] as const satisfies readonly (keyof ControlPlaneWrites)[];
 
 export interface SecurityDeps {
@@ -84,6 +96,25 @@ function writesFor(deps: SecurityDeps): SecurityWrites {
   return store as unknown as SecurityWrites;
 }
 
+/**
+ * The rule writes, checked separately from the policy writes.
+ *
+ * A deployment that supports policies but predates the deny list is still a
+ * working deployment for everything else; only the rule procedures report the
+ * honest `engine_unavailable`, and only when they are called.
+ */
+function ruleWritesFor(deps: SecurityDeps): SecurityRuleWrites {
+  const store = deps.store;
+  const missing = REQUIRED_RULE_WRITES.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot record ${missing.join(", ")} yet.`,
+    );
+  }
+  return store as unknown as SecurityRuleWrites;
+}
+
 /** The current policy and its transition history, membership-scoped. */
 export async function readSecurityPolicy(
   ctx: RequestContext,
@@ -102,15 +133,29 @@ export interface SavePolicyInput {
   readonly name: string;
   readonly riskLevel: RiskLevel;
   readonly action: EnforcementAction;
+  /**
+   * `normal` inspects; `attack` challenges browsers. Omitted means the stored
+   * mode is kept, so an ordinary save never silently drops a live posture.
+   */
+  readonly protectionMode?: "normal" | "attack";
+  /**
+   * How long attack mode lasts. Omitted with `protectionMode: "attack"` means it
+   * does not expire. A past timestamp is treated as `normal`.
+   */
+  readonly protectionExpiresAt?: string | null;
 }
+
+/** The accepted protection window, mirroring the edge's own duration choices. */
+const MAX_PROTECTION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Save a policy as a draft.
  *
- * Only the customer's own fields are accepted: name, risk level and action. The
- * state is written `draft` — a save never activates a policy, and distribution
- * is what moves it. The version advances monotonically from the stored one, so a
- * save cannot rewind a policy the edge is already enforcing.
+ * Only the customer's own fields are accepted: name, risk level, action, and the
+ * protection posture. The state is written `draft` — a save never activates a
+ * policy, and distribution is what moves it. The version advances monotonically
+ * from the stored one, so a save cannot rewind a policy the edge is already
+ * enforcing.
  */
 export async function saveSecurityPolicy(
   ctx: RequestContext,
@@ -134,6 +179,28 @@ export async function saveSecurityPolicy(
   const existing = await writes.getSecurityPolicy(ctx.principal.userId, input.organizationId);
 
   const now = (deps.now?.() ?? new Date()).toISOString();
+
+  // The posture: keep the stored one unless the caller changed it, so a routine
+  // save does not drop a live attack mode. An attack mode that expires is
+  // bounded to 24h, which is the longest the edge accepts, so a customer cannot
+  // park a permanent challenge on their own visitors by accident.
+  const protectionMode = input.protectionMode ?? existing?.protectionMode ?? "normal";
+  let protectionExpiresAt: string | null =
+    input.protectionExpiresAt !== undefined
+      ? input.protectionExpiresAt
+      : (existing?.protectionExpiresAt ?? null);
+  if (protectionMode === "normal") {
+    protectionExpiresAt = null;
+  } else if (protectionExpiresAt !== null) {
+    const expiresAt = new Date(protectionExpiresAt).getTime();
+    if (Number.isNaN(expiresAt)) {
+      throw new ApiError("invalid_input", "The protection window is not a valid timestamp.");
+    }
+    if (expiresAt - Date.parse(now) > MAX_PROTECTION_WINDOW_MS) {
+      throw new ApiError("invalid_input", "Attack mode lasts at most 24 hours.");
+    }
+  }
+
   const draft: SecurityPolicy = {
     id: (existing?.id ?? deps.newId()) as SecurityPolicyId,
     organizationId: input.organizationId,
@@ -142,6 +209,8 @@ export async function saveSecurityPolicy(
     action: input.action,
     // A customer save never activates; the state is the edge's to report.
     state: "draft",
+    protectionMode,
+    protectionExpiresAt,
     // Monotonic: editing a policy produces a newer version the edge will accept.
     version: existing ? existing.version + 1 : 1,
     createdAt: existing?.createdAt ?? now,
@@ -158,6 +227,8 @@ export async function saveSecurityPolicy(
     riskLevel: draft.riskLevel,
     action: draft.action,
     state: "draft",
+    protectionMode: draft.protectionMode,
+    protectionExpiresAt: draft.protectionExpiresAt,
     version: draft.version,
     createdBy: ctx.principal.userId,
   });
@@ -171,7 +242,7 @@ export async function saveSecurityPolicy(
     version: saved.version,
     actorId: ctx.principal.userId,
     actorEmail: ctx.principal.email,
-    detail: "Policy saved as a draft.",
+    detail: `Policy saved as a draft (${protectionMode} protection).`,
   });
 
   await deps.store.recordAuditEvent({
@@ -181,7 +252,12 @@ export async function saveSecurityPolicy(
     event: "policy.saved",
     targetType: "security_policy",
     targetId: saved.id,
-    metadata: { version: saved.version, riskLevel: saved.riskLevel, action: saved.action },
+    metadata: {
+      version: saved.version,
+      riskLevel: saved.riskLevel,
+      action: saved.action,
+      protectionMode: saved.protectionMode,
+    },
   });
 
   return saved;
@@ -320,6 +396,8 @@ export async function distributeSecurityPolicy(
     riskLevel: policy.riskLevel,
     action: policy.action,
     state: "active",
+    protectionMode: policy.protectionMode,
+    protectionExpiresAt: policy.protectionExpiresAt,
     version: acknowledged,
     createdBy: ctx.principal.userId,
   });
@@ -347,4 +425,122 @@ export async function distributeSecurityPolicy(
   });
 
   return { policy: activePolicy, distributed: true, engineReason: null };
+}
+// ---------------------------------------------------------------------------
+// The deny list
+//
+// A rule is a customer's own input, so it is validated here against the same
+// grammar the compiler uses. A value that does not match is refused, never
+// escaped into a directive: the whole point of the deny list is to stop hostile
+// traffic, and a value that reached Coraza by concatenation would be the way to
+// let it in instead.
+// ---------------------------------------------------------------------------
+
+/** The deny-rule kinds, validated at the boundary and again at compile time. */
+const RULE_KINDS = ["ip", "cidr", "asn", "user-agent"] as const;
+type RuleKind = (typeof RULE_KINDS)[number];
+
+export async function listSecurityRules(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<readonly SecurityRule[]> {
+  requireCapability(ctx, organizationId, "security:read");
+  return ruleWritesFor(deps).listSecurityRules(ctx.principal.userId, organizationId);
+}
+
+export interface AddSecurityRuleInput {
+  readonly organizationId: OrganizationId;
+  readonly kind: RuleKind;
+  readonly value: string;
+  readonly note?: string | null;
+}
+
+export async function addSecurityRule(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: AddSecurityRuleInput,
+): Promise<SecurityRule> {
+  requireCapability(ctx, input.organizationId, "security:update");
+
+  if (!RULE_KINDS.includes(input.kind)) {
+    throw new ApiError("invalid_input", "Unknown rule kind.");
+  }
+  const value = (input.value ?? "").trim();
+  // One validator, shared with the compiler, so an API-accepted value is always
+  // a value the compiler will emit.
+  const valid = validateDenyRule({ kind: input.kind, value });
+  if (!valid.ok) throw new ApiError("invalid_input", valid.reason);
+
+  const note = input.note?.trim() ?? "";
+  if (note.length > 200) throw new ApiError("invalid_input", "A note is at most 200 characters.");
+
+  const writes = ruleWritesFor(deps);
+  const created = await writes.createSecurityRule({
+    id: deps.newId(),
+    organizationId: input.organizationId,
+    kind: input.kind,
+    value,
+    note: note === "" ? null : note,
+    createdBy: ctx.principal.userId,
+  });
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_rule.added",
+    targetType: "security_rule",
+    targetId: created.id,
+    metadata: { kind: created.kind, value: created.value },
+  });
+
+  return created;
+}
+
+export interface RemoveSecurityRuleInput {
+  readonly organizationId: OrganizationId;
+  readonly ruleId: string;
+}
+
+export async function removeSecurityRule(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: RemoveSecurityRuleInput,
+): Promise<{ removed: boolean }> {
+  requireCapability(ctx, input.organizationId, "security:update");
+  const removed = await ruleWritesFor(deps).deleteSecurityRule(
+    ctx.principal.userId,
+    input.organizationId,
+    input.ruleId,
+  );
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_rule.removed",
+    targetType: "security_rule",
+    targetId: input.ruleId,
+    metadata: { removed },
+  });
+
+  return { removed };
+}
+
+/**
+ * The verified-bot directory the edge will compile.
+ *
+ * Exposed so the dashboard can show which crawlers keep working when attack mode
+ * is on — the answer to "will I lose SEO if I press this". It is static, so it
+ * is a pure read with no capability beyond membership.
+ */
+export async function readVerifiedBots(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<{ bots: readonly { name: string; userAgent: string; confirmSuffix: string }[] }> {
+  requireCapability(ctx, organizationId, "security:read");
+  void deps;
+  return { bots: VERIFIED_BOTS };
 }

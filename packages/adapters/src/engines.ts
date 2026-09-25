@@ -19,18 +19,21 @@ import {
   storageNotConfigured,
   createCoolifyHosting,
   createDnsDomainVerifier,
+  createEnvoySecurityEdge,
   createPostgresDatabase,
   createMinioStorage,
+  type CompileInput,
   type CoolifyCredentials,
   type DatabaseAdapter,
   type DomainVerifier,
+  type EdgeRoute,
   type HostingAdapter,
   type SecurityEdgeAdapter,
   type NotConfiguredBrand,
   type StorageAdapter,
   type StorageCredentials,
 } from "./index.js";
-import type { OrganizationId } from "@cloud-wai/contracts";
+import type { OrganizationId, ProviderRef } from "@cloud-wai/contracts";
 
 export interface EngineConfig {
   /** Base URL for the Coolify API, or absent when hosting is not configured. */
@@ -270,6 +273,40 @@ export function buildEngines(config: EngineConfig): Engines {
       config.edgeHostname ? { edgeHostname: config.edgeHostname } : {},
     ),
   };
+}
+
+/**
+ * Build a real security edge adapter for a deployment.
+ *
+ * This is what makes the edge reachable outside tests. The API calls it at
+ * startup with the control plane's own readers; the adapter then compiles the
+ * *stored* policy — including its protection mode and deny list — and the
+ * *stored* route for a hostname, so the compiled ladder is the customer's real
+ * configuration, not a guess.
+ *
+ * The lookups are injected rather than imported so `packages/adapters` keeps its
+ * rule: it never reaches into the control plane itself.
+ */
+export function createControlPlaneSecurityEdge(options: {
+  readonly edgeUrl: string;
+  readonly tokenFor: (organizationId: OrganizationId) => string | null;
+  /** The stored route for a hostname, or null when the host is not registered. */
+  readonly loadRoute: (ref: ProviderRef) => Promise<EdgeRoute | null>;
+  /** The stored policy compiled with its mode and deny list, or null. */
+  readonly loadPolicy: (ref: ProviderRef) => Promise<CompileInput | null>;
+  readonly fetchImpl?: typeof fetch | undefined;
+}): SecurityEdgeAdapter {
+  const adminUrl = options.edgeUrl.trim();
+  return createEnvoySecurityEdge({
+    credentials: (organizationId) => {
+      const token = options.tokenFor(organizationId);
+      if (!adminUrl || !token || token.trim() === "") return null;
+      return { adminUrl, token };
+    },
+    loadRoute: options.loadRoute,
+    loadPolicy: options.loadPolicy,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+  });
 }
 
 /**

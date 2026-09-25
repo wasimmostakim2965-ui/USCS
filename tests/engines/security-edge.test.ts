@@ -13,6 +13,7 @@ import {
   CORAZA_ACTION,
   compileEdge,
   createEnvoySecurityEdge,
+  validateDenyRule,
   validateEdgeRoute,
   type EdgeRoute,
 } from "@cloud-wai/adapters";
@@ -210,5 +211,95 @@ describe("edge adapter", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.healthy).toBe(false);
+  });
+});
+
+describe("the decision ladder", () => {
+  const policy = { riskLevel: "high" as const, action: "block" as const, version: 3 };
+
+  it("allows verified bots before anything can challenge or block them", () => {
+    const compiled = compileEdge({ route: route(), policy, protection: "attack" });
+    const stages = compiled.ladder.map((step) => step.stage);
+    // The allow steps must precede the challenge and the WAF, or attack mode
+    // would break SEO and a customer's own monitors.
+    expect(stages.indexOf("allow-verified-bot")).toBeLessThan(stages.indexOf("challenge"));
+    expect(stages.indexOf("allow-internal")).toBeLessThan(stages.indexOf("challenge"));
+    expect(stages.indexOf("challenge")).toBeLessThan(stages.indexOf("waf"));
+  });
+
+  it("requires a forward-confirmed DNS suffix, not just a User-Agent", () => {
+    const compiled = compileEdge({ route: route(), protection: "attack" });
+    const googlebot = compiled.ladder.find((step) => step.directive.includes("Googlebot"));
+    expect(googlebot).toBeDefined();
+    // The UA match is chained and carries the confirm suffix, so a scraper that
+    // sets `User-Agent: Googlebot` does not get the allow on UA alone.
+    expect(googlebot!.directive).toContain("chain");
+    expect(googlebot!.directive).toContain("googlebot.com");
+  });
+
+  it("challenges browsers only in attack mode", () => {
+    const normal = compileEdge({ route: route(), policy });
+    const attack = compileEdge({ route: route(), policy, protection: "attack" });
+    expect(normal.envoyConfig.challengeBrowsers).toBe(false);
+    expect(attack.envoyConfig.challengeBrowsers).toBe(true);
+    expect(normal.ladder.some((s) => s.stage === "challenge")).toBe(false);
+    expect(attack.ladder.some((s) => s.stage === "challenge")).toBe(true);
+  });
+
+  it("keeps the WAF rule in attack mode: a challenge never weakens inspection", () => {
+    const attack = compileEdge({ route: route(), policy, protection: "attack" });
+    const waf = attack.ladder.find((step) => step.stage === "waf");
+    expect(waf).toBeDefined();
+    expect(waf!.directive).toContain("status:403");
+    expect(attack.envoyConfig.wafEnabled).toBe(true);
+  });
+
+  it("compiles a deny rule to a real block, and refuses an invalid one", () => {
+    const compiled = compileEdge({
+      route: route(),
+      denyList: [
+        { kind: "ip", value: "203.0.113.9" },
+        { kind: "user-agent", value: "EvilScraper" },
+        // This one would be directive syntax if it were emitted. It must be
+        // dropped, never escaped and forwarded.
+        { kind: "user-agent", value: '" \nSecRuleEngine Off' },
+      ],
+    });
+    const blocks = compiled.ladder.filter((step) => step.stage === "block-deny-list");
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.directive).toContain("@ipMatch 203.0.113.9");
+    expect(blocks[1]!.directive).toContain("@contains EvilScraper");
+    expect(compiled.corazaDirectives.some((d) => d.includes("SecRuleEngine Off"))).toBe(false);
+  });
+
+  it("validates each deny rule kind against its grammar", () => {
+    expect(validateDenyRule({ kind: "ip", value: "10.0.0.1" }).ok).toBe(true);
+    expect(validateDenyRule({ kind: "ip", value: "not-an-ip" }).ok).toBe(false);
+    expect(validateDenyRule({ kind: "cidr", value: "10.0.0.0/8" }).ok).toBe(true);
+    expect(validateDenyRule({ kind: "cidr", value: "10.0.0.0" }).ok).toBe(false);
+    expect(validateDenyRule({ kind: "asn", value: "AS15169" }).ok).toBe(true);
+    expect(validateDenyRule({ kind: "asn", value: "15169" }).ok).toBe(false);
+    expect(validateDenyRule({ kind: "user-agent", value: "Bad Bot/1.0" }).ok).toBe(true);
+    expect(validateDenyRule({ kind: "user-agent", value: "Bad;Bot" }).ok).toBe(false);
+  });
+
+  it("stays deterministic with the whole ladder present", () => {
+    const input = {
+      route: route(),
+      policy,
+      protection: "attack" as const,
+      denyList: [{ kind: "ip" as const, value: "203.0.113.9" }],
+    };
+    expect(JSON.stringify(compileEdge(input))).toBe(JSON.stringify(compileEdge(input)));
+  });
+
+  it("lets a deployment add its own bots without removing the curated ones", () => {
+    const compiled = compileEdge({
+      route: route(),
+      botAllowList: [{ name: "hook", userAgent: "AcmeHook", confirmSuffix: "acme.example" }],
+    });
+    const directives = compiled.ladder.filter((s) => s.stage === "allow-verified-bot");
+    expect(directives.some((s) => s.directive.includes("AcmeHook"))).toBe(true);
+    expect(directives.some((s) => s.directive.includes("Googlebot"))).toBe(true);
   });
 });

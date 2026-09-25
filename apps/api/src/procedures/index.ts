@@ -70,10 +70,16 @@ import {
   type ProvisionDataInput,
 } from "./data.js";
 import {
+  addSecurityRule,
   distributeSecurityPolicy,
+  listSecurityRules,
   readSecurityPolicy,
+  readVerifiedBots,
+  removeSecurityRule,
   saveSecurityPolicy,
+  type AddSecurityRuleInput,
   type DistributePolicyInput,
+  type RemoveSecurityRuleInput,
   type SavePolicyInput,
   type SecurityDeps,
 } from "./security.js";
@@ -323,6 +329,34 @@ export function buildProcedures(
         distributeSecurityPolicy(ctx, securityDeps, inputOf<DistributePolicyInput>(input)),
     },
     {
+      name: "security.rules.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listSecurityRules(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "security.rules.add",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        addSecurityRule(ctx, securityDeps, inputOf<AddSecurityRuleInput>(input)),
+    },
+    {
+      name: "security.rules.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeSecurityRule(ctx, securityDeps, inputOf<RemoveSecurityRuleInput>(input)),
+    },
+    {
+      name: "security.bots.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readVerifiedBots(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
       name: "apiKeys.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listApiKeys(
@@ -437,8 +471,19 @@ export const ROUTE_SHAPES = {
     name: "string",
     riskLevel: "RiskLevel",
     action: "EnforcementAction",
+    protectionMode: "normal|attack?",
+    protectionExpiresAt: "string?",
   },
   "security.policy.distribute": { organizationId: "OrganizationId" },
+  "security.rules.list": { organizationId: "OrganizationId" },
+  "security.rules.add": {
+    organizationId: "OrganizationId",
+    kind: "ip|cidr|asn|user-agent",
+    value: "string",
+    note: "string?",
+  },
+  "security.rules.remove": { organizationId: "OrganizationId", ruleId: "string" },
+  "security.bots.list": { organizationId: "OrganizationId" },
   "apiKeys.list": { organizationId: "OrganizationId" },
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },

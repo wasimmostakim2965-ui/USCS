@@ -250,9 +250,13 @@ describe("the registered procedure table", () => {
       "projects.list",
       "projects.update",
       "providers.health",
+      "security.bots.list",
       "security.policy.distribute",
       "security.policy.get",
       "security.policy.save",
+      "security.rules.add",
+      "security.rules.list",
+      "security.rules.remove",
     ]);
   });
 
@@ -292,6 +296,18 @@ describe("the registered procedure table", () => {
       "providers.health": { organizationId: ORG_A },
       "billing.usage": { organizationId: ORG_A },
       "observability.jobs": { organizationId: ORG_A },
+      "security.policy.get": { organizationId: ORG_A },
+      "security.policy.save": {
+        organizationId: ORG_A,
+        name: "Sneak",
+        riskLevel: "high",
+        action: "block",
+      },
+      "security.policy.distribute": { organizationId: ORG_A },
+      "security.rules.list": { organizationId: ORG_A },
+      "security.rules.add": { organizationId: ORG_A, kind: "ip", value: "10.0.0.1" },
+      "security.rules.remove": { organizationId: ORG_A, ruleId: "r-1" },
+      "security.bots.list": { organizationId: ORG_A },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {
