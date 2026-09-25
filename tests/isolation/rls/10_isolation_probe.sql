@@ -14,9 +14,11 @@
 
 -- Idempotent: the probe can be re-run against the same database.
 truncate audit_logs, usage_records, orchestration_jobs, api_keys,
-         security_policies, domains, data_backups, data_resources,
-         deployments, environments, projects, organization_members,
-         organizations, profiles cascade;
+         security_policies, security_rules, security_events,
+         security_trusted_sources, domains, data_backups, data_restores,
+         data_resources, project_git_links, preview_targets, project_env_vars,
+         organization_budgets, deployments, environments, projects,
+         organization_members, organizations, profiles cascade;
 delete from auth.users;
 
 insert into auth.users (id, email) values
@@ -357,8 +359,11 @@ do $$
 declare
   tenant_tables text[] := array[
     'deployments', 'environments', 'audit_logs', 'api_keys', 'domains',
-    'data_resources', 'data_backups', 'security_policies', 'usage_records',
-    'orchestration_jobs', 'organization_members'
+    'data_resources', 'data_backups', 'data_restores', 'security_policies',
+    'security_rules', 'security_events', 'security_trusted_sources',
+    'usage_records', 'organization_budgets', 'orchestration_jobs',
+    'project_git_links', 'preview_targets', 'project_env_vars',
+    'organization_members'
   ];
   tbl text;
   visible int;
@@ -382,4 +387,4 @@ $$;
 
 reset role;
 
-select 'RLS isolation probe passed: 7 scenarios, no cross-tenant access' as result;
+select 'RLS isolation probe passed: no cross-tenant access across 19 tenant tables' as result;

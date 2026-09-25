@@ -174,11 +174,14 @@ findings from the same audit line.
    section enabled after Storage would render the Storage view under its own
    title. **Fixed**: a `SECTION_COMPONENT` map from section to component, with a
    test that the Authentication placeholder carries none of Storage's controls.
-9. **The "brand-new tenant sees zero rows" check covered two tables.**
+9. **The "brand-new tenant sees zero rows" check covered eleven tables.**
    `tests/isolation/rls/10_isolation_probe.sql` created the member-of-nobody
-   fixture but asserted only organizations and projects. **Fixed**: probe 7 now
-   sweeps all eleven tenant tables with a count guard, verified against a real
-   PostgreSQL and by mutation.
+   fixture but swept a fixed list that had lagged the schema. **Fixed**: the
+   sweep now names all **nineteen** tenant tables (adding security rules,
+   events and trusted sources, git links, preview targets, env vars, data
+   restores and budgets), still with a count guard so the sweep cannot silently
+   check nothing, and its result line states the count instead of a stale "7
+   scenarios". Verified against a real PostgreSQL 17.
 
 ## What is honest today and must stay honest
 
