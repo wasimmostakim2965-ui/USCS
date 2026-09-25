@@ -417,6 +417,26 @@ describe("the public landing page", () => {
     expect(called).toBe(false);
   });
 
+  it("carries a domain search box that states the registrar is not configured", async () => {
+    const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
+    const { default: userEvent } = await import("@testing-library/user-event");
+
+    window.history.replaceState(null, "", "#/");
+    render(
+      <ToastProvider>
+        <App session={signedOutSession()} apiBaseUrl={url} />
+      </ToastProvider>,
+    );
+
+    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
+    // The search is real but the lookup is not: submitting must not fabricate an
+    // availability answer, and the note says why.
+    await userEvent.type(box, "acme.com");
+    expect(screen.getByText(/registrar lookup is not/i)).toBeTruthy();
+    // Still no API call — a landing-page search cannot verify a domain.
+    expect((box as HTMLInputElement).value).toBe("acme.com");
+  });
+
   it("still shows the sign-in form on a deep link a signed-out visitor cannot reach", async () => {
     const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
 

@@ -9,6 +9,7 @@
  * owns identity, deployments, data and policy, and drives open-source engines
  * behind its own adapters — and sends the visitor into the dashboard.
  */
+import { useState } from "react";
 import { Button, Icon } from "@cloud-wai/ui/react";
 
 const DIFFERENTIATORS = [
@@ -106,6 +107,8 @@ export function LandingPage({
     document.getElementById("architecture")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const [domainQuery, setDomainQuery] = useState("");
+
   return (
     <div className="landing">
       <section className="landing__hero">
@@ -122,6 +125,44 @@ export function LandingPage({
           Cloud Wai owns identity, organizations, deployments, domains, data and security policy —
           and drives open-source engines behind its own adapters. It is not a wrapper around
           somebody else&apos;s SaaS, and it will not report a success an engine never performed.
+        </p>
+        <form
+          className="landing__search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault();
+            document.getElementById("domain-search-note")?.scrollIntoView({
+              behavior: "smooth",
+              block: "nearest",
+            });
+          }}
+        >
+          <label className="landing__search-label" htmlFor="landing-domain-search">
+            Find a domain
+          </label>
+          <div className="landing__search-row">
+            <span className="landing__search-glyph" aria-hidden="true">
+              <Icon name="domains" size={18} />
+            </span>
+            <input
+              id="landing-domain-search"
+              className="landing__search-input"
+              type="search"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="your-company.com"
+              value={domainQuery}
+              onChange={(event) => setDomainQuery(event.target.value)}
+            />
+            <Button type="submit" variant="primary" disabled={domainQuery.trim() === ""}>
+              Search
+            </Button>
+          </div>
+        </form>
+        <p id="domain-search-note" className="landing__search-note">
+          Search is here; registrar lookup is not. Domain registration needs a provider this
+          deployment has not configured, so this box will not invent an availability result.
         </p>
         <div className="landing__cta">
           <Button variant="primary" onClick={onEnterDashboard}>

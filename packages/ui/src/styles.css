@@ -1645,6 +1645,68 @@ a.card:hover,
   gap: var(--space-4);
 }
 
+/* The domain search on the landing page. It is a real search field — submitting
+   scrolls to its own note — but the note says the registrar is not configured,
+   so a visitor never reads a fabricated availability answer. */
+.landing__search {
+  max-width: 560px;
+  margin: 0 auto var(--space-3);
+  text-align: left;
+}
+
+.landing__search-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 500;
+  text-align: center;
+}
+
+.landing__search-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.landing__search-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.landing__search-glyph {
+  display: inline-flex;
+  color: var(--ink-3);
+  flex: none;
+}
+
+.landing__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+}
+
+.landing__search-input:focus {
+  outline: none;
+}
+
+.landing__search-note {
+  max-width: 560px;
+  margin: 0 auto var(--space-5);
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  line-height: 1.5;
+  text-align: center;
+}
+
 .landing__secondary {
   padding: 0 0 2px;
   border: 0;
