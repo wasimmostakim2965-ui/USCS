@@ -19,7 +19,9 @@ import {
 } from "@cloud-wai/database";
 import {
   createSupabaseSessionVerifier,
+  secretCipherFromEnv,
   supabaseAuthConfig,
+  type SecretCipher,
   type SessionVerifier,
 } from "@cloud-wai/auth";
 import {
@@ -31,7 +33,8 @@ import {
 import { randomUUID } from "node:crypto";
 import { buildProcedures } from "./procedures/index.js";
 import { buildRouter } from "./router.js";
-import type { HttpServer } from "./server.js";
+import type { GitHookHandler, HttpServer } from "./server.js";
+import { receiveGitDelivery } from "./git-hook.js";
 
 export interface Deployment {
   readonly router: ReturnType<typeof buildRouter>;
@@ -45,6 +48,8 @@ export interface ApiDeploymentDeps {
   readonly newId: () => string;
   /** When wired, deploy/rollback become durable jobs. Omitted in tests. */
   readonly queue?: JobQueue;
+  /** The cipher for webhook secrets. Null means git linking is not configured. */
+  readonly secretCipher?: SecretCipher | null;
 }
 
 /** Build a router over a real store and verifier. */
@@ -53,9 +58,29 @@ export function createDeployment(deps: ApiDeploymentDeps): Deployment {
     engines: deps.engines,
     newId: deps.newId,
     ...(deps.queue ? { queue: deps.queue } : {}),
+    ...(deps.secretCipher ? { secretCipher: deps.secretCipher } : {}),
   });
   const router = buildRouter({ verifier: deps.verifier, memberships: deps.store }, procedures);
   return { router, engines: deps.engines };
+}
+
+/**
+ * The git webhook handler, or undefined when there is nothing to receive with.
+ *
+ * A receiver needs a queue (a delivery becomes a durable job, never inline
+ * engine work on the provider's request) and the secret cipher. Without either,
+ * the route is not mounted — which the server turns into a 404, the honest state
+ * of a deployment with no git integration.
+ */
+function buildGitHook(
+  store: ControlPlaneStore,
+  queue: JobQueue,
+  cipher: SecretCipher | null,
+): GitHookHandler | undefined {
+  if (!cipher) return undefined;
+  return {
+    handle: (request) => receiveGitDelivery({ store, queue, cipher }, request),
+  };
 }
 
 export interface StartupOptions {
@@ -130,13 +155,20 @@ export async function start(
   // the only thing that can drain it.
   const queue = new SqlJobQueue(client);
 
-  const deployment = createDeployment({ store, verifier, engines, newId, queue });
+  // The webhook secret cipher. Unset means a repository cannot be linked (the
+  // API answers `engine_unavailable`); it never downgrades to a plaintext
+  // secret. The receiver uses the same cipher to recompute the delivery HMAC.
+  const secretCipher = secretCipherFromEnv(env);
+
+  const deployment = createDeployment({ store, verifier, engines, newId, queue, secretCipher });
 
   const { listen } = await import("./server.js");
   const allowedOrigins = options.allowedOrigins ?? allowedOriginsFromEnv(env);
+  const gitHook = buildGitHook(store, queue, secretCipher);
   const server = await listen(
     {
       route: (request) => deployment.router.route(request),
+      ...(gitHook ? { gitHook } : {}),
       ...(allowedOrigins ? { allowedOrigins } : {}),
     },
     options.port ?? Number(env.PORT ?? 8787),

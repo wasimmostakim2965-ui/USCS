@@ -68,6 +68,10 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
         buildPack: input.buildPack,
         commit: input.commit,
         timeoutMs: ctx.timeoutMs,
+        // An older job row (enqueued before previews existed) has neither field;
+        // it is a production deploy, which is what the defaults say.
+        kind: input.kind ?? "production",
+        previewKey: input.previewKey ?? null,
       },
     );
 

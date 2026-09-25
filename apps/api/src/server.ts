@@ -26,6 +26,15 @@ export interface ServerDeps {
   /** The router's `route` function. */
   readonly route: (request: RpcRequest) => Promise<RpcResponse>;
   /**
+   * Handle a git webhook delivery at `POST /hooks/git/{organizationId}/{linkId}`.
+   *
+   * Absent (the default) means the route 404s, which is the honest state of a
+   * deployment with no git integration wired. When present, it receives the raw
+   * body plus the delivery headers, and its own status/body are what the
+   * provider sees — this file never interprets a delivery.
+   */
+  readonly gitHook?: GitHookHandler;
+  /**
    * Origins allowed to call this API. An empty list disables CORS entirely,
    * which is the correct setting for a same-origin deployment.
    */
@@ -40,6 +49,21 @@ export interface ServerDeps {
   readonly shutdownGraceMs?: number;
 }
 
+/** A webhook delivery, as the API server hands it to the git-hook module. */
+export interface GitHookRequest {
+  readonly organizationId: string;
+  readonly linkId: string;
+  readonly event: string | null;
+  readonly signature: string | null;
+  /** A shared-token header (GitLab's `X-Gitlab-Token`), when the provider sends one. */
+  readonly token: string | null;
+  readonly body: string;
+}
+
+export interface GitHookHandler {
+  handle(request: GitHookRequest): Promise<{ readonly status: number; readonly body: unknown }>;
+}
+
 export interface HttpServer {
   readonly server: Server;
   readonly url: string;
@@ -48,6 +72,66 @@ export interface HttpServer {
 }
 
 const DEFAULT_MAX_BODY = 256 * 1024;
+
+/** The one non-RPC route: a git provider's webhook delivery. */
+const GIT_HOOK_PREFIX = "/hooks/git/";
+
+/**
+ * A git webhook delivery.
+ *
+ * The path is `/hooks/git/{organizationId}/{linkId}`. The organization is part
+ * of the path so the receiver's link lookup stays tenant-scoped; a UUID-shaped
+ * segment that is not one is refused before any work is done.
+ *
+ * The delivery is not an authenticated user, so the only thing checked here is
+ * the *shape* of the path. The signature over the body is what authenticates it,
+ * and that is verified inside the hook handler — this function never sees a
+ * secret.
+ */
+async function handleGitHook(
+  req: IncomingMessage,
+  res: ServerResponse,
+  hook: GitHookHandler,
+  maxBodyBytes: number,
+): Promise<void> {
+  const path = (req.url ?? "").split("?")[0]!;
+  const rest = path.slice(GIT_HOOK_PREFIX.length);
+  const [organizationId, linkId] = rest.split("/");
+  if (!organizationId || !linkId) {
+    json(res, 404, { ok: false, status: 404, error: { code: "not_found", message: "Unknown endpoint." } });
+    return;
+  }
+
+  const raw = await readBody(req, maxBodyBytes);
+  if (raw === null) {
+    json(res, 413, {
+      ok: false,
+      status: 413,
+      error: { code: "invalid_input", message: "Request body too large." },
+    });
+    return;
+  }
+
+  const header = (name: string): string | null => {
+    const value = req.headers[name];
+    return typeof value === "string" && value !== "" ? value : null;
+  };
+
+  const outcome = await hook.handle({
+    organizationId,
+    linkId,
+    // Providers disagree on the event header name; any of them names the same
+    // thing, and an absent one is left for the body's own `object_kind`.
+    event: header("x-github-event") ?? header("x-gitlab-event") ?? header("x-event-key"),
+    signature:
+      header("x-hub-signature-256") ??
+      header("x-hub-signature") ??
+      header("x-gitlab-signature"),
+    token: header("x-gitlab-token"),
+    body: raw,
+  });
+  json(res, outcome.status, outcome.body);
+}
 
 /** Grace period for in-flight requests during shutdown. */
 const DEFAULT_SHUTDOWN_GRACE = 2_000;
@@ -123,6 +207,10 @@ export function createHttpServer(deps: ServerDeps): HttpServer {
     }
 
     if (req.method !== "POST" || !req.url?.startsWith("/rpc")) {
+      if (deps.gitHook && req.method === "POST" && req.url?.startsWith(GIT_HOOK_PREFIX)) {
+        await handleGitHook(req, res, deps.gitHook, maxBodyBytes);
+        return;
+      }
       json(res, 404, {
         ok: false,
         status: 404,

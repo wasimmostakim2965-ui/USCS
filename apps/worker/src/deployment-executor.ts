@@ -50,6 +50,25 @@ export interface DeploymentExecutionWrites {
     readonly provider: string;
     readonly providerResourceId: string;
   }): Promise<unknown>;
+  /**
+   * The engine target for a preview key, or null.
+   *
+   * A preview deploy must resolve *its own* application, never the project's
+   * production one: reusing it would ship the branch to production, which is
+   * exactly what a preview exists to prevent.
+   */
+  getPreviewTargetForService(
+    organizationId: OrganizationId,
+    projectId: string,
+    previewKey: string,
+  ): Promise<DeploymentTarget | null>;
+  setPreviewTargetProvider(input: {
+    readonly organizationId: OrganizationId;
+    readonly projectId: string;
+    readonly previewKey: string;
+    readonly provider: string;
+    readonly providerResourceId: string;
+  }): Promise<unknown>;
 }
 
 export interface ExecuteDeploymentInput {
@@ -64,6 +83,10 @@ export interface ExecuteDeploymentInput {
   /** The git revision a rollback returns to. */
   readonly commit: string | null;
   readonly timeoutMs: number;
+  /** `production` deploys the project application; `preview` deploys its own. */
+  readonly kind: "production" | "preview";
+  /** The stable preview target key, or null for a production deploy. */
+  readonly previewKey: string | null;
 }
 
 export interface DeploymentExecutionResult {
@@ -107,22 +130,48 @@ export async function executeDeployment(
     input.organizationId,
     input.projectId,
   );
-  let application: ProviderRef | null = target?.providerResourceId
-    ? {
-        organizationId: input.organizationId,
-        provider: (target.provider ?? "coolify") as ProviderRef["provider"],
-        resourceType: "application",
-        resourceId: target.providerResourceId,
-      }
-    : null;
+  const isPreview = input.kind === "preview" && input.previewKey !== null;
+
+  // A preview resolves its own application; a production deploy resolves the
+  // project's. They are separate handles by design, so a branch build can never
+  // be written to the production URL.
+  let application: ProviderRef | null = null;
+  if (isPreview) {
+    const previewTarget = await deps.writes.getPreviewTargetForService(
+      input.organizationId,
+      input.projectId,
+      input.previewKey!,
+    );
+    application = previewTarget?.providerResourceId
+      ? {
+          organizationId: input.organizationId,
+          provider: (previewTarget.provider ?? "coolify") as ProviderRef["provider"],
+          resourceType: "application",
+          resourceId: previewTarget.providerResourceId,
+        }
+      : null;
+  } else {
+    application = target?.providerResourceId
+      ? {
+          organizationId: input.organizationId,
+          provider: (target.provider ?? "coolify") as ProviderRef["provider"],
+          resourceType: "application",
+          resourceId: target.providerResourceId,
+        }
+      : null;
+  }
 
   if (input.action === "rollback") {
     return rollback(deps, input, adapterCtx, application);
   }
 
+  const applicationName = isPreview
+    ? `${input.projectSlug}-${input.previewKey}`
+    : input.projectSlug;
+
   if (!application) {
     const created = await deps.hosting.createApplication(adapterCtx, {
-      name: input.projectSlug,
+      name: applicationName,
       ...(input.gitRepository ? { gitRepository: input.gitRepository } : {}),
       ...(input.gitBranch ? { gitBranch: input.gitBranch } : {}),
       ...(input.buildPack ? { buildPack: input.buildPack as BuildPack } : {}),
@@ -137,12 +186,22 @@ export async function executeDeployment(
       };
     }
     application = created.value.providerRef;
-    await deps.writes.setProjectProviderResource({
-      organizationId: input.organizationId,
-      projectId: input.projectId,
-      provider: application.provider,
-      providerResourceId: application.resourceId,
-    });
+    if (isPreview) {
+      await deps.writes.setPreviewTargetProvider({
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        previewKey: input.previewKey!,
+        provider: application.provider,
+        providerResourceId: application.resourceId,
+      });
+    } else {
+      await deps.writes.setProjectProviderResource({
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        provider: application.provider,
+        providerResourceId: application.resourceId,
+      });
+    }
   }
 
   const deployed = await deps.hosting.deploy(adapterCtx, { applicationRef: application });

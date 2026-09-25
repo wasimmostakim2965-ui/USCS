@@ -42,12 +42,15 @@ import type {
   Domain,
   DomainCreateInput,
   DomainVerificationInput,
+  GitLinkCreateInput,
   Organization,
   OrganizationMember,
   OrchestrationJob,
   PolicyEventInput,
+  PreviewTarget,
   Project,
   ProjectDeploymentTarget,
+  ProjectGitLink,
   ProjectProviderInput,
   ProjectUpdateInput,
   SecurityPolicy,
@@ -88,6 +91,13 @@ function num(row: Row, key: string): number {
   if (typeof value === "number") return value;
   if (typeof value === "string") return Number(value);
   return 0;
+}
+
+function nullableNum(row: Row, key: string): number | null {
+  const value = row[key];
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value !== "") return Number(value);
+  return null;
 }
 
 function bool(row: Row, key: string): boolean {
@@ -176,10 +186,43 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       projectId: str(row, "project_id") as ProjectId,
       status: str(row, "status") as Deployment["status"],
       url: nullableStr(row, "url"),
+      kind: str(row, "kind") === "preview" ? "preview" : "production",
+      gitBranch: nullableStr(row, "git_branch"),
+      gitCommit: nullableStr(row, "git_commit"),
+      pullRequest: nullableNum(row, "pull_request"),
+      previewKey: nullableStr(row, "preview_key"),
       providerResourceId: nullableStr(row, "provider_resource_id"),
       deploymentResourceId: nullableStr(row, "deployment_resource_id"),
       failureReason: nullableStr(row, "failure_reason"),
       createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toGitLink(row: Row): ProjectGitLink {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      projectId: str(row, "project_id") as ProjectId,
+      provider: str(row, "provider") as ProjectGitLink["provider"],
+      repository: str(row, "repository"),
+      productionBranch: str(row, "production_branch"),
+      previewsEnabled: bool(row, "previews_enabled"),
+      secretPrefix: str(row, "secret_prefix"),
+      createdBy: str(row, "created_by") as UserId,
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toPreviewTarget(row: Row): PreviewTarget {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      projectId: str(row, "project_id") as ProjectId,
+      previewKey: str(row, "preview_key"),
+      branch: nullableStr(row, "branch"),
+      pullRequest: nullableNum(row, "pull_request"),
+      provider: nullableStr(row, "provider"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
     };
   }
 
@@ -386,6 +429,18 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toProject(row) : null;
     },
 
+    async getProjectForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<Project | null> {
+      const found = await rows("getProjectForService", {
+        method: "GET",
+        path: `/projects?select=*&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toProject(row) : null;
+    },
+
     async listDeployments(userId: UserId, projectId: ProjectId): Promise<readonly Deployment[]> {
       const found = await rows("listDeployments", {
         method: "GET",
@@ -515,6 +570,16 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toApiKey);
+    },
+
+    async listGitLinks(userId: UserId, projectId: ProjectId): Promise<readonly ProjectGitLink[]> {
+      const found = await rows("listGitLinks", {
+        method: "GET",
+        // The secret columns are not named here, and are not in the client
+        // SELECT grant either, so even a widened select cannot return them.
+        path: `/project_git_links?select=id,organization_id,project_id,provider,repository,production_branch,previews_enabled,secret_prefix,created_by,created_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+      });
+      return found.map(toGitLink);
     },
 
     async listUsageRecords(
@@ -673,6 +738,11 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           idempotency_key: input.idempotencyKey,
           requested_by: input.requestedBy,
           failure_reason: input.failureReason,
+          ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.gitBranch !== undefined ? { git_branch: input.gitBranch } : {}),
+          ...(input.gitCommit !== undefined ? { git_commit: input.gitCommit } : {}),
+          ...(input.pullRequest !== undefined ? { pull_request: input.pullRequest } : {}),
+          ...(input.previewKey !== undefined ? { preview_key: input.previewKey } : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;
@@ -688,6 +758,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const found = await rows("findDeploymentByIdempotencyKey", {
         method: "GET",
         path: `/deployments?select=*&organization_id=eq.${q(organizationId)}&idempotency_key=eq.${q(idempotencyKey)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDeployment(row) : null;
+    },
+
+    async findDeploymentByIdempotencyKeyForService(
+      organizationId: OrganizationId,
+      idempotencyKey: string,
+    ): Promise<Deployment | null> {
+      const found = await rows("findDeploymentByIdempotencyKeyForService", {
+        method: "GET",
+        // No session: `organization_id` is the whole tenant boundary.
+        path: `/deployments?select=*&organization_id=eq.${q(organizationId)}&idempotency_key=eq.${q(idempotencyKey)}&limit=1`,
       });
       const row = found[0];
       return row ? toDeployment(row) : null;
@@ -998,6 +1081,126 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         body: { revoked_at: iso() },
       });
       return updated.length > 0;
+    },
+
+    async createGitLink(input: GitLinkCreateInput): Promise<ProjectGitLink> {
+      const created = await must<Row[]>("createGitLink", {
+        method: "POST",
+        // The service role bypasses the client grant, so the ciphertext is
+        // returned here — this method is never on a browser-facing read path.
+        path: "/project_git_links?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          project_id: input.projectId,
+          provider: input.provider,
+          repository: input.repository,
+          production_branch: input.productionBranch,
+          previews_enabled: input.previewsEnabled,
+          secret_encrypted: input.secretEncrypted,
+          secret_prefix: input.secretPrefix,
+          created_by: input.createdBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createGitLink", "no row returned");
+      return toGitLink(row);
+    },
+
+    async getGitLinkForService(
+      organizationId: OrganizationId,
+      linkId: string,
+    ): Promise<ProjectGitLink | null> {
+      const found = await rows("getGitLinkForService", {
+        method: "GET",
+        // The service role bypasses the client grant. `organization_id` is the
+        // tenant boundary, because the receiver has no session to join on.
+        path: `/project_git_links?select=id,organization_id,project_id,provider,repository,production_branch,previews_enabled,secret_prefix,created_by,created_at&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toGitLink(row) : null;
+    },
+
+    async getGitLinkSecret(
+      organizationId: OrganizationId,
+      linkId: string,
+    ): Promise<string | null> {
+      const found = await rows("getGitLinkSecret", {
+        method: "GET",
+        path: `/project_git_links?select=secret_encrypted&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? nullableStr(row, "secret_encrypted") : null;
+    },
+
+    async deleteGitLink(
+      userId: UserId,
+      organizationId: OrganizationId,
+      linkId: string,
+    ): Promise<boolean> {
+      const deleted = await rows("deleteGitLink", {
+        method: "DELETE",
+        path: `/project_git_links?select=id&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return deleted.length > 0;
+    },
+
+    async getPreviewTargetForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+      previewKey: string,
+    ): Promise<PreviewTarget | null> {
+      const found = await rows("getPreviewTargetForService", {
+        method: "GET",
+        path: `/preview_targets?select=id,organization_id,project_id,preview_key,branch,pull_request,provider,provider_resource_id&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&preview_key=eq.${q(previewKey)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toPreviewTarget(row) : null;
+    },
+
+    async createPreviewTarget(input: {
+      readonly organizationId: OrganizationId;
+      readonly projectId: ProjectId;
+      readonly previewKey: string;
+      readonly branch: string | null;
+      readonly pullRequest: number | null;
+      readonly createdBy: UserId;
+    }): Promise<PreviewTarget> {
+      const created = await must<Row[]>("createPreviewTarget", {
+        method: "POST",
+        path: "/preview_targets?select=id,organization_id,project_id,preview_key,branch,pull_request,provider,provider_resource_id",
+        prefer: "return=representation",
+        body: {
+          organization_id: input.organizationId,
+          project_id: input.projectId,
+          preview_key: input.previewKey,
+          branch: input.branch,
+          pull_request: input.pullRequest,
+          created_by: input.createdBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createPreviewTarget", "no row returned");
+      return toPreviewTarget(row);
+    },
+
+    async setPreviewTargetProvider(input: {
+      readonly organizationId: OrganizationId;
+      readonly projectId: ProjectId;
+      readonly previewKey: string;
+      readonly provider: string;
+      readonly providerResourceId: string;
+    }): Promise<PreviewTarget | null> {
+      const updated = await rows("setPreviewTargetProvider", {
+        method: "PATCH",
+        path: `/preview_targets?select=id,organization_id,project_id,preview_key,branch,pull_request,provider,provider_resource_id&organization_id=eq.${q(input.organizationId)}&project_id=eq.${q(input.projectId)}&preview_key=eq.${q(input.previewKey)}`,
+        prefer: "return=representation",
+        body: { provider: input.provider, provider_resource_id: input.providerResourceId },
+      });
+      const row = updated[0];
+      return row ? toPreviewTarget(row) : null;
     },
   };
 }

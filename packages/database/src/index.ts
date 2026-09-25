@@ -140,6 +140,13 @@ export interface DataStore {
   createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary>;
   /** Revoke a key. Idempotent: revoking a revoked key succeeds. */
   revokeApiKey(userId: UserId, organizationId: OrganizationId, keyId: ApiKeyId): Promise<boolean>;
+  /**
+   * The repositories linked to a project, newest first.
+   *
+   * Membership-scoped like every read. The webhook secret ciphertext is never
+   * part of this shape, so a list response cannot leak it.
+   */
+  listGitLinks(userId: UserId, projectId: ProjectId): Promise<readonly ProjectGitLink[]>;
 }
 
 /**
@@ -286,6 +293,83 @@ export interface ControlPlaneWrites {
   setDataResourceState(input: DataResourceStateInput): Promise<DataResource | null>;
   /** Record the outcome of a backup. Written only from the adapter's answer. */
   updateDataBackupStatus(input: DataBackupStatusInput): Promise<DataBackup | null>;
+
+  /**
+   * Link a repository to a project.
+   *
+   * The webhook secret is already encrypted by the caller; this method never
+   * sees a plaintext secret, so a store cannot become the place one leaks.
+   */
+  createGitLink(input: GitLinkCreateInput): Promise<ProjectGitLink>;
+  /**
+   * A link by id, scoped by organization only.
+   *
+   * For the webhook receiver, which has no session: `organization_id` in the
+   * where clause is the tenant boundary. On the write interface, so no
+   * browser-facing read path can reach it.
+   */
+  getGitLinkForService(organizationId: OrganizationId, linkId: string): Promise<ProjectGitLink | null>;
+  /** The secret ciphertext for a link, read only by the receiver. Service-scoped. */
+  getGitLinkSecret(organizationId: OrganizationId, linkId: string): Promise<string | null>;
+  /** Remove a link. Idempotent: removing an absent link reports false. */
+  deleteGitLink(
+    userId: UserId,
+    organizationId: OrganizationId,
+    linkId: string,
+  ): Promise<boolean>;
+
+  /**
+   * A project by id, scoped by organization only.
+   *
+   * For the webhook receiver, which has no session. `organization_id` in the
+   * where clause is the tenant boundary; a project id from another tenant is
+   * null, never a project.
+   */
+  getProjectForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<Project | null>;
+
+  /**
+   * A deployment by idempotency key, scoped by organization only.
+   *
+   * The webhook receiver has no session, so `organization_id` in the where
+   * clause is the tenant boundary. Used to make a redelivered webhook replay the
+   * deployment it already created rather than building a second one.
+   */
+  findDeploymentByIdempotencyKeyForService(
+    organizationId: OrganizationId,
+    idempotencyKey: string,
+  ): Promise<Deployment | null>;
+
+  /**
+   * The engine target for a preview key, or null when none exists yet.
+   *
+   * Service-scoped: a delivery arrives with no session, so `organization_id` in
+   * the where clause is the tenant boundary.
+   */
+  getPreviewTargetForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+    previewKey: string,
+  ): Promise<PreviewTarget | null>;
+  /** Record a preview target. Service-scoped, alongside the delivery. */
+  createPreviewTarget(input: {
+    readonly organizationId: OrganizationId;
+    readonly projectId: ProjectId;
+    readonly previewKey: string;
+    readonly branch: string | null;
+    readonly pullRequest: number | null;
+    readonly createdBy: UserId;
+  }): Promise<PreviewTarget>;
+  /** Record the engine application for a preview target. Service-scoped. */
+  setPreviewTargetProvider(input: {
+    readonly organizationId: OrganizationId;
+    readonly projectId: ProjectId;
+    readonly previewKey: string;
+    readonly provider: string;
+    readonly providerResourceId: string;
+  }): Promise<PreviewTarget | null>;
 }
 
 /** The full store a control-plane deployment needs. */
@@ -301,6 +385,73 @@ export interface DeploymentCreateInput {
   readonly providerResourceId: string | null;
   readonly url: string | null;
   readonly failureReason: string | null;
+  /** Defaults to `production` in the column, so an older caller is unchanged. */
+  readonly kind?: "production" | "preview";
+  readonly gitBranch?: string | null;
+  readonly gitCommit?: string | null;
+  readonly pullRequest?: number | null;
+  readonly previewKey?: string | null;
+}
+
+/**
+ * A repository linked to a project.
+ *
+ * The webhook secret is deliberately absent from this shape: the dashboard may
+ * read which repository is linked, and the receiver reads the ciphertext
+ * through its own service-scoped method. A `ProjectGitLink` is never the value
+ * that authenticates a delivery.
+ */
+export interface ProjectGitLink {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly provider: "github" | "gitlab" | "bitbucket" | "generic";
+  readonly repository: string;
+  readonly productionBranch: string;
+  readonly previewsEnabled: boolean;
+  /** A short, non-secret fragment naming the secret in the dashboard. */
+  readonly secretPrefix: string;
+  /**
+   * The member who linked the repository.
+   *
+   * Also the actor recorded on a deployment a webhook triggers: the provider is
+   * not a Cloud Wai member, so the person who connected the repository is the
+   * accountable party for what it deploys.
+   */
+  readonly createdBy: UserId;
+  readonly createdAt: string;
+}
+
+export interface GitLinkCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly provider: ProjectGitLink["provider"];
+  readonly repository: string;
+  readonly productionBranch: string;
+  readonly previewsEnabled: boolean;
+  /** AES-256-GCM ciphertext produced by the API. Never a plaintext secret. */
+  readonly secretEncrypted: string;
+  readonly secretPrefix: string;
+  readonly createdBy: UserId;
+}
+
+/**
+ * A preview target: one engine application behind one preview key.
+ *
+ * Not a Cloud Wai-created id: a target is derived from its `(project, key)` and
+ * the worker resolves the engine application from `provider_resource_id`, so a
+ * second push to the same branch redeploys rather than duplicates.
+ */
+export interface PreviewTarget {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly previewKey: string;
+  readonly branch: string | null;
+  readonly pullRequest: number | null;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
 }
 
 /**
@@ -671,6 +822,18 @@ export interface Deployment {
   readonly projectId: ProjectId;
   readonly status: EngineStatus;
   readonly url: string | null;
+  /**
+   * Whether this is a production build or a preview build.
+   *
+   * This is the request's own attribute, not an engine observation, so it is
+   * not frozen by the engine-column guard. It is what lets the dashboard show
+   * "Preview" beside a build without inventing a second table.
+   */
+  readonly kind: "production" | "preview";
+  readonly gitBranch: string | null;
+  readonly gitCommit: string | null;
+  readonly pullRequest: number | null;
+  readonly previewKey: string | null;
   /**
    * The engine's own handle for this deployment.
    *

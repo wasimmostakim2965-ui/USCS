@@ -23,6 +23,7 @@ import type {
   OrganizationId,
   ProjectId,
   ProviderRef,
+  UserId,
 } from "@cloud-wai/contracts";
 import type { BuildPack, Engines, JobQueue } from "@cloud-wai/adapters";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
@@ -96,6 +97,110 @@ function writesFor(deps: DeploymentDeps): DeploymentWrites {
   return store as unknown as DeploymentWrites;
 }
 
+type PreviewWrites = Pick<
+  ControlPlaneWrites,
+  "getPreviewTargetForService" | "createPreviewTarget" | "setPreviewTargetProvider"
+>;
+
+const REQUIRED_PREVIEW_WRITES = [
+  "getPreviewTargetForService",
+  "createPreviewTarget",
+  "setPreviewTargetProvider",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+/** Whether this store can record a preview target at all. */
+function previewWritesAvailable(deps: DeploymentDeps): boolean {
+  return REQUIRED_PREVIEW_WRITES.every(
+    (name) => typeof (deps.store as Partial<ControlPlaneWrites>)[name] === "function",
+  );
+}
+
+/**
+ * The write half for preview targets.
+ *
+ * A preview requested against a store that cannot record one is refused rather
+ * than silently deployed against the production application — the dangerous
+ * failure, and the reason this raises instead of falling back.
+ */
+function previewWritesFor(deps: DeploymentDeps): PreviewWrites {
+  if (!previewWritesAvailable(deps)) {
+    throw new ApiError(
+      "engine_unavailable",
+      "This deployment cannot record preview targets yet.",
+    );
+  }
+  return deps.store as unknown as PreviewWrites;
+}
+
+/**
+ * The stable key for a preview target.
+ *
+ * A pull request number wins over a branch, because two PRs can share a branch
+ * name (a fork's `main`) while a PR number is unique per repository. Without
+ * either, the commit is the only thing that distinguishes one build from
+ * another. The result matches the SQL check: lower-case `[a-z0-9-]`, so a
+ * branch is slugged rather than pasted.
+ */
+export function previewKeyFor(
+  pullRequest: number | null,
+  branch: string | null,
+  commit: string | null,
+): string {
+  if (pullRequest !== null) return `pr-${pullRequest}`;
+  const slug = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 100);
+  if (branch) {
+    const key = `branch-${slug(branch)}`;
+    return key === "branch-" ? "branch-unknown" : key;
+  }
+  if (commit) {
+    const short = commit.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
+    return short ? `commit-${short}` : "commit-unknown";
+  }
+  // A preview with no branch, PR or commit cannot be addressed; the caller
+  // always supplies at least one, and this is the honest name when not.
+  return "preview-unknown";
+}
+
+/**
+ * Record a preview target if one does not exist yet.
+ *
+ * Shared by the Deploy-button path and the webhook receiver so the two cannot
+ * diverge on what a preview target is. `find or create` keeps the first writer's
+ * row, so two deliveries that race redeploy one application instead of leaking
+ * two.
+ */
+export async function ensurePreviewTarget(
+  store: Partial<ControlPlaneWrites>,
+  input: {
+    readonly organizationId: OrganizationId;
+    readonly projectId: ProjectId;
+    readonly previewKey: string;
+    readonly branch: string | null;
+    readonly pullRequest: number | null;
+    readonly createdBy: UserId;
+  },
+): Promise<void> {
+  if (
+    typeof store.getPreviewTargetForService !== "function" ||
+    typeof store.createPreviewTarget !== "function"
+  ) {
+    throw new ApiError("engine_unavailable", "This deployment cannot record preview targets yet.");
+  }
+  const existing = await store.getPreviewTargetForService(
+    input.organizationId,
+    input.projectId,
+    input.previewKey,
+  );
+  if (!existing) {
+    await store.createPreviewTarget(input);
+  }
+}
+
 function normaliseIdempotencyKey(value: string | undefined, newId: () => string): string {
   const key = value?.trim();
   if (!key) return newId();
@@ -152,6 +257,17 @@ export interface CreateDeploymentInput {
   readonly gitBranch?: string | undefined;
   readonly commit?: string | undefined;
   readonly buildPack?: BuildPack | undefined;
+  /**
+   * `production` (the default) or `preview`.
+   *
+   * A preview build gets its own engine application, keyed by the branch, so two
+   * branches of one project do not overwrite each other. It is a request
+   * attribute: the caller may choose to build a preview, but cannot claim the
+   * engine succeeded.
+   */
+  readonly kind?: "production" | "preview" | undefined;
+  /** The pull request a preview build came from, when it came from one. */
+  readonly pullRequest?: number | undefined;
 }
 
 export interface RollbackDeploymentInput {
@@ -416,6 +532,18 @@ export async function requestDeployment(
   const commit = optionalRef(input.commit, "Commit");
   const gitRepository = optionalRepository(input.gitRepository);
 
+  // A preview build is identified by its *target* — the pull request, or the
+  // branch — not by the delivery, so pushing twice to one branch redeploys the
+  // same engine application rather than creating a second one. A production
+  // build has no preview key.
+  const kind = input.kind === "preview" ? "preview" : "production";
+  const pullRequest =
+    kind === "preview" && typeof input.pullRequest === "number" && input.pullRequest > 0
+      ? Math.floor(input.pullRequest)
+      : null;
+  const previewKey =
+    kind === "preview" ? previewKeyFor(pullRequest, gitBranch, commit) : null;
+
   const idempotencyKey = normaliseIdempotencyKey(input.idempotencyKey, deps.newId);
   const existing = await store.findDeploymentByIdempotencyKey(
     ctx.principal.userId,
@@ -448,7 +576,26 @@ export async function requestDeployment(
     providerResourceId: null,
     url: null,
     failureReason: null,
+    kind,
+    gitBranch,
+    gitCommit: commit,
+    pullRequest,
+    previewKey,
   });
+
+  // A preview build needs its target recorded before the worker runs, so two
+  // deliveries that race cannot each create an engine application. `find or
+  // create` keeps the first writer's row; the loser redeploys the same app.
+  if (kind === "preview" && previewKey) {
+    await ensurePreviewTarget(deps.store, {
+      organizationId: project.organizationId,
+      projectId: project.id,
+      previewKey,
+      branch: gitBranch,
+      pullRequest,
+      createdBy: ctx.principal.userId,
+    });
+  }
 
   // Durable path: record the command as a job and let the worker execute it.
   // The deployment stays `pending` — that is its honest state until the engine
@@ -465,6 +612,8 @@ export async function requestDeployment(
       gitBranch,
       buildPack: input.buildPack ?? null,
       commit,
+      kind,
+      previewKey,
     };
     await deps.queue.enqueue({
       organizationId: project.organizationId,
@@ -495,15 +644,41 @@ export async function requestDeployment(
     timeoutMs: ADAPTER_TIMEOUT_MS,
   };
 
-  const target = await store.getProjectDeploymentTarget(ctx.principal.userId, project.id);
-  let application: ProviderRef | null = target?.providerResourceId
-    ? {
+  // A preview build resolves its application from the preview target, and a
+  // production build from the project. The two must not share a handle: a
+  // preview deploy that reused the production application would ship a feature
+  // branch to the production URL, which is the whole thing previews exist to
+  // avoid.
+  let application: ProviderRef | null = null;
+  const applicationName =
+    kind === "preview" && previewKey ? `${project.slug}-${previewKey}` : project.slug;
+
+  if (kind === "preview" && previewKey && previewWritesAvailable(deps)) {
+    const targetWrites = previewWritesFor(deps);
+    const target = await targetWrites.getPreviewTargetForService(
+      project.organizationId,
+      project.id,
+      previewKey,
+    );
+    if (target?.providerResourceId) {
+      application = {
         organizationId: project.organizationId,
         provider: (target.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
         resourceType: "application",
         resourceId: target.providerResourceId,
-      }
-    : null;
+      };
+    }
+  } else {
+    const probe = await store.getProjectDeploymentTarget(ctx.principal.userId, project.id);
+    application = probe?.providerResourceId
+      ? {
+          organizationId: project.organizationId,
+          provider: (probe.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
+          resourceType: "application",
+          resourceId: probe.providerResourceId,
+        }
+      : null;
+  }
 
   let engineReason: string | null = null;
   let nextStatus: EngineStatus = "pending";
@@ -512,7 +687,7 @@ export async function requestDeployment(
 
   if (!application) {
     const created = await deps.engines.hosting.createApplication(adapterCtx, {
-      name: project.slug,
+      name: applicationName,
       ...(gitRepository ? { gitRepository } : {}),
       ...(gitBranch ? { gitBranch } : {}),
       ...(input.buildPack ? { buildPack: input.buildPack } : {}),
@@ -522,12 +697,22 @@ export async function requestDeployment(
       nextStatus = created.status;
     } else {
       application = created.value.providerRef;
-      await store.setProjectProviderResource({
-        organizationId: project.organizationId,
-        projectId: project.id,
-        provider: application.provider,
-        providerResourceId: application.resourceId,
-      });
+      if (kind === "preview" && previewKey && previewWritesAvailable(deps)) {
+        await previewWritesFor(deps).setPreviewTargetProvider({
+          organizationId: project.organizationId,
+          projectId: project.id,
+          previewKey,
+          provider: application.provider,
+          providerResourceId: application.resourceId,
+        });
+      } else {
+        await store.setProjectProviderResource({
+          organizationId: project.organizationId,
+          projectId: project.id,
+          provider: application.provider,
+          providerResourceId: application.resourceId,
+        });
+      }
     }
   }
 
@@ -661,6 +846,9 @@ export async function rollbackDeployment(
       gitBranch: null,
       buildPack: null,
       commit,
+      // A rollback targets the production application, never a preview.
+      kind: "production",
+      previewKey: null,
     };
     await deps.queue.enqueue({
       organizationId: project.organizationId,

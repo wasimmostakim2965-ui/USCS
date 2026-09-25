@@ -67,6 +67,27 @@ export type {
   SavePolicyInput,
   SecurityDeps,
 } from "./procedures/security.js";
+export {
+  connectGitLink,
+  disconnectGitLink,
+  listGitLinks,
+  verifyGitDelivery,
+  gitLinkForService,
+  GIT_PROVIDERS,
+  defaultWebhookSecret,
+} from "./procedures/git-links.js";
+export type {
+  ConnectGitLinkInput,
+  ConnectedGitLink,
+  DisconnectGitLinkInput,
+  GitDeliveryVerification,
+  GitLinkDeps,
+  GitProvider,
+  ListGitLinksInput,
+  VerifyGitDeliveryInput,
+} from "./procedures/git-links.js";
+export { receiveGitDelivery, deployFromDelivery, parseGitDelivery } from "./git-hook.js";
+export type { GitHookDeps, GitHookOutcome, ParsedGitDelivery } from "./git-hook.js";
 
 export interface AppDescriptor {
   readonly name: string;

@@ -26,6 +26,17 @@ export interface DeploymentJobPayload {
   readonly buildPack: string | null;
   /** The git revision a rollback returns to. */
   readonly commit: string | null;
+  /**
+   * `production` builds the linked branch; `preview` builds a branch or commit
+   * that is not the production one, and gets its own engine application.
+   */
+  readonly kind: "production" | "preview";
+  /**
+   * A stable key for a preview target — `pr-42` or `branch-feature-x` — so the
+   * same branch reuses its application across pushes instead of creating a new
+   * one per delivery. Null for a production deployment.
+   */
+  readonly previewKey: string | null;
 }
 
 export const BACKUP_JOB_KIND = "data.backup.execute";

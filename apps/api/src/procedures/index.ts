@@ -86,6 +86,15 @@ import {
   type SecurityDeps,
 } from "./security.js";
 import { providerHealth, type HealthDeps } from "./health.js";
+import {
+  connectGitLink,
+  disconnectGitLink,
+  listGitLinks,
+  type ConnectGitLinkInput,
+  type DisconnectGitLinkInput,
+  type GitLinkDeps,
+} from "./git-links.js";
+import type { SecretCipher } from "@cloud-wai/auth";
 import { readUsage, type BillingDeps } from "./billing.js";
 import { readObservability, type ObservabilityDeps } from "./observability.js";
 import type { RequestContext } from "../context.js";
@@ -125,6 +134,14 @@ export interface ProcedureExtras {
    * synchronous behaviour.
    */
   readonly queue?: JobQueue;
+  /**
+   * The cipher for webhook secrets. Null (the default) means git links cannot be
+   * stored: `git.connect` answers `engine_unavailable` rather than writing a
+   * plaintext secret. Wired from `CLOUD_WAI_SECRET_ENCRYPTION_KEY` at bootstrap.
+   */
+  readonly secretCipher?: SecretCipher | null;
+  /** Injected so a webhook secret is deterministic in tests. */
+  readonly newSecret?: (() => string) | undefined;
 }
 
 export function buildProcedures(
@@ -175,6 +192,13 @@ export function buildProcedures(
   };
   const billingDeps: BillingDeps = { store };
   const observabilityDeps: ObservabilityDeps = { store };
+  const gitLinkDeps: GitLinkDeps = {
+    store,
+    newId,
+    cipher: extras.secretCipher ?? null,
+    ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.newSecret ? { newSecret: extras.newSecret } : {}),
+  };
 
   return [
     {
@@ -269,6 +293,21 @@ export function buildProcedures(
           depDeps,
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
+    },
+    {
+      name: "git.links.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listGitLinks(ctx, gitLinkDeps, inputOf<{ projectId: ProjectId }>(input)),
+    },
+    {
+      name: "git.connect",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        connectGitLink(ctx, gitLinkDeps, inputOf<ConnectGitLinkInput>(input)),
+    },
+    {
+      name: "git.disconnect",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        disconnectGitLink(ctx, gitLinkDeps, inputOf<DisconnectGitLinkInput>(input)),
     },
     {
       name: "domains.list",
@@ -447,6 +486,8 @@ export const ROUTE_SHAPES = {
     gitBranch: "string?",
     commit: "string?",
     buildPack: "BuildPack?",
+    kind: "string?",
+    pullRequest: "number?",
   },
   "deployments.rollback": {
     projectId: "ProjectId",
@@ -455,6 +496,15 @@ export const ROUTE_SHAPES = {
   },
   "deployments.logs": { projectId: "ProjectId", deploymentId: "string" },
   "deployments.cancel": { projectId: "ProjectId", deploymentId: "string" },
+  "git.links.list": { projectId: "ProjectId" },
+  "git.connect": {
+    projectId: "ProjectId",
+    provider: "string",
+    repository: "string",
+    productionBranch: "string?",
+    previewsEnabled: "boolean?",
+  },
+  "git.disconnect": { projectId: "ProjectId", linkId: "string" },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId", projectId: "ProjectId?" },
   "domains.create": {

@@ -80,8 +80,8 @@ object we have not built.
 | P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them | **Wired** |
 | P6 | Instant rollback | `deployments.rollback` (`index.ts:242`); Coolify needs a commit (`coolify.ts:353`) | **Wired** |
 | P7 | Cancel an in-flight deployment | `deployments.cancel` (`index.ts:257`; `apps/api/src/procedures/deployments.ts:cancelDeployment`); adapter `cancelDeployment` (`coolify.ts:326`); Cancel action on pending/running rows | **Wired** |
-| P8 | Git integration: auto-deploy on push | none; repo URL is a text input (`apps/web/src/pages/pages.tsx:897`) | **Missing (D4)** |
-| P9 | Preview deployment per branch / PR | none | **Missing (D4)** |
+| P8 | Git integration: auto-deploy on push | `git.connect` + HMAC-verified `/hooks/git` receiver enqueues the deploy job (`apps/api/src/git-hook.ts`) | Implemented (UI pending) |
+| P9 | Preview deployment per branch / PR | non-production branch/PR -> preview kind + `preview_targets`; `PreviewTarget` resolved by the worker | Implemented (UI pending) |
 | P10 | Promote preview → production | none | **Missing (D6)** |
 | P11 | Staged production deployment (`--skip-domain`) | none | **Missing** |
 | P12 | Deployment protection (auth/password/IP) | none | **Missing (D7)** |

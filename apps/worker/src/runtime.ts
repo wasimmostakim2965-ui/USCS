@@ -77,6 +77,14 @@ export function buildWorkerWiring(
       store.getProjectDeploymentTargetForService(organizationId, projectId),
     setProjectProviderResource: (input: Parameters<typeof store.setProjectProviderResource>[0]) =>
       store.setProjectProviderResource(input),
+    getPreviewTargetForService: (
+      organizationId: string,
+      projectId: string,
+      previewKey: string,
+    ) => store.getPreviewTargetForService(organizationId, projectId, previewKey),
+    setPreviewTargetProvider: (
+      input: Parameters<typeof store.setPreviewTargetProvider>[0],
+    ) => store.setPreviewTargetProvider(input),
   };
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>
