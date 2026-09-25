@@ -50,6 +50,12 @@ export interface NavContext {
 /** Workspace-level sections. A project is opened from Projects. */
 export function workspaceNav(context: NavContext): readonly NavItem[] {
   const organizationId = context.organizationId;
+  // Ordered by what a workspace actually does first: pick a project, then the
+  // things you check while operating one — what changed, what it costs, what
+  // grants access, and the profile. That is the same "most common workflow
+  // first" ordering Vercel's own navigation redesign arrived at, and it matches
+  // the order the data exists in here (an entry is listed whether or not it has
+  // rows; the page states its own state honestly).
   return [
     {
       id: "projects",
@@ -57,13 +63,6 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       icon: "projects",
       description: "Applications you deploy and operate.",
       route: { name: "projects", organizationId },
-    },
-    {
-      id: "api-keys",
-      label: "API keys",
-      icon: "key",
-      description: "Programmatic access to this organization.",
-      route: { name: "apiKeys", organizationId },
     },
     {
       id: "audit",
@@ -78,6 +77,13 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       icon: "billing",
       description: "Usage recorded for this organization. Empty until a metric is recorded.",
       route: { name: "billing", organizationId },
+    },
+    {
+      id: "api-keys",
+      label: "API keys",
+      icon: "key",
+      description: "Programmatic access to this organization.",
+      route: { name: "apiKeys", organizationId },
     },
     {
       id: "settings",
@@ -241,6 +247,10 @@ export function navForRoute(
     case "organization":
     case "not_found":
       return workspace(null);
+    case "landing":
+      // The landing page is not part of the dashboard, so no sidebar item owns
+      // it and the shell renders with no sidebar at all.
+      return workspace(null);
     case "project":
     case "deployments":
     case "domains":
@@ -306,6 +316,8 @@ export function databaseSectionTitle(section: DatabaseSection): string {
 /** A human title for a route, used for the document title and the breadcrumb. */
 export function titleForRoute(route: Route): string {
   switch (route.name) {
+    case "landing":
+      return "Cloud Wai";
     case "organizations":
       return "Organizations";
     case "organization":

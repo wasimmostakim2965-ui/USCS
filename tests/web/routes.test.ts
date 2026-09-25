@@ -6,9 +6,11 @@ import { describe, expect, it } from "vitest";
 import { DATABASE_SECTIONS, parseRoute, toPath, type Route } from "@cloud-wai/web";
 
 describe("route parsing", () => {
-  it("maps the root to the organization list", () => {
-    expect(parseRoute("/")).toEqual({ name: "organizations" });
-    expect(parseRoute("")).toEqual({ name: "organizations" });
+  it("maps the root to the landing page, and the dashboard to /orgs", () => {
+    expect(parseRoute("/")).toEqual({ name: "landing" });
+    expect(parseRoute("")).toEqual({ name: "landing" });
+    expect(parseRoute("/orgs")).toEqual({ name: "organizations" });
+    expect(parseRoute("/orgs/")).toEqual({ name: "organizations" });
   });
 
   it("parses the organization routes", () => {
@@ -115,6 +117,7 @@ describe("route parsing", () => {
 
   it("round-trips every route through its URL", () => {
     const routes: Route[] = [
+      { name: "landing" },
       { name: "organizations" },
       { name: "organization", organizationId: "org-a" },
       { name: "projects", organizationId: "org-a" },

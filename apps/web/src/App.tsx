@@ -26,7 +26,9 @@ import { loadOrganizations } from "./view-model.js";
 import { AppShell, type WorkspaceOption } from "./components/app-shell.js";
 import { titleForRoute } from "./navigation.js";
 import { LoginPage } from "./pages/login.js";
+import { LandingPage } from "./pages/landing.js";
 import { DatabasePage } from "./pages/database.js";
+import { APP_VERSION } from "./version.js";
 import {
   ActivityPage,
   ApiKeysPage,
@@ -131,10 +133,34 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   );
 
   if (!current) {
+    // A signed-out visitor gets the landing page at `/`, and the sign-in form at
+    // every other route they tried to reach — so a deep link is still one step
+    // from signing in rather than a dead end or a blank shell.
+    if (router.route.name === "landing") {
+      return (
+        <LandingPage
+          signedIn={false}
+          version={APP_VERSION}
+          onEnterDashboard={() => router.navigate({ name: "organizations" })}
+        />
+      );
+    }
     return (
       <ToastProvider>
         <LoginPage session={session} misconfigured={misconfigured} />
       </ToastProvider>
+    );
+  }
+
+  if (router.route.name === "landing") {
+    // Signed in, the landing page is the marketing page; its action goes to the
+    // dashboard rather than through the sign-in form again.
+    return (
+      <LandingPage
+        signedIn
+        version={APP_VERSION}
+        onEnterDashboard={() => router.navigate({ name: "organizations" })}
+      />
     );
   }
 

@@ -261,10 +261,10 @@ export function AppShell({
 
         <a
           className="topbar__brand"
-          href="#/"
+          href="#/orgs"
           onClick={(event) => {
             event.preventDefault();
-            router.navigateTo("/");
+            router.navigate({ name: "organizations" });
           }}
         >
           <span className="topbar__mark">Cloud Wai</span>

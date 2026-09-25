@@ -511,6 +511,11 @@ export interface DashboardModel {
  */
 export async function loadRoute(client: ApiClient, route: Route): Promise<DashboardModel> {
   switch (route.name) {
+    case "landing":
+      // The landing page is static marketing copy: it reads nothing, so it has
+      // no section and cannot show a state it did not load.
+      return { title: "Cloud Wai", sections: [] };
+
     case "organizations":
       return { title: "Organizations", sections: [await loadOrganizations(client)] };
 

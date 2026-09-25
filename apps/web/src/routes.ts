@@ -8,6 +8,7 @@
  * URL says.
  */
 export type Route =
+  | { readonly name: "landing" }
   | { readonly name: "organizations" }
   | { readonly name: "organization"; readonly organizationId: string }
   | { readonly name: "projects"; readonly organizationId: string }
@@ -60,10 +61,16 @@ function isDatabaseSection(value: string): value is DatabaseSection {
 
 export function parseRoute(path: string): Route {
   const clean = path.replace(/\/+$/, "") || "/";
-  if (clean === "/") return { name: "organizations" };
+  // The root is the public landing page, not the dashboard. The dashboard lives
+  // at `/orgs`, so an unauthenticated visitor never lands on a shell that needs
+  // a session to say anything.
+  if (clean === "/") return { name: "landing" };
 
   const segments = clean.split("/").filter(Boolean).map(decodeURIComponent);
 
+  if (segments[0] === "orgs" && segments.length === 1) {
+    return { name: "organizations" };
+  }
   if (segments[0] === "orgs" && segments.length === 2) {
     return { name: "organization", organizationId: segments[1]! };
   }
@@ -145,8 +152,10 @@ export function parseRoute(path: string): Route {
 
 export function toPath(route: Route): string {
   switch (route.name) {
-    case "organizations":
+    case "landing":
       return "/";
+    case "organizations":
+      return "/orgs";
     case "organization":
       return `/orgs/${encodeURIComponent(route.organizationId)}`;
     case "projects":

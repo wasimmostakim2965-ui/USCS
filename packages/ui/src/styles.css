@@ -1481,3 +1481,252 @@ a.card:hover,
   max-height: 60vh;
   color: var(--ink-2);
 }
+
+/* ------------------------------------------------------------------ landing */
+
+/**
+ * The public landing page.
+ *
+ * It reuses the console's tokens, so light and dark both come for free. The
+ * only layout decision here is that the hero is a single centred column and the
+ * bands beneath are full-width with a maximum measure, which is what keeps a
+ * long marketing page readable on a laptop without a second layout system.
+ */
+.landing {
+  min-height: 100%;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+.landing__hero {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: clamp(3rem, 10vw, 7rem) var(--space-5) clamp(2.5rem, 7vw, 5rem);
+  text-align: center;
+}
+
+.landing__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-5);
+  padding: 5px 12px 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+  font-weight: 500;
+}
+
+/* The pip is decorative: it must not read as a live status dot. It carries no
+   green, so nobody mistakes a marketing badge for "systems operational". */
+.landing__pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.landing__title {
+  margin: 0 0 var(--space-5);
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 7vw, 4rem);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+}
+
+.landing__lede {
+  margin: 0 auto var(--space-6);
+  max-width: 60ch;
+  color: var(--ink-2);
+  font-size: var(--step-1);
+  line-height: 1.6;
+}
+
+.landing__cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+}
+
+.landing__secondary {
+  padding: 0 0 2px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.landing__secondary:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.landing__band {
+  padding: clamp(2.5rem, 7vw, 4.5rem) var(--space-5);
+  border-top: 1px solid var(--line);
+}
+
+.landing__band-title {
+  max-width: 1100px;
+  margin: 0 auto var(--space-6);
+  font-size: var(--step-2);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.landing__flow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.landing__step {
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.landing__step-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.landing__step-index {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+.landing__step-kicker {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.landing__step-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.landing__step-body,
+.landing__card-body {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--step-0);
+  line-height: 1.6;
+}
+
+.landing__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.landing__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+.landing__card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2);
+}
+
+.landing__card-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.landing__card-title {
+  margin: 0;
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.landing__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-7);
+  border-top: 1px solid var(--line);
+}
+
+.landing__mark {
+  margin-right: var(--space-3);
+  font-weight: 600;
+}
+
+.landing__foot-note {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+@media (max-width: 860px) {
+  .landing__flow,
+  .landing__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .landing__hero {
+    text-align: left;
+  }
+
+  .landing__cta {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .landing__cta .btn {
+    width: 100%;
+  }
+
+  .landing__cta .landing__secondary {
+    align-self: flex-start;
+  }
+
+  .landing__foot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

@@ -56,7 +56,7 @@ function signedInSession(): SessionController {
 }
 
 /** Render the app against a live API URL. */
-function renderApp(apiUrl: string, hash = "#/") {
+function renderApp(apiUrl: string, hash = "#/orgs") {
   // Set the URL without triggering jsdom's asynchronous hash navigation: the
   // app reads `location.hash` on mount, which is all this needs to exercise.
   window.history.replaceState(null, "", hash);
@@ -373,6 +373,67 @@ describe("the dashboard against a live control plane", () => {
 
     expect(response.ok).toBe(false);
     expect(called).toBe(false);
+  });
+});
+
+describe("the public landing page", () => {
+  /** A session that is signed out, with no token to hand the API. */
+  function signedOutSession(): SessionController {
+    return {
+      current: () => null,
+      getAccessToken: () => null,
+      signInWithPassword: async () => {},
+      signUpWithPassword: async () => ({ needsConfirmation: false }),
+      signOut: async () => {},
+      subscribe: () => () => {},
+    };
+  }
+
+  it("renders at the root for a signed-out visitor and asks for nothing from the API", async () => {
+    let called = false;
+    const url = await startApi(() => {
+      called = true;
+      return { ok: true, status: 200, data: [] };
+    });
+
+    window.history.replaceState(null, "", "#/");
+    render(
+      <ToastProvider>
+        <App session={signedOutSession()} apiBaseUrl={url} />
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
+    expect(screen.getByText(/hidden-origin/)).toBeTruthy();
+    // A second heading for the "how it is built" band, so the page is more than
+    // a hero that would render blank if the copy were removed.
+    expect(screen.getByText("Three layers, one contract")).toBeTruthy();
+    // The landing page is static: it must not spend the visitor's request budget
+    // on an API call it has no session to make.
+    expect(called).toBe(false);
+  });
+
+  it("still shows the sign-in form on a deep link a signed-out visitor cannot reach", async () => {
+    const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
+
+    window.history.replaceState(null, "", "#/orgs/org-1/billing");
+    render(
+      <ToastProvider>
+        <App session={signedOutSession()} apiBaseUrl={url} />
+      </ToastProvider>,
+    );
+
+    // Not a blank shell and not the marketing page: the visitor is one step from
+    // signing in to the page they asked for.
+    expect(await screen.findByText(/Sign in|Sign up/)).toBeTruthy();
+  });
+
+  it("offers a signed-in visitor the dashboard rather than the sign-in form", async () => {
+    const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
+
+    renderApp(url, "#/");
+
+    expect(await screen.findByRole("button", { name: "Open the dashboard" })).toBeTruthy();
   });
 });
 
@@ -1057,7 +1118,7 @@ describe("the dashboard renders every state for every route", () => {
     readonly title: string;
     readonly target: string;
   }[] = [
-    { hash: "#/", title: "Organizations", target: "organizations.list" },
+    { hash: "#/orgs", title: "Organizations", target: "organizations.list" },
     { hash: "#/orgs/org-1/projects", title: "Projects", target: "projects.list" },
     { hash: "#/orgs/org-1/projects/p-1", title: "Overview", target: "projects.get" },
     {
