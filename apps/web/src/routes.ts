@@ -23,6 +23,7 @@ export type Route =
       readonly section?: DatabaseSection | undefined;
     }
   | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
+  | { readonly name: "git"; readonly organizationId: string; readonly projectId: string }
   | {
       readonly name: "projectSettings";
       readonly organizationId: string;
@@ -91,7 +92,7 @@ export function parseRoute(path: string): Route {
   }
   if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 5) {
     const section = segments[4];
-    if (section === "domains" || section === "security") {
+    if (section === "domains" || section === "security" || section === "git") {
       return {
         name: section,
         organizationId: segments[1]!,
@@ -176,6 +177,8 @@ export function toPath(route: Route): string {
       }`;
     case "security":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`;
+    case "git":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/git`;
     case "projectSettings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/settings`;
     case "apiKeys":

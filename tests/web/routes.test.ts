@@ -66,6 +66,11 @@ describe("route parsing", () => {
       organizationId: "org-a",
       projectId: "p-1",
     });
+    expect(parseRoute("/orgs/org-a/projects/p-1/git")).toEqual({
+      name: "git",
+      organizationId: "org-a",
+      projectId: "p-1",
+    });
     expect(parseRoute("/orgs/org-a/projects/p-1/settings")).toEqual({
       name: "projectSettings",
       organizationId: "org-a",
@@ -132,6 +137,7 @@ describe("route parsing", () => {
         section,
       })),
       { name: "security", organizationId: "org-a", projectId: "p-1" },
+      { name: "git", organizationId: "org-a", projectId: "p-1" },
       { name: "projectSettings", organizationId: "org-a", projectId: "p-1" },
       { name: "audit", organizationId: "org-a" },
       { name: "settings", organizationId: "org-a" },

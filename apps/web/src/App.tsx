@@ -35,6 +35,7 @@ import {
   BillingPage,
   DeploymentsPage,
   DomainsPage,
+  GitPage,
   NotFoundPage,
   ObservabilityPage,
   OrganizationsPage,
@@ -201,6 +202,8 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         );
       case "security":
         return <SecurityPage organizationId={route.organizationId} />;
+      case "git":
+        return <GitPage organizationId={route.organizationId} projectId={route.projectId} />;
       case "projectSettings":
         return (
           <ProjectSettingsPage organizationId={route.organizationId} projectId={route.projectId} />

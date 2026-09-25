@@ -135,6 +135,13 @@ export function projectNav(
       route: { name: "domains", organizationId, projectId },
     },
     {
+      id: "git",
+      label: "Git",
+      icon: "git",
+      description: "Repositories that deploy this project on push.",
+      route: { name: "git", organizationId, projectId },
+    },
+    {
       id: "database",
       label: "Database",
       icon: "database",
@@ -263,6 +270,7 @@ export function navForRoute(
     case "project":
     case "deployments":
     case "domains":
+    case "git":
     case "security":
     case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
@@ -345,6 +353,8 @@ export function titleForRoute(route: Route): string {
       return databaseSectionTitle(route.section ?? "overview");
     case "security":
       return "Security";
+    case "git":
+      return "Git";
     case "projectSettings":
       return "Settings";
     case "apiKeys":
@@ -369,6 +379,7 @@ export function backTargetFor(route: Route): Route | null {
       return { name: "projects", organizationId: route.organizationId };
     case "deployments":
     case "domains":
+    case "git":
     case "security":
     case "projectSettings":
       return {

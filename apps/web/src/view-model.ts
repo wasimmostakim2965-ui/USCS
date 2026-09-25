@@ -686,6 +686,34 @@ export async function loadVerifiedBots(
   return ready("Verified bots", response.data?.bots ?? []);
 }
 
+/** A repository linked to a project. Never includes the webhook secret. */
+export interface GitLinkSummary {
+  readonly id: string;
+  readonly projectId: string;
+  readonly provider: "github" | "gitlab" | "bitbucket" | "generic";
+  readonly repository: string;
+  readonly productionBranch: string;
+  readonly previewsEnabled: boolean;
+  /** A short, non-secret fragment naming the stored secret. */
+  readonly secretPrefix: string;
+  readonly createdAt: string;
+}
+
+/** The moment a link is created: the link, and the secret exactly once. */
+export interface ConnectedGitLinkSummary {
+  readonly link: GitLinkSummary;
+  readonly webhookSecret: string;
+}
+
+/** The repositories linked to a project. */
+export async function loadGitLinks(
+  client: ApiClient,
+  projectId: string,
+): Promise<Section<GitLinkSummary>> {
+  const response = await client.call<readonly GitLinkSummary[]>("git.links.list", { projectId });
+  return sectionFrom("Repositories", response);
+}
+
 export interface DashboardModel {
   readonly title: string;
   readonly sections: readonly Section<unknown>[];
@@ -744,6 +772,12 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       return {
         title: "Settings",
         sections: [await loadProject(client, route.projectId)],
+      };
+
+    case "git":
+      return {
+        title: "Git",
+        sections: [await loadGitLinks(client, route.projectId)],
       };
 
     case "audit":

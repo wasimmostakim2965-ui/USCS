@@ -1321,6 +1321,7 @@ describe("the dashboard renders every state for every route", () => {
       target: "deployments.list",
     },
     { hash: "#/orgs/org-1/projects/p-1/domains", title: "Domains", target: "domains.list" },
+    { hash: "#/orgs/org-1/projects/p-1/git", title: "Git", target: "git.links.list" },
     { hash: "#/orgs/org-1/projects/p-1/database", title: "Overview", target: "data.list" },
     { hash: "#/orgs/org-1/projects/p-1/security", title: "Security", target: "providers.health" },
     { hash: "#/orgs/org-1/audit", title: "Activity", target: "audit.list" },
@@ -2097,6 +2098,148 @@ describe("filtering a loaded table", () => {
 
     expect(await screen.findByText(/No rows match/)).toBeTruthy();
     expect(screen.queryByText("app.example.test")).toBeNull();
+  });
+});
+
+describe("connecting a repository for deploy-on-push", () => {
+  /**
+   * A control plane that holds git-link rows. The secret is generated
+   * server-side, returned exactly once, and never present in a later list —
+   * the same discipline as an API key.
+   */
+  function gitPlane() {
+    const links: {
+      id: string;
+      projectId: string;
+      provider: string;
+      repository: string;
+      productionBranch: string;
+      previewsEnabled: boolean;
+      secretPrefix: string;
+      createdAt: string;
+    }[] = [];
+    const calls: { procedure: string; input: unknown }[] = [];
+
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "git.links.list") {
+        return { ok: true, status: 200, data: links };
+      }
+      if (procedure === "git.connect") {
+        const body = input as {
+          provider: string;
+          repository: string;
+          productionBranch: string;
+          previewsEnabled: boolean;
+        };
+        const link = {
+          id: "gl-1",
+          projectId: "p-1",
+          provider: body.provider,
+          repository: body.repository,
+          productionBranch: body.productionBranch,
+          previewsEnabled: body.previewsEnabled,
+          secretPrefix: "whsec_abcd",
+          createdAt: "2026-01-01T00:00:00Z",
+        };
+        links.push(link);
+        return { ok: true, status: 200, data: { link, webhookSecret: "whsec_secret_value" } };
+      }
+      if (procedure === "git.disconnect") {
+        const body = input as { linkId: string };
+        const index = links.findIndex((l) => l.id === body.linkId);
+        if (index < 0) return { ok: true, status: 200, data: { removed: false } };
+        links.splice(index, 1);
+        return { ok: true, status: 200, data: { removed: true } };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+    return { responder, links, calls };
+  }
+
+  it("shows an honest empty state before anything is connected", async () => {
+    const { responder } = gitPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/git");
+
+    expect(
+      await screen.findByText(/No repository is connected/),
+    ).toBeTruthy();
+  });
+
+  it("connects a repository and shows the webhook secret exactly once", async () => {
+    const { responder, calls, links } = gitPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/git");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Connect repository" }));
+    await user.type(await screen.findByPlaceholderText("acme/web-app"), "acme/site");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The delivery URL and the secret are shown so the operator can finish the
+    // job in their provider — the whole point of the dialog.
+    expect(await screen.findByDisplayValue(/\/hooks\/git\/org-1\/gl-1/)).toBeTruthy();
+    expect(screen.getByDisplayValue("whsec_secret_value")).toBeTruthy();
+
+    const connect = calls.find((c) => c.procedure === "git.connect");
+    expect(connect?.input).toMatchObject({ projectId: "p-1", repository: "acme/site" });
+    expect(links).toHaveLength(1);
+
+    // Closing returns to the list, which never carries the secret.
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByDisplayValue("whsec_secret_value")).toBeNull());
+  });
+
+  it("omits the secret from a list read, so it cannot be recovered", async () => {
+    const { responder, links } = gitPlane();
+    links.push({
+      id: "gl-1",
+      projectId: "p-1",
+      provider: "github",
+      repository: "acme/site",
+      productionBranch: "main",
+      previewsEnabled: true,
+      secretPrefix: "whsec_abcd",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/git");
+
+    expect(await screen.findByText("acme/site")).toBeTruthy();
+    expect(screen.getByText("whsec_abcd…")).toBeTruthy();
+    expect(screen.queryByText("whsec_secret_value")).toBeNull();
+  });
+
+  it("disconnects a repository and reloads the list", async () => {
+    const { responder, calls, links } = gitPlane();
+    links.push({
+      id: "gl-1",
+      projectId: "p-1",
+      provider: "github",
+      repository: "acme/site",
+      productionBranch: "main",
+      previewsEnabled: false,
+      secretPrefix: "whsec_abcd",
+      createdAt: "2026-01-01T00:00:00Z",
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/git");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Disconnect" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(calls.some((c) => c.procedure === "git.disconnect")).toBe(true));
+    const disconnect = calls.find((c) => c.procedure === "git.disconnect");
+    expect(disconnect?.input).toMatchObject({ projectId: "p-1", linkId: "gl-1" });
+    expect(links).toHaveLength(0);
+
+    await waitFor(() => expect(screen.queryByText("acme/site")).toBeNull());
   });
 });
 

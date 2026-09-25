@@ -37,6 +37,7 @@ import {
   loadDeployments,
   loadDeploymentLogs,
   loadDomains,
+  loadGitLinks,
   loadOrganization,
   loadOrganizationMembers,
   loadObservability,
@@ -60,6 +61,8 @@ import {
   type DomainChallengeSummary,
   type DomainSummary,
   type DomainVerificationSummary,
+  type GitLinkSummary,
+  type ConnectedGitLinkSummary,
   type IssuedApiKey,
   type OrganizationSummary,
   type OrganizationMemberSummary,
@@ -1450,6 +1453,402 @@ function RemoveDomainModal({
         <p>
           Remove <span className="mono">{domain.hostname}</span>? Traffic to it will stop being
           routed.
+        </p>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------------ git */
+
+const GIT_PROVIDERS = [
+  { value: "github", label: "GitHub" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "bitbucket", label: "Bitbucket" },
+  { value: "generic", label: "Other (HMAC)" },
+] as const;
+
+/**
+ * The header a provider puts its signature in.
+ *
+ * The server reads all of these and picks whichever the provider sent, so the
+ * page only needs to tell the operator *where* to paste the secret. Naming the
+ * real header is the difference between "configure a webhook" and an action.
+ */
+function webhookHeader(provider: GitLinkSummary["provider"]): string {
+  switch (provider) {
+    case "github":
+      return "X-Hub-Signature-256";
+    case "gitlab":
+      return "X-Gitlab-Token";
+    case "bitbucket":
+      return "X-Hub-Signature";
+    case "generic":
+      return "X-Cloud-Wai-Signature";
+  }
+}
+
+/**
+ * Repositories that deploy this project.
+ *
+ * A link is inert until the operator pastes the secret into the provider, so the
+ * connect dialog shows the delivery URL and the header to set — the same
+ * "shown once" shape as an API key, because the secret is the same kind of
+ * thing. `git.links.list` never returns it again.
+ */
+export function GitPage({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client } = useApp();
+  const { section, reload } = useSection(
+    () => loadGitLinks(client, projectId),
+    [client, projectId],
+    "Repositories",
+  );
+
+  const [connecting, setConnecting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<GitLinkSummary | null>(null);
+
+  return (
+    <PageShell
+      title="Git"
+      subtitle="Connect a repository and a push deploys this project. A non-production branch is a preview."
+      actions={
+        <Button variant="primary" onClick={() => setConnecting(true)}>
+          Connect repository
+        </Button>
+      }
+    >
+      <Card flush>
+        <SectionView<GitLinkSummary>
+          section={section}
+          columns={[
+            {
+              key: "repository",
+              header: "Repository",
+              render: (item) => <span className="mono">{item.repository}</span>,
+            },
+            { key: "provider", header: "Provider", render: (item) => providerLabel(item.provider) },
+            {
+              key: "productionBranch",
+              header: "Production branch",
+              render: (item) => <span className="mono">{item.productionBranch}</span>,
+            },
+            {
+              key: "previews",
+              header: "Previews",
+              render: (item) => (
+                <StatusBadge
+                  label={item.previewsEnabled ? "On" : "Off"}
+                  tone={item.previewsEnabled ? "positive" : "neutral"}
+                />
+              ),
+            },
+            {
+              key: "secret",
+              header: "Webhook secret",
+              render: (item) => <span className="mono muted">{item.secretPrefix}…</span>,
+            },
+            {
+              key: "actions",
+              header: "",
+              render: (item) => (
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <Button size="sm" onClick={() => setDisconnecting(item)}>
+                    Disconnect
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+          rowKey={(item) => item.id}
+          onRetry={reload}
+          emptyMessage="No repository is connected. Connect one and every push deploys this project."
+          filterText={(item) => `${item.repository} ${item.provider} ${item.productionBranch}`}
+          filterLabel="Filter repositories"
+        />
+      </Card>
+
+      <ConnectRepositoryModal
+        key={`connect-${String(connecting)}`}
+        organizationId={organizationId}
+        projectId={projectId}
+        open={connecting}
+        onClose={() => setConnecting(false)}
+        onConnected={() => {
+          setConnecting(false);
+          reload();
+        }}
+      />
+
+      <DisconnectRepositoryModal
+        projectId={projectId}
+        link={disconnecting}
+        onClose={() => setDisconnecting(null)}
+        onDisconnected={() => {
+          setDisconnecting(null);
+          reload();
+        }}
+      />
+    </PageShell>
+  );
+}
+
+function providerLabel(provider: GitLinkSummary["provider"]): string {
+  return GIT_PROVIDERS.find((p) => p.value === provider)?.label ?? provider;
+}
+
+/**
+ * Connect a repository.
+ *
+ * The answer is the link and, exactly once, the webhook secret. This dialog
+ * shows the delivery URL and the signature header beside it, so the operator
+ * leaves with everything the provider needs — or with an honest error, if no
+ * encryption key is configured server-side.
+ */
+function ConnectRepositoryModal({
+  organizationId,
+  projectId,
+  open,
+  onClose,
+  onConnected,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onConnected: () => void;
+}) {
+  const { client } = useApp();
+  const [provider, setProvider] = useState<GitLinkSummary["provider"]>("github");
+  const [repository, setRepository] = useState("");
+  const [productionBranch, setProductionBranch] = useState("main");
+  const [previewsEnabled, setPreviewsEnabled] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [connected, setConnected] = useState<ConnectedGitLinkSummary | null>(null);
+
+  const reset = () => {
+    setRepository("");
+    setProductionBranch("main");
+    setPreviewsEnabled(false);
+    setError(null);
+    setConnected(null);
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<ConnectedGitLinkSummary>("git.connect", {
+      projectId,
+      provider,
+      repository,
+      productionBranch,
+      previewsEnabled,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The repository could not be connected.");
+      return;
+    }
+    setConnected(response.data);
+  };
+
+  const close = () => {
+    // The secret leaves state when the dialog does; there is no second chance.
+    reset();
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={connected ? "Webhook ready" : "Connect repository"}
+      open={open}
+      onClose={close}
+      footer={
+        connected ? (
+          <Button variant="primary" onClick={onConnected}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => void submit()}
+              busy={busy}
+              disabled={!repository.trim()}
+            >
+              Connect
+            </Button>
+          </>
+        )
+      }
+    >
+      {connected ? (
+        <div className="stack">
+          <p className="small">
+            Copy this secret into your provider now. It is shown once and cannot be retrieved again —
+            Cloud Wai stores it encrypted, and no list returns it.
+          </p>
+          <Field label="Payload URL">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={webhookUrl(organizationId, connected.link.id)}
+                onChange={() => {}}
+              />
+            )}
+          </Field>
+          <Field label="Content type">
+            {(id) => <TextInput id={id} value="application/json" onChange={() => {}} />}
+          </Field>
+          <Field label={`Secret (${webhookHeader(connected.link.provider)} header)`}>
+            {(id) => <TextInput id={id} value={connected.webhookSecret} onChange={() => {}} />}
+          </Field>
+          <p className="small muted">
+            Send a <span className="mono">push</span> event. A push to{" "}
+            <span className="mono">{connected.link.productionBranch}</span> deploys production
+            {connected.link.previewsEnabled
+              ? "; any other branch or a pull request deploys a preview."
+              : "; previews are off for this repository."}
+          </p>
+        </div>
+      ) : (
+        <div className="stack">
+          <Field label="Provider">
+            {(id) => (
+              <select
+                id={id}
+                className="select"
+                value={provider}
+                onChange={(event) =>
+                  setProvider(event.target.value as GitLinkSummary["provider"])
+                }
+              >
+                {GIT_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field
+            label="Repository"
+            hint="owner/name, e.g. acme/web-app. A clone URL is accepted and normalised."
+            {...(error ? { error } : {})}
+          >
+            {(id) => (
+              <TextInput
+                id={id}
+                value={repository}
+                onChange={setRepository}
+                placeholder="acme/web-app"
+                error={Boolean(error)}
+                autoFocus
+              />
+            )}
+          </Field>
+          <Field label="Production branch" hint="Pushes to this branch deploy to production.">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={productionBranch}
+                onChange={setProductionBranch}
+                placeholder="main"
+              />
+            )}
+          </Field>
+          <label className="row small">
+            <input
+              type="checkbox"
+              aria-label="Enable preview deployments"
+              checked={previewsEnabled}
+              onChange={(event) => setPreviewsEnabled(event.target.checked)}
+            />
+            <span>Deploy a preview for every other branch and pull request.</span>
+          </label>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/** The delivery URL a provider posts to. Derived, never stored. */
+function webhookUrl(organizationId: string, linkId: string): string {
+  const base =
+    typeof window !== "undefined" && window.location
+      ? `${window.location.origin}`
+      : "https://app.cloudwai.example";
+  return `${base}/hooks/git/${encodeURIComponent(organizationId)}/${encodeURIComponent(linkId)}`;
+}
+
+/**
+ * Disconnect a repository.
+ *
+ * Idempotent server-side: removing an already-absent link is a success, not an
+ * error, so a double-click cannot fail confusingly.
+ */
+function DisconnectRepositoryModal({
+  projectId,
+  link,
+  onClose,
+  onDisconnected,
+}: {
+  readonly projectId: string;
+  readonly link: GitLinkSummary | null;
+  readonly onClose: () => void;
+  readonly onDisconnected: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!link) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ removed: boolean }>("git.disconnect", {
+      projectId,
+      linkId: link.id,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The repository could not be disconnected.");
+      return;
+    }
+    onDisconnected();
+  };
+
+  return (
+    <Modal
+      title="Disconnect repository"
+      open={link !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy}>
+            Disconnect
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Stop deploying <span className="mono">{link?.repository}</span> on push. Existing
+          deployments are not affected, and a delivery signed with the old secret is refused once
+          the link is gone.
         </p>
         {error ? (
           <p className="field__error" role="alert">
