@@ -36,6 +36,7 @@ import {
   DeploymentsPage,
   DomainsPage,
   NotFoundPage,
+  ObservabilityPage,
   OrganizationsPage,
   ProjectOverviewPage,
   ProjectSettingsPage,
@@ -206,6 +207,8 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         );
       case "audit":
         return <ActivityPage organizationId={route.organizationId} />;
+      case "observability":
+        return <ObservabilityPage organizationId={route.organizationId} />;
       case "billing":
         return <BillingPage organizationId={route.organizationId} />;
       case "apiKeys":

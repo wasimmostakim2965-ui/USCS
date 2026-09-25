@@ -79,6 +79,7 @@ import {
 } from "./security.js";
 import { providerHealth, type HealthDeps } from "./health.js";
 import { readUsage, type BillingDeps } from "./billing.js";
+import { readObservability, type ObservabilityDeps } from "./observability.js";
 import type { RequestContext } from "../context.js";
 
 type WithInput<T> = (input: unknown) => T;
@@ -165,6 +166,7 @@ export function buildProcedures(
     ...(extras.queue ? { queue: extras.queue } : {}),
   };
   const billingDeps: BillingDeps = { store };
+  const observabilityDeps: ObservabilityDeps = { store };
 
   return [
     {
@@ -367,6 +369,15 @@ export function buildProcedures(
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
     },
+    {
+      name: "observability.jobs",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readObservability(
+          ctx,
+          observabilityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
   ];
 }
 
@@ -433,6 +444,7 @@ export const ROUTE_SHAPES = {
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },
   "providers.health": { organizationId: "OrganizationId" },
   "billing.usage": { organizationId: "OrganizationId" },
+  "observability.jobs": { organizationId: "OrganizationId" },
 } as const;
 
 export type { Organization, Project };

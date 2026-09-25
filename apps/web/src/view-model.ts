@@ -90,6 +90,92 @@ export async function loadUsage(
 }
 
 /**
+ * One job row as the dashboard renders it.
+ *
+ * Mirrors the API's `OrchestrationJob`. It is a raw queue row; nothing here is
+ * computed by the client, so two views of the same job cannot disagree.
+ */
+export interface OrchestrationJobSummary {
+  readonly id: string;
+  readonly kind: string;
+  readonly state: "queued" | "running" | "succeeded" | "failed" | "terminated";
+  readonly attempts: number;
+  readonly maxAttempts: number;
+  readonly createdAt: string;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  readonly lastError: string | null;
+}
+
+/**
+ * The observability report.
+ *
+ * `latency` fields are null when nothing finished, which is why they are
+ * nullable here rather than defaulted to zero — a zero would render as an
+ * instant job that never existed. `jobs` is the same data the counts were
+ * derived from, so the table cannot show a row the totals did not see.
+ */
+export interface ObservabilityReportSummary {
+  readonly totals: {
+    readonly jobs: number;
+    readonly active: number;
+    readonly failed: number;
+    readonly retried: number;
+  };
+  readonly byState: readonly { readonly state: string; readonly count: number }[];
+  readonly byKind: readonly {
+    readonly kind: string;
+    readonly total: number;
+    readonly failed: number;
+    readonly retried: number;
+    readonly lastError: string | null;
+  }[];
+  readonly latency: {
+    readonly samples: number;
+    readonly p50Ms: number | null;
+    readonly p95Ms: number | null;
+    readonly maxMs: number | null;
+  };
+  readonly jobs: readonly OrchestrationJobSummary[];
+}
+
+/**
+ * Load the organization's job activity.
+ *
+ * A single call carries the rollup and the rows, so the stat boxes and the
+ * table are always the same snapshot. An org with no jobs is `empty`, not a
+ * panel of zeros that reads like a working system doing nothing.
+ */
+export async function loadObservability(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<ObservabilityReportSummary>> {
+  const response = await client.call<ObservabilityReportSummary>("observability.jobs", {
+    organizationId,
+  });
+  if (response.notConfigured) {
+    return {
+      title: "Observability",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Observability", response.error?.message ?? "Request failed.");
+  }
+  // A payload that is not a report is treated as "nothing to show" rather than
+  // dereferenced: the dashboard must not throw on a shape it did not expect.
+  const report = response.data as ObservabilityReportSummary | undefined;
+  if (!report?.totals) {
+    return { title: "Observability", state: { kind: "empty", message: "Nothing here yet." } };
+  }
+  // No jobs is `empty`, not a success panel of zeros: the stat boxes would read
+  // as a working system idling rather than one that has run nothing.
+  return report.totals.jobs === 0
+    ? { title: "Observability", state: { kind: "empty", message: "Nothing here yet." } }
+    : ready("Observability", [report]);
+}
+
+/**
  * Convert a response to a section.
  *
  * `notConfigured` is checked before `ok`: the server may answer successfully
@@ -587,6 +673,12 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
 
     case "audit":
       return { title: "Activity", sections: [await loadAudit(client, route.organizationId)] };
+
+    case "observability":
+      return {
+        title: "Observability",
+        sections: [await loadObservability(client, route.organizationId)],
+      };
 
     case "billing":
       return { title: "Billing", sections: [await loadUsage(client, route.organizationId)] };

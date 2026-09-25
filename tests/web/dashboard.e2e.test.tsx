@@ -1229,6 +1229,11 @@ describe("the dashboard renders every state for every route", () => {
     { hash: "#/orgs/org-1/projects/p-1/database", title: "Overview", target: "data.list" },
     { hash: "#/orgs/org-1/projects/p-1/security", title: "Security", target: "providers.health" },
     { hash: "#/orgs/org-1/audit", title: "Activity", target: "audit.list" },
+    {
+      hash: "#/orgs/org-1/observability",
+      title: "Observability",
+      target: "observability.jobs",
+    },
     { hash: "#/orgs/org-1/billing", title: "Billing", target: "billing.usage" },
     { hash: "#/orgs/org-1/settings/api-keys", title: "API keys", target: "apiKeys.list" },
     { hash: "#/orgs/org-1/settings", title: "Settings", target: "providers.health" },
@@ -1358,6 +1363,97 @@ describe("the dashboard renders every state for every route", () => {
 
     expect(await screen.findByText(/No hosting engine is configured/)).toBeTruthy();
     expect(screen.queryByText(/No usage has been recorded for this organization/)).toBeNull();
+  });
+
+  it("shows the job roll-up the API reported, and calls the real procedure", async () => {
+    const calls: string[] = [];
+    const url = await startApi((procedure) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "observability.jobs") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            totals: { jobs: 3, active: 1, failed: 1, retried: 2 },
+            byState: [
+              { state: "failed", count: 1 },
+              { state: "queued", count: 1 },
+              { state: "succeeded", count: 1 },
+            ],
+            byKind: [
+              {
+                kind: "deployment",
+                total: 2,
+                failed: 1,
+                retried: 2,
+                lastError: "engine restarted",
+              },
+              { kind: "security_distribution", total: 1, failed: 0, retried: 0, lastError: null },
+            ],
+            latency: { samples: 1, p50Ms: 4000, p95Ms: 4000, maxMs: 4000 },
+            jobs: [
+              {
+                id: "job-abcdef123456",
+                kind: "deployment",
+                state: "failed",
+                attempts: 3,
+                maxAttempts: 3,
+                createdAt: "2026-09-20T10:00:00Z",
+                startedAt: "2026-09-20T10:00:00Z",
+                finishedAt: "2026-09-20T10:00:04Z",
+                lastError: "engine restarted",
+              },
+              {
+                id: "job-queued000001",
+                kind: "security_distribution",
+                state: "queued",
+                attempts: 0,
+                maxAttempts: 3,
+                createdAt: "2026-09-21T10:00:00Z",
+                startedAt: null,
+                finishedAt: null,
+                lastError: null,
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/observability");
+
+    // The failed job's engine reason is shown verbatim rather than softened
+    // into "an error occurred" — once in the per-kind rollup, once on the row.
+    expect(await screen.findAllByText("engine restarted")).toHaveLength(2);
+    expect(screen.getAllByText("4.0 s").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Not started/)).toBeTruthy();
+    // The page is wired to the procedure, not to a local constant.
+    expect(calls).toContain("observability.jobs");
+    // Metrics and traces are declared absent rather than drawn from nothing.
+    expect(screen.getByText(/Metrics & traces/)).toBeTruthy();
+  });
+
+  it("renders an empty job read as no activity, not as a panel of zeros", async () => {
+    const url = await startApi(
+      only("observability.jobs", {
+        ok: true,
+        status: 200,
+        data: {
+          totals: { jobs: 0, active: 0, failed: 0, retried: 0 },
+          byState: [],
+          byKind: [],
+          latency: { samples: 0, p50Ms: null, p95Ms: null, maxMs: null },
+          jobs: [],
+        },
+      }),
+    );
+    renderApp(url, "#/orgs/org-1/observability");
+
+    expect(await screen.findByText(/No orchestration jobs yet/)).toBeTruthy();
   });
 });
 
@@ -1894,9 +1990,7 @@ describe("filtering a loaded table", () => {
         return {
           ok: true,
           status: 200,
-          data: [
-            { id: "dm-1", hostname: "app.example.test", verified: true, verifiedAt: null },
-          ],
+          data: [{ id: "dm-1", hostname: "app.example.test", verified: true, verifiedAt: null }],
         };
       }
       return { ok: true, status: 200, data: [] };

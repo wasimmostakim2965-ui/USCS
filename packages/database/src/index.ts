@@ -12,6 +12,7 @@ import type {
   DeploymentId,
   DomainId,
   EngineStatus,
+  JobState,
   OrganizationId,
   ProjectId,
   UserId,
@@ -121,6 +122,20 @@ export interface DataStore {
    * procedure that lets a client assert usage.
    */
   listUsageRecords(userId: UserId, organizationId: OrganizationId): Promise<readonly UsageRecord[]>;
+  /**
+   * Orchestration jobs for an organization, newest first.
+   *
+   * These are the platform's own units of work — a deployment, a backup, a
+   * policy distribution — and the only honest source of an observability view:
+   * their state, attempts and timestamps are written by the worker and the
+   * engine, never by a client. `orchestration_jobs` is service-role written and
+   * member-readable through RLS, so a member sees this organization's jobs and
+   * nothing else. This is a read; no method writes a job.
+   */
+  listOrchestrationJobs(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly OrchestrationJob[]>;
   /** Persist a newly issued key. The secret is never part of this input. */
   createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary>;
   /** Revoke a key. Idempotent: revoking a revoked key succeeds. */
@@ -527,6 +542,33 @@ export interface UsageRecord {
   readonly metric: string;
   readonly quantity: number;
   readonly recordedAt: string;
+}
+
+/**
+ * One unit of Cloud Wai work, as the control plane recorded it.
+ *
+ * This is the observability read model: the queue's own row, not an aggregate a
+ * caller could misread. `attempts` and `lastError` are present so a job that
+ * retried — or failed for a reason the engine gave — is visible as such rather
+ * than collapsing into a single "failed" count. `maxAttempts` travels with
+ * `attempts` so "2 of 3 attempts" can be shown without a second lookup.
+ *
+ * There is no `status` here derived from a metric: a state is only ever the
+ * state the queue wrote.
+ */
+export interface OrchestrationJob {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: string;
+  readonly state: JobState;
+  readonly attempts: number;
+  readonly maxAttempts: number;
+  readonly idempotencyKey: string;
+  readonly createdAt: string;
+  readonly startedAt: string | null;
+  readonly finishedAt: string | null;
+  readonly lastError: string | null;
+  readonly leaseExpiresAt: string | null;
 }
 
 export interface ApiKeyCreateInput {

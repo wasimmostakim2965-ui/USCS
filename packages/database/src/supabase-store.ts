@@ -17,6 +17,7 @@ import type {
   DataResourceId,
   DeploymentId,
   DomainId,
+  JobState,
   OrganizationId,
   ProjectId,
   UserId,
@@ -43,6 +44,7 @@ import type {
   DomainVerificationInput,
   Organization,
   OrganizationMember,
+  OrchestrationJob,
   PolicyEventInput,
   Project,
   ProjectDeploymentTarget,
@@ -245,6 +247,23 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       metric: str(row, "metric"),
       quantity: num(row, "quantity"),
       recordedAt: str(row, "recorded_at"),
+    };
+  }
+
+  function toOrchestrationJob(row: Row): OrchestrationJob {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      kind: str(row, "kind"),
+      state: str(row, "state") as JobState,
+      attempts: num(row, "attempts"),
+      maxAttempts: num(row, "max_attempts"),
+      idempotencyKey: str(row, "idempotency_key"),
+      createdAt: str(row, "created_at"),
+      startedAt: nullableStr(row, "started_at"),
+      finishedAt: nullableStr(row, "finished_at"),
+      lastError: nullableStr(row, "last_error"),
+      leaseExpiresAt: nullableStr(row, "lease_expires_at"),
     };
   }
 
@@ -491,6 +510,17 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/usage_records?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=recorded_at.desc&limit=500`,
       });
       return found.map(toUsageRecord);
+    },
+
+    async listOrchestrationJobs(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly OrchestrationJob[]> {
+      const found = await rows("listOrchestrationJobs", {
+        method: "GET",
+        path: `/orchestration_jobs?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=500`,
+      });
+      return found.map(toOrchestrationJob);
     },
 
     async getSecurityPolicy(

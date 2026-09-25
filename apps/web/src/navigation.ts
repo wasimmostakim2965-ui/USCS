@@ -72,6 +72,13 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "audit", organizationId },
     },
     {
+      id: "observability",
+      label: "Observability",
+      icon: "pulse",
+      description: "Job throughput, failures and latency across this organization.",
+      route: { name: "observability", organizationId },
+    },
+    {
       id: "billing",
       label: "Billing",
       icon: "billing",
@@ -239,6 +246,8 @@ export function navForRoute(
       return workspace("api-keys");
     case "audit":
       return workspace("audit");
+    case "observability":
+      return workspace("observability");
     case "billing":
       return workspace("billing");
     case "settings":
@@ -342,6 +351,8 @@ export function titleForRoute(route: Route): string {
       return "API keys";
     case "audit":
       return "Activity";
+    case "observability":
+      return "Observability";
     case "billing":
       return "Billing";
     case "settings":

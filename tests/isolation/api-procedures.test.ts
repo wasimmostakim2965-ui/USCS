@@ -20,6 +20,7 @@ import type {
   MembershipStore,
   Organization,
   OrganizationMember,
+  OrchestrationJob,
   Project,
   UsageRecord,
 } from "@cloud-wai/database";
@@ -79,6 +80,7 @@ function makeStore() {
   const dataResources: DataResource[] = [];
   const apiKeys: ApiKeySummary[] = [];
   const usage: UsageRecord[] = [];
+  const jobs: OrchestrationJob[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -164,6 +166,15 @@ function makeStore() {
     async listUsageRecords(userId, org) {
       return isMember(userId, org) ? usage.filter((u) => u.organizationId === org) : [];
     },
+    async listOrchestrationJobs(userId, org) {
+      // The store contract is newest first; the fixture matches it so the
+      // "most recent failure reason" rule is actually exercised.
+      return isMember(userId, org)
+        ? jobs
+            .filter((j) => j.organizationId === org)
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        : [];
+    },
     async createApiKey(input: ApiKeyCreateInput) {
       const key: ApiKeySummary = {
         id: input.id,
@@ -196,7 +207,7 @@ function makeStore() {
       return e;
     },
   };
-  return { store, audit, projects, usage };
+  return { store, audit, projects, usage, jobs };
 }
 
 function deps(store: DataStore): RouterDeps {
@@ -229,6 +240,7 @@ describe("the registered procedure table", () => {
       "domains.list",
       "domains.remove",
       "domains.verify",
+      "observability.jobs",
       "organizations.create",
       "organizations.get",
       "organizations.list",
@@ -279,6 +291,7 @@ describe("the registered procedure table", () => {
       "apiKeys.revoke": { organizationId: ORG_A, keyId: "k-1" as ApiKeyId },
       "providers.health": { organizationId: ORG_A },
       "billing.usage": { organizationId: ORG_A },
+      "observability.jobs": { organizationId: ORG_A },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {
@@ -355,6 +368,148 @@ describe("the registered procedure table", () => {
     ]);
     // The other tenant's 999 is absent, which is the isolation guarantee.
     expect(report.totals.some((t) => t.total === 999)).toBe(false);
+  });
+
+  it("rolls jobs up by state, kind and real duration, and never across a tenant", async () => {
+    const { store, jobs } = makeStore();
+    const base = {
+      organizationId: ORG_A,
+      idempotencyKey: "key",
+      maxAttempts: 3,
+      leaseExpiresAt: null,
+    } as const;
+    jobs.push(
+      {
+        ...base,
+        id: "j-1",
+        kind: "deployment",
+        state: "succeeded",
+        attempts: 1,
+        createdAt: "2026-09-20T10:00:00Z",
+        startedAt: "2026-09-20T10:00:00Z",
+        finishedAt: "2026-09-20T10:00:02Z",
+        lastError: null,
+      },
+      {
+        // Retried once, then succeeded: counts as a retry, not a failure.
+        ...base,
+        id: "j-2",
+        kind: "deployment",
+        state: "succeeded",
+        attempts: 2,
+        createdAt: "2026-09-21T10:00:00Z",
+        startedAt: "2026-09-21T10:00:00Z",
+        finishedAt: "2026-09-21T10:00:04Z",
+        lastError: "engine restarted",
+      },
+      {
+        ...base,
+        id: "j-3",
+        kind: "backup",
+        state: "failed",
+        attempts: 3,
+        createdAt: "2026-09-22T10:00:00Z",
+        startedAt: "2026-09-22T10:00:00Z",
+        finishedAt: "2026-09-22T10:00:06Z",
+        lastError: "snapshot quota exceeded",
+      },
+      {
+        // Queued: no duration is knowable, so it must not enter the latency
+        // sample as a zero.
+        ...base,
+        id: "j-4",
+        kind: "security_distribution",
+        state: "queued",
+        attempts: 0,
+        createdAt: "2026-09-23T10:00:00Z",
+        startedAt: null,
+        finishedAt: null,
+        lastError: null,
+      },
+      {
+        // Another tenant's job. It must never appear in Alice's report.
+        ...base,
+        id: "j-5",
+        organizationId: "org-b" as OrganizationId,
+        kind: "deployment",
+        state: "failed",
+        attempts: 9,
+        createdAt: "2026-09-24T10:00:00Z",
+        startedAt: "2026-09-24T10:00:00Z",
+        finishedAt: "2026-09-24T10:09:59Z",
+        lastError: "other tenant",
+      },
+    );
+
+    const router = buildRouter(deps(store), buildProcedures(store));
+    const res = await router.route({
+      procedure: "observability.jobs",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+
+    expect(res.ok).toBe(true);
+    const report = res.data as {
+      totals: { jobs: number; active: number; failed: number; retried: number };
+      byState: readonly { state: string; count: number }[];
+      byKind: readonly {
+        kind: string;
+        total: number;
+        failed: number;
+        retried: number;
+        lastError: string | null;
+      }[];
+      latency: {
+        samples: number;
+        p50Ms: number | null;
+        p95Ms: number | null;
+        maxMs: number | null;
+      };
+      jobs: readonly { id: string }[];
+    };
+
+    expect(report.totals).toEqual({ jobs: 4, active: 1, failed: 1, retried: 2 });
+    expect(report.byState).toEqual([
+      { state: "failed", count: 1 },
+      { state: "queued", count: 1 },
+      { state: "succeeded", count: 2 },
+    ]);
+    // The failed backup carries the engine's own reason.
+    expect(report.byKind.find((k) => k.kind === "backup")).toEqual({
+      kind: "backup",
+      total: 1,
+      failed: 1,
+      retried: 1,
+      lastError: "snapshot quota exceeded",
+    });
+    // Three finished jobs have durations 2s, 4s, 6s; the queued one is excluded.
+    expect(report.latency).toEqual({ samples: 3, p50Ms: 4000, p95Ms: 6000, maxMs: 6000 });
+    expect(report.jobs.map((j) => j.id).sort()).toEqual(["j-1", "j-2", "j-3", "j-4"]);
+    // The other tenant's job is absent, which is the isolation guarantee.
+    expect(report.jobs.some((j) => j.id === "j-5")).toBe(false);
+  });
+
+  it("reports no latency figure rather than zero when nothing has finished", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+    const res = await router.route({
+      procedure: "observability.jobs",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok).toBe(true);
+    const report = res.data as {
+      totals: { jobs: number };
+      latency: {
+        samples: number;
+        p50Ms: number | null;
+        p95Ms: number | null;
+        maxMs: number | null;
+      };
+    };
+    expect(report.totals.jobs).toBe(0);
+    // Null, not 0: there is no measurement, and 0 would read as instant work.
+    expect(report.latency).toEqual({ samples: 0, p50Ms: null, p95Ms: null, maxMs: null });
   });
 
   it("serves the organization list to a member", async () => {

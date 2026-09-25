@@ -67,6 +67,13 @@ insert into usage_records (organization_id, metric, quantity, recorded_at) value
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'build_minutes', 42, '2026-09-20T10:00:00Z'),
   ('bbbbbbbb-0000-0000-0000-00000000000b', 'build_minutes', 999, '2026-09-21T10:00:00Z');
 
+-- orchestration_jobs is the same shape: written by the worker and the engine,
+-- *read* by a member through the Observability page. Its SELECT policy is what
+-- keeps that read inside the tenant, so it is probed both ways below.
+insert into orchestration_jobs (organization_id, kind, idempotency_key, state, attempts) values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', 'deployment', 'obs-a', 'succeeded', 1),
+  ('bbbbbbbb-0000-0000-0000-00000000000b', 'deployment', 'obs-b', 'failed', 3);
+
 -- ===========================================================================
 -- Probe 1: Alice (owner of A) sees only org A
 -- ===========================================================================
@@ -148,6 +155,16 @@ begin
   select count(*) into visible from usage_records where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
   if visible <> 1 then
     raise exception 'ISOLATION FAIL: Alice cannot read her own usage records (% rows)', visible;
+  end if;
+
+  select count(*) into visible from orchestration_jobs where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
+  if visible <> 0 then
+    raise exception 'ISOLATION FAIL: Alice can read org B orchestration jobs';
+  end if;
+
+  select count(*) into visible from orchestration_jobs where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  if visible <> 1 then
+    raise exception 'ISOLATION FAIL: Alice cannot read her own orchestration jobs (% rows)', visible;
   end if;
 
   select count(*) into visible from security_policies where organization_id = 'bbbbbbbb-0000-0000-0000-00000000000b';
@@ -232,6 +249,16 @@ begin
   get diagnostics affected = row_count;
   if affected <> 0 then
     raise exception 'INTEGRITY FAIL: a client updated deployment status (% rows)', affected;
+  end if;
+
+  -- orchestration_jobs has a SELECT policy and no UPDATE policy, so a member
+  -- cannot rewrite a job's state or erase its error. This is what makes the
+  -- Observability page a read of the queue rather than of client-controlled data.
+  update orchestration_jobs set state = 'succeeded', last_error = null
+  where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a';
+  get diagnostics affected = row_count;
+  if affected <> 0 then
+    raise exception 'INTEGRITY FAIL: a client rewrote orchestration jobs (% rows)', affected;
   end if;
 
   -- audit_logs is append-only for every role, including owners.

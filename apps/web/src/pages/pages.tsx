@@ -39,6 +39,7 @@ import {
   loadDomains,
   loadOrganization,
   loadOrganizationMembers,
+  loadObservability,
   loadOrganizations,
   loadProject,
   loadProjects,
@@ -63,6 +64,8 @@ import {
   type ProjectSummary,
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
+  type ObservabilityReportSummary,
+  type OrchestrationJobSummary,
   type SecurityPolicySummary,
   type UsageTotalSummary,
 } from "../view-model.js";
@@ -2018,7 +2021,7 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
       subtitle="Usage recorded for this organization. Every figure comes from an engine's own report."
     >
       <SectionShell title="Recorded usage" hint="Grouped by metric, newest first">
-        <div className="stat-grid">
+        <div className="grid grid--stats">
           <StatBox label="Metrics" value={String(totals.length)} />
           <StatBox label="Records" value={String(totals.reduce((s, t) => s + t.records, 0))} />
           <StatBox label="Total quantity" value={String(grandTotal)} />
@@ -2071,6 +2074,244 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
             Usage above is real. Payment collection and invoices need a billing provider this
             deployment has not configured, so there is nothing to pay here yet — and no placeholder
             balance is shown in its place.
+          </p>
+        </Card>
+      </SectionShell>
+    </PageShell>
+  );
+}
+
+/* ------------------------------------------------------------ observability */
+
+/**
+ * How a job state is labelled and toned.
+ *
+ * `queued` is progress rather than neutral, and `terminated` is distinct from
+ * `failed`: the queue stops a job for a reason of its own (a lease that kept
+ * expiring), which is a different fact from the engine reporting an error.
+ */
+function JobStateBadge({ state }: { readonly state: string }) {
+  const presentation: {
+    label: string;
+    tone: "neutral" | "progress" | "positive" | "warning" | "danger";
+  } =
+    state === "succeeded"
+      ? { label: "Succeeded", tone: "positive" }
+      : state === "running"
+        ? { label: "Running", tone: "progress" }
+        : state === "queued"
+          ? { label: "Queued", tone: "progress" }
+          : state === "failed"
+            ? { label: "Failed", tone: "danger" }
+            : state === "terminated"
+              ? { label: "Terminated", tone: "warning" }
+              : { label: state, tone: "neutral" };
+  return <StatusBadge label={presentation.label} tone={presentation.tone} />;
+}
+
+/** A duration in a unit a person reads, or an explicit "—" when unknown. */
+function Duration({ ms }: { readonly ms: number | null }) {
+  if (ms === null) return <span className="faint">—</span>;
+  if (ms < 1000) return <span className="mono small">{ms} ms</span>;
+  if (ms < 60000) return <span className="mono small">{(ms / 1000).toFixed(1)} s</span>;
+  return <span className="mono small">{(ms / 60000).toFixed(1)} min</span>;
+}
+
+/** The wall-clock a finished job took, or "not finished" when it has not. */
+function JobDuration({ job }: { readonly job: OrchestrationJobSummary }) {
+  if (!job.startedAt || !job.finishedAt) {
+    return (
+      <span className="faint small">{job.state === "queued" ? "Not started" : "In flight"}</span>
+    );
+  }
+  const started = Date.parse(job.startedAt);
+  const finished = Date.parse(job.finishedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(finished) || finished < started) {
+    return <span className="faint">—</span>;
+  }
+  return <Duration ms={finished - started} />;
+}
+
+export function ObservabilityPage({ organizationId }: { readonly organizationId: string }) {
+  const { client } = useApp();
+  const { section, reload } = useSection(
+    () => loadObservability(client, organizationId),
+    [client, organizationId],
+    "Observability",
+  );
+
+  const report = section.state.kind === "ready" ? (section.state.items[0] ?? null) : null;
+
+  return (
+    <PageShell
+      title="Observability"
+      subtitle="Every figure here is derived from this organization's own orchestration jobs — the queue rows the worker and the engines wrote. Nothing is sampled or synthetic."
+      actions={
+        <Button size="sm" onClick={reload}>
+          Refresh
+        </Button>
+      }
+    >
+      <SectionShell title="Job activity" hint="Since this deployment began recording jobs">
+        <Card flush>
+          <SectionView<ObservabilityReportSummary>
+            section={section}
+            onRetry={reload}
+            emptyMessage="No orchestration jobs yet. Deployments, backups and policy distributions appear here as soon as this organization runs one. No engine work has been recorded for it so far."
+            renderReady={(items) => {
+              const current = items[0];
+              if (!current) return null;
+              return (
+                <>
+                  <div className="grid grid--stats">
+                    <StatBox label="Jobs" value={String(current.totals.jobs)} />
+                    <StatBox
+                      label="In flight"
+                      value={String(current.totals.active)}
+                      note="Queued or running"
+                    />
+                    <StatBox
+                      label="Failed"
+                      value={String(current.totals.failed)}
+                      note="Terminal, engine-reported"
+                    />
+                    <StatBox
+                      label="Retried"
+                      value={String(current.totals.retried)}
+                      note="More than one attempt"
+                    />
+                  </div>
+                  <div className="grid grid--stats">
+                    <StatBox
+                      label="Latency p50"
+                      value={<Duration ms={current.latency.p50Ms} />}
+                      note={`${current.latency.samples} finished ${current.latency.samples === 1 ? "job" : "jobs"}`}
+                    />
+                    <StatBox label="Latency p95" value={<Duration ms={current.latency.p95Ms} />} />
+                    <StatBox label="Slowest" value={<Duration ms={current.latency.maxMs} />} />
+                  </div>
+                </>
+              );
+            }}
+          />
+        </Card>
+      </SectionShell>
+
+      {report ? (
+        <>
+          <SectionShell title="By kind" hint="Most active first">
+            <Card flush>
+              <Table
+                items={report.byKind}
+                rowKey={(item) => item.kind}
+                columns={[
+                  {
+                    key: "kind",
+                    header: "Kind",
+                    render: (item) => <span className="mono small">{item.kind}</span>,
+                  },
+                  { key: "total", header: "Jobs", render: (item) => String(item.total) },
+                  {
+                    key: "failed",
+                    header: "Failed",
+                    render: (item) =>
+                      item.failed > 0 ? (
+                        <StatusBadge label={String(item.failed)} tone="danger" dot={false} />
+                      ) : (
+                        <span className="faint">0</span>
+                      ),
+                  },
+                  {
+                    key: "retried",
+                    header: "Retried",
+                    render: (item) =>
+                      item.retried > 0 ? (
+                        <StatusBadge label={String(item.retried)} tone="warning" dot={false} />
+                      ) : (
+                        <span className="faint">0</span>
+                      ),
+                  },
+                  {
+                    key: "lastError",
+                    header: "Last failure",
+                    render: (item) =>
+                      item.lastError ? (
+                        <span className="small">{item.lastError}</span>
+                      ) : (
+                        <span className="faint">—</span>
+                      ),
+                  },
+                ]}
+              />
+            </Card>
+          </SectionShell>
+
+          <SectionShell title="Jobs" hint="Newest first; filter over the loaded rows">
+            <Card flush>
+              <Table
+                items={report.jobs}
+                rowKey={(job) => job.id}
+                filterText={(job) => `${job.kind} ${job.state} ${job.lastError ?? ""}`}
+                filterLabel="Filter jobs"
+                columns={[
+                  {
+                    key: "state",
+                    header: "State",
+                    render: (job) => <JobStateBadge state={job.state} />,
+                  },
+                  {
+                    key: "kind",
+                    header: "Kind",
+                    render: (job) => <span className="mono small">{job.kind}</span>,
+                  },
+                  {
+                    key: "id",
+                    header: "Job",
+                    render: (job) => <span className="mono small">{job.id.slice(0, 12)}</span>,
+                  },
+                  {
+                    key: "attempts",
+                    header: "Attempts",
+                    render: (job) => (
+                      <span className="mono small">
+                        {job.attempts}/{job.maxAttempts}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "duration",
+                    header: "Duration",
+                    render: (job) => <JobDuration job={job} />,
+                  },
+                  {
+                    key: "createdAt",
+                    header: "Queued",
+                    render: (job) => <Timestamp value={job.createdAt} />,
+                  },
+                  {
+                    key: "lastError",
+                    header: "Last error",
+                    render: (job) =>
+                      job.lastError ? (
+                        <span className="small">{job.lastError}</span>
+                      ) : (
+                        <span className="faint">—</span>
+                      ),
+                  },
+                ]}
+              />
+            </Card>
+          </SectionShell>
+        </>
+      ) : null}
+
+      <SectionShell title="Metrics & traces" hint="Not wired in this deployment">
+        <Card>
+          <p className="small" style={{ margin: 0 }}>
+            Job state, failures and durations above are real. Time-series metrics and distributed
+            traces need an engine this deployment has not configured, so no chart is drawn and no
+            series is invented to fill the space — the honest state is that they are absent until an
+            engine is wired.
           </p>
         </Card>
       </SectionShell>
@@ -2421,9 +2662,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
               <Table
                 items={items}
                 rowKey={(item) => item.userId}
-                filterText={(item) =>
-                  `${item.displayName ?? ""} ${item.email ?? ""} ${item.role}`
-                }
+                filterText={(item) => `${item.displayName ?? ""} ${item.email ?? ""} ${item.role}`}
                 filterLabel="Filter members"
                 columns={[
                   {
