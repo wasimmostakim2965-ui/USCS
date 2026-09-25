@@ -44,6 +44,8 @@ const requests: Recorded[] = [];
 const applications = new Map<string, Map<string, { name: string; status: string; fqdn: string }>>();
 /** Queued deployments per team token, keyed by deployment_uuid. */
 const deployments = new Map<string, Map<string, { status: string }>>();
+/** Environment variables per application uuid, keyed by variable key. */
+const envs = new Map<string, Map<string, Record<string, unknown>>>();
 
 function teamFor(auth: string | undefined) {
   if (auth === `Bearer ${TOKEN_A}`) return TOKEN_A;
@@ -172,6 +174,65 @@ beforeAll(async () => {
         const uuid = decodeURIComponent(logsMatch[1]!);
         if (!apps.has(uuid)) return json(404, { message: "Application not found." });
         return json(200, { logs: "line one\nline two" });
+      }
+
+      // GET|POST|PATCH /api/v1/applications/{uuid}/envs — the env collection.
+      // Coolify lists with each `value` masked unless the token carries
+      // `read:sensitive`; this stub returns the masked shape, so a list response
+      // is a key inventory and nothing more. POST creates by `key`; PATCH
+      // updates by `key` (see the pinned `update_env_by_uuid`).
+      const envsMatch = url.pathname.match(/^\/api\/v1\/applications\/([^/]+)\/envs$/);
+      if (envsMatch) {
+        const uuid = decodeURIComponent(envsMatch[1]!);
+        if (!apps.has(uuid)) return json(404, { message: "Application not found." });
+        const envVars = envs.get(uuid) ?? new Map<string, Record<string, unknown>>();
+        envs.set(uuid, envVars);
+
+        if (req.method === "GET") {
+          return json(200, [...envVars.values()]);
+        }
+        if (req.method === "POST") {
+          const key = String(parsed.key ?? "");
+          if (!key) return json(422, { message: "Validation failed.", errors: { key: ["required"] } });
+          const row = {
+            uuid: `env-${uuid}-${envVars.size + 1}`,
+            key,
+            value: "********",
+            is_buildtime: parsed.is_buildtime ?? true,
+          };
+          envVars.set(key, row);
+          // The create route answers with the created object.
+          return json(201, row);
+        }
+        if (req.method === "PATCH") {
+          const key = String(parsed.key ?? "");
+          const existing = envVars.get(key);
+          if (!existing) return json(404, { message: "Environment variable not found." });
+          const row = {
+            ...existing,
+            value: "********",
+            is_buildtime: parsed.is_buildtime ?? existing.is_buildtime,
+          };
+          envVars.set(key, row);
+          return json(200, row);
+        }
+      }
+
+      // DELETE /api/v1/applications/{uuid}/envs/{env_uuid} — by env uuid.
+      const envMatch = url.pathname.match(/^\/api\/v1\/applications\/([^/]+)\/envs\/([^/]+)$/);
+      if (envMatch && req.method === "DELETE") {
+        const uuid = decodeURIComponent(envMatch[1]!);
+        const envUuid = decodeURIComponent(envMatch[2]!);
+        if (!apps.has(uuid)) return json(404, { message: "Application not found." });
+        const envVars = envs.get(uuid) ?? new Map<string, Record<string, unknown>>();
+        envs.set(uuid, envVars);
+        for (const [key, row] of envVars) {
+          if (row.uuid === envUuid) {
+            envVars.delete(key);
+            return json(200, { message: "Environment variable deleted." });
+          }
+        }
+        return json(404, { message: "Environment variable not found." });
       }
 
       json(404, { message: "unknown endpoint" });
@@ -606,6 +667,24 @@ describe("adapter routes exist in the pinned Coolify route table", () => {
     });
     await coolify.getLogs(ctx(ORG_A, "shape-everything"), ref);
     await coolify.reconcile(ctx(ORG_A, "shape-everything"), ref);
+
+    // The env lifecycle too, so the `/envs` routes are checked against the
+    // pinned table rather than assumed.
+    const made = await coolify.createEnvVar(ctx(ORG_A, "shape-everything"), {
+      applicationRef: ref,
+      variable: { key: "DATABASE_URL", value: "postgres://x", isBuildTime: true },
+    });
+    if (!made.ok) throw new Error("env create failed");
+    await coolify.listEnvVars(ctx(ORG_A, "shape-everything"), ref);
+    await coolify.updateEnvVar(ctx(ORG_A, "shape-everything"), {
+      applicationRef: ref,
+      variable: { key: "DATABASE_URL", value: "postgres://y" },
+    });
+    await coolify.deleteEnvVar(ctx(ORG_A, "shape-everything"), {
+      applicationRef: ref,
+      engineRef: made.value.engineRef ?? "",
+    });
+
     await coolify.deleteApplication(ctx(ORG_A, "shape-everything"), ref);
 
     const called = requests.filter((r) => r.path !== "/api/v1/applications/public");
@@ -619,5 +698,87 @@ describe("adapter routes exist in the pinned Coolify route table", () => {
         true,
       );
     }
+  });
+
+  it("lists environment variables as a masked key inventory, never a value", async () => {
+    const coolify = adapter();
+    const created = await coolify.createApplication(ctx(ORG_A, "env-list"), CREATE_INPUT);
+    if (!created.ok) throw new Error("setup failed");
+    const ref = created.value.providerRef;
+
+    await coolify.createEnvVar(ctx(ORG_A, "env-list"), {
+      applicationRef: ref,
+      variable: { key: "SECRET", value: "top-secret", isBuildTime: false },
+    });
+
+    const listed = await coolify.listEnvVars(ctx(ORG_A, "env-list"), ref);
+    expect(listed.ok).toBe(true);
+    if (listed.ok) {
+      expect(listed.value).toHaveLength(1);
+      expect(listed.value[0]!.key).toBe("SECRET");
+      // The engine masks the value; the adapter must not have invented one.
+      expect(listed.value[0]!.value).not.toBe("top-secret");
+      expect(listed.value[0]!.isBuildTime).toBe(false);
+    }
+  });
+
+  it("creates by key and updates by key, the two routes Coolify exposes", async () => {
+    requests.length = 0;
+    const coolify = adapter();
+    const created = await coolify.createApplication(ctx(ORG_A, "env-write"), CREATE_INPUT);
+    if (!created.ok) throw new Error("setup failed");
+    const ref = created.value.providerRef;
+
+    const made = await coolify.createEnvVar(ctx(ORG_A, "env-write"), {
+      applicationRef: ref,
+      variable: { key: "FLAG", value: "on", isBuildTime: true },
+    });
+    expect(made.ok).toBe(true);
+    if (made.ok) expect(made.value.engineRef).toBeTruthy();
+
+    const updated = await coolify.updateEnvVar(ctx(ORG_A, "env-write"), {
+      applicationRef: ref,
+      variable: { key: "FLAG", value: "off", isBuildTime: false },
+    });
+    expect(updated.ok).toBe(true);
+
+    const calls = requests.filter((r) => r.path.includes("/envs"));
+    expect(calls.some((c) => c.method === "POST" && c.body.key === "FLAG")).toBe(true);
+    expect(calls.some((c) => c.method === "PATCH" && c.body.key === "FLAG")).toBe(true);
+  });
+
+  it("refuses to delete a variable with no engine handle rather than sending a bad request", async () => {
+    const coolify = adapter();
+    const created = await coolify.createApplication(ctx(ORG_A, "env-del"), CREATE_INPUT);
+    if (!created.ok) throw new Error("setup failed");
+
+    const result = await coolify.deleteEnvVar(ctx(ORG_A, "env-del"), {
+      applicationRef: created.value.providerRef,
+      engineRef: "",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe("failed");
+  });
+
+  it("does not let organization A's token reach organization B's application env", async () => {
+    const coolify = adapter();
+    const a = await coolify.createApplication(ctx(ORG_A, "env-iso-a"), CREATE_INPUT);
+    if (!a.ok) throw new Error("setup failed");
+
+    // Org A's adapter, addressing org B's application uuid (the stub keys apps
+    // by team token, so this is unreachable and must 404 rather than leak).
+    const foreign = await coolify.createEnvVar(ctx(ORG_A, "env-iso-x"), {
+      applicationRef: {
+        organizationId: ORG_A,
+        provider: "coolify",
+        resourceType: "application",
+        resourceId: "app-token-team-b-1",
+      },
+      variable: { key: "X", value: "y" },
+    });
+    expect(foreign.ok).toBe(false);
+    // The engine answers 404 for an application this token cannot see, and the
+    // adapter surfaces that as a non-success — never a green result.
+    if (!foreign.ok) expect(["failed", "not_found"]).toContain(foreign.status);
   });
 });

@@ -47,6 +47,7 @@ import type {
   Domain,
   DomainCreateInput,
   DomainVerificationInput,
+  EnvVarSaveInput,
   GitLinkCreateInput,
   Organization,
   OrganizationMember,
@@ -55,6 +56,8 @@ import type {
   PreviewTarget,
   Project,
   ProjectDeploymentTarget,
+  ProjectEnvVar,
+  ProjectEnvVarSecret,
   ProjectGitLink,
   ProjectProviderInput,
   ProjectUpdateInput,
@@ -63,6 +66,7 @@ import type {
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityPolicyInput,
+  SecurityEvent,
   SecurityRule,
   SecurityRuleCreateInput,
   UsageRecord,
@@ -220,6 +224,28 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       secretPrefix: str(row, "secret_prefix"),
       createdBy: str(row, "created_by") as UserId,
       createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toEnvVar(row: Row): ProjectEnvVar {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      projectId: str(row, "project_id") as ProjectId,
+      key: str(row, "key"),
+      valuePrefix: str(row, "value_prefix"),
+      isBuildTime: bool(row, "is_build_time"),
+      updatedBy: str(row, "updated_by") as UserId,
+      createdAt: str(row, "created_at"),
+      updatedAt: str(row, "updated_at"),
+    };
+  }
+
+  function toEnvVarSecret(row: Row): ProjectEnvVarSecret {
+    return {
+      ...toEnvVar(row),
+      valueEncrypted: str(row, "value_encrypted"),
+      engineRef: nullableStr(row, "engine_ref"),
     };
   }
 
@@ -388,6 +414,24 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       value: str(row, "value"),
       note: nullableStr(row, "note"),
       createdBy: str(row, "created_by") as UserId,
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toSecurityEvent(row: Row): SecurityEvent {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      host: str(row, "host"),
+      stage: str(row, "stage") as SecurityEvent["stage"],
+      action: str(row, "action") as SecurityEvent["action"],
+      ruleId: nullableNum(row, "rule_id"),
+      policyVersion: nullableNum(row, "policy_version"),
+      clientIp: nullableStr(row, "client_ip"),
+      method: nullableStr(row, "method"),
+      path: nullableStr(row, "path"),
+      userAgent: nullableStr(row, "user_agent"),
+      observedAt: str(row, "observed_at"),
       createdAt: str(row, "created_at"),
     };
   }
@@ -620,6 +664,16 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toGitLink);
     },
 
+    async listEnvVars(userId: UserId, projectId: ProjectId): Promise<readonly ProjectEnvVar[]> {
+      const found = await rows("listEnvVars", {
+        method: "GET",
+        // `value_encrypted` is not named here, and is not in the client SELECT
+        // grant either, so even a widened select cannot return it.
+        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=key.asc`,
+      });
+      return found.map(toEnvVar);
+    },
+
     async listUsageRecords(
       userId: UserId,
       organizationId: OrganizationId,
@@ -768,6 +822,21 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/security_rules?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toSecurityRule);
+    },
+
+    async listSecurityEvents(
+      userId: UserId,
+      organizationId: OrganizationId,
+      limit = 100,
+    ): Promise<readonly SecurityEvent[]> {
+      // A bounded window, newest first: the table is append-only and unbounded
+      // by design, so the read states its window rather than paging forever.
+      const bounded = Math.max(1, Math.min(limit, 200));
+      const found = await rows("listSecurityEvents", {
+        method: "GET",
+        path: `/security_events?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=observed_at.desc&limit=${bounded}`,
+      });
+      return found.map(toSecurityEvent);
     },
 
     // --------------------------------------------------------------- writes
@@ -1359,6 +1428,94 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const deleted = await rows("deleteGitLink", {
         method: "DELETE",
         path: `/project_git_links?select=id&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return deleted.length > 0;
+    },
+
+    async saveEnvVar(input: EnvVarSaveInput): Promise<ProjectEnvVar> {
+      const saved = await must<Row[]>("saveEnvVar", {
+        method: "POST",
+        // An upsert on (project_id, key): setting a variable that exists replaces
+        // its value and flags rather than failing, which is what "save" means.
+        // The service role bypasses the client grant, so the ciphertext is
+        // returned here — this method is not on a browser-facing read path.
+        path: "/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&on_conflict=project_id,key",
+        prefer: "return=representation,resolution=merge-duplicates",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          project_id: input.projectId,
+          key: input.key,
+          value_encrypted: input.valueEncrypted,
+          value_prefix: input.valuePrefix,
+          is_build_time: input.isBuildTime,
+          updated_by: input.updatedBy,
+        },
+      });
+      const row = Array.isArray(saved) ? saved[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("saveEnvVar", "no row returned");
+      return toEnvVar(row);
+    },
+
+    async listEnvVarsForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<readonly ProjectEnvVarSecret[]> {
+      const found = await rows("listEnvVarsForService", {
+        method: "GET",
+        // Service role only: this read returns the ciphertext, so it is on the
+        // write interface where no browser-facing path can reach it. The tenant
+        // in the where clause is the boundary for a session-less worker.
+        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at,value_encrypted,engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&order=key.asc`,
+      });
+      return found.map(toEnvVarSecret);
+    },
+
+    async setEnvVarEngineRef(input: {
+      readonly organizationId: OrganizationId;
+      readonly projectId: ProjectId;
+      readonly key: string;
+      readonly engineRef: string;
+      readonly provider: string | null;
+      readonly providerResourceId: string | null;
+    }): Promise<ProjectEnvVar | null> {
+      const updated = await rows("setEnvVarEngineRef", {
+        method: "PATCH",
+        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&organization_id=eq.${q(input.organizationId)}&project_id=eq.${q(input.projectId)}&key=eq.${q(input.key)}`,
+        prefer: "return=representation",
+        body: {
+          engine_ref: input.engineRef,
+          provider: input.provider,
+          provider_resource_id: input.providerResourceId,
+        },
+      });
+      const row = updated[0];
+      return row ? toEnvVar(row) : null;
+    },
+
+    async getEnvVarEngineRef(
+      userId: UserId,
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+      key: string,
+    ): Promise<string | null> {
+      const found = await rows("getEnvVarEngineRef", {
+        method: "GET",
+        path: `/project_env_vars?select=engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+      });
+      return found.length > 0 ? nullableStr(found[0]!, "engine_ref") : null;
+    },
+
+    async deleteEnvVar(
+      userId: UserId,
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+      key: string,
+    ): Promise<boolean> {
+      const deleted = await rows("deleteEnvVar", {
+        method: "DELETE",
+        path: `/project_env_vars?select=id&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;

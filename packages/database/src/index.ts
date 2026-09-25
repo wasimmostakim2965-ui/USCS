@@ -147,6 +147,15 @@ export interface DataStore {
    * part of this shape, so a list response cannot leak it.
    */
   listGitLinks(userId: UserId, projectId: ProjectId): Promise<readonly ProjectGitLink[]>;
+  /**
+   * A project's environment variables, oldest first.
+   *
+   * Membership-scoped like every read. The value ciphertext is deliberately
+   * absent from this shape and from the client SELECT grant, so a list response
+   * can never contain a secret — it names the keys and whether each is
+   * build-time.
+   */
+  listEnvVars(userId: UserId, projectId: ProjectId): Promise<readonly ProjectEnvVar[]>;
 }
 
 /**
@@ -248,6 +257,17 @@ export interface ControlPlaneWrites {
     userId: UserId,
     organizationId: OrganizationId,
   ): Promise<readonly SecurityRule[]>;
+
+  /**
+   * The edge decisions for an organization, newest first. Membership-scoped;
+   * the table is append-only, so this is a read-only view of what the edge did.
+   */
+  listSecurityEvents(
+    userId: UserId,
+    organizationId: OrganizationId,
+    limit?: number,
+  ): Promise<readonly SecurityEvent[]>;
+
   /** Add a deny-list rule. The value grammar is enforced by the table and the API. */
   createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule>;
   /**
@@ -432,6 +452,60 @@ export interface ControlPlaneWrites {
   saveBudget(input: BudgetSaveInput): Promise<Budget>;
   /** Remove a metric's cap. Owner-only; idempotent, reports whether a row went. */
   deleteBudget(userId: UserId, organizationId: OrganizationId, metric: string): Promise<boolean>;
+
+  /**
+   * Set or replace one project environment variable.
+   *
+   * The value arrives already encrypted by the caller (`SecretCipher`), so this
+   * method never sees a plaintext secret and a store can never become the place
+   * one leaks — the same rule `createGitLink` follows. The key is normalised by
+   * the caller to the engine's shape.
+   *
+   * `engine_ref` is written by a separate service-role call once the adapter has
+   * answered, so an upsert here does not have to hold one.
+   */
+  saveEnvVar(input: EnvVarSaveInput): Promise<ProjectEnvVar>;
+  /**
+   * A project's environment variables with their values, service-scoped.
+   *
+   * Only the worker calls this: it is the one place a plaintext value is
+   * recovered, to push it into the engine. It is on the write interface so no
+   * browser-facing read path can reach it, and it is scoped by organization so
+   * the worker's session-less read still cannot cross a tenant.
+   */
+  listEnvVarsForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<readonly ProjectEnvVarSecret[]>;
+  /** Record the engine's handle for a variable. Service-scoped, engine-owned. */
+  setEnvVarEngineRef(input: {
+    readonly organizationId: OrganizationId;
+    readonly projectId: ProjectId;
+    readonly key: string;
+    readonly engineRef: string;
+    readonly provider: string | null;
+    readonly providerResourceId: string | null;
+  }): Promise<ProjectEnvVar | null>;
+  /**
+   * The engine handle for one variable, or null.
+   *
+   * Member-scoped: a remove needs the handle so it can delete the engine's copy
+   * first. It returns only the handle — never the ciphertext — so the request
+   * path cannot recover a value it does not need.
+   */
+  getEnvVarEngineRef(
+    userId: UserId,
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+    key: string,
+  ): Promise<string | null>;
+  /** Remove one variable by key. Idempotent: reports whether a row went. */
+  deleteEnvVar(
+    userId: UserId,
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+    key: string,
+  ): Promise<boolean>;
 }
 
 /** The full store a control-plane deployment needs. */
@@ -496,6 +570,53 @@ export interface GitLinkCreateInput {
   readonly secretEncrypted: string;
   readonly secretPrefix: string;
   readonly createdBy: UserId;
+}
+
+/**
+ * One project environment variable, as a client may read it.
+ *
+ * The value is deliberately absent: the dashboard shows that a variable exists
+ * and whether it is build-time, never the secret. `valuePrefix` is a short
+ * non-secret fragment so two variables with the same key shape are told apart.
+ */
+export interface ProjectEnvVar {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly key: string;
+  readonly valuePrefix: string;
+  readonly isBuildTime: boolean;
+  readonly updatedBy: UserId;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+/**
+ * One environment variable with its ciphertext.
+ *
+ * Only the worker constructs this, and only to push the value into the engine
+ * after decrypting it with the same `SecretCipher` the API encrypted with. The
+ * store never holds the key and never returns a plaintext value, so a database
+ * dump alone cannot reveal one. It is never returned by a browser-facing
+ * procedure.
+ */
+export interface ProjectEnvVarSecret extends ProjectEnvVar {
+  /** AES-256-GCM ciphertext; the caller decrypts. */
+  readonly valueEncrypted: string;
+  readonly engineRef: string | null;
+}
+
+export interface EnvVarSaveInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  /** Normalised by the caller to `[A-Z][A-Z0-9_]*`. */
+  readonly key: string;
+  /** AES-256-GCM ciphertext produced by the API. Never a plaintext value. */
+  readonly valueEncrypted: string;
+  readonly valuePrefix: string;
+  readonly isBuildTime: boolean;
+  readonly updatedBy: UserId;
 }
 
 /**
@@ -670,6 +791,37 @@ export interface SecurityRuleCreateInput {
   readonly value: string;
   readonly note: string | null;
   readonly createdBy: UserId;
+}
+
+/**
+ * One request-level decision the edge made.
+ *
+ * This is the edge's observation, not a client's assertion, and the table is
+ * append-only for every non-service role (see `0010`). The control plane reads
+ * it to answer "what did the edge do with this traffic" — the view that makes a
+ * block attributable rather than a mystery.
+ */
+export interface SecurityEvent {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly host: string;
+  readonly stage:
+    | "allow-verified-bot"
+    | "allow-internal"
+    | "block-deny-list"
+    | "challenge"
+    | "waf"
+    | "log"
+    | "pass";
+  readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
+  readonly ruleId: number | null;
+  readonly policyVersion: number | null;
+  readonly clientIp: string | null;
+  readonly method: string | null;
+  readonly path: string | null;
+  readonly userAgent: string | null;
+  readonly observedAt: string;
+  readonly createdAt: string;
 }
 
 export interface SecurityPolicyEvent {

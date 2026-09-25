@@ -35,6 +35,7 @@ import {
   BillingPage,
   DeploymentsPage,
   DomainsPage,
+  EnvVarsPage,
   GitPage,
   NotFoundPage,
   ObservabilityPage,
@@ -204,6 +205,8 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         return <SecurityPage organizationId={route.organizationId} />;
       case "git":
         return <GitPage organizationId={route.organizationId} projectId={route.projectId} />;
+      case "env":
+        return <EnvVarsPage organizationId={route.organizationId} projectId={route.projectId} />;
       case "projectSettings":
         return (
           <ProjectSettingsPage organizationId={route.organizationId} projectId={route.projectId} />

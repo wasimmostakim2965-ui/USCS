@@ -68,6 +68,27 @@ export interface LogPage {
   readonly cursor: string | null;
 }
 
+/**
+ * One environment variable as the engine holds it.
+ *
+ * `key` and `isBuildTime` are the customer's own input; `value` is not returned
+ * by the engine on a list (Coolify answers with a masked value), so a read is a
+ * key inventory rather than a way to recover secrets. `engineRef` is the
+ * engine's own handle, needed to update or delete that one variable.
+ */
+export interface EnvVarState {
+  readonly key: string;
+  readonly value: string;
+  readonly isBuildTime: boolean;
+  readonly engineRef: string | null;
+}
+
+export interface EnvVarWrite {
+  readonly key: string;
+  readonly value: string;
+  readonly isBuildTime?: boolean | undefined;
+}
+
 export interface HostingAdapter extends NotConfiguredBrand {
   createApplication(
     ctx: AdapterContext,
@@ -91,6 +112,43 @@ export interface HostingAdapter extends NotConfiguredBrand {
     input: { applicationRef: ProviderRef; commit: string },
   ): Promise<AdapterResult<OperationRef>>;
   getLogs(ctx: AdapterContext, ref: ProviderRef, cursor?: string): Promise<AdapterResult<LogPage>>;
+  /**
+   * List an application's environment variables.
+   *
+   * Coolify answers with every variable's *masked* value, so this is a key
+   * inventory: it says which variables exist and whether they apply at build
+   * time, never what their secret values are. A deployment reads this to know
+   * what it will inject; the dashboard shows keys, not secrets.
+   */
+  listEnvVars(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<readonly EnvVarState[]>>;
+  /**
+   * Create one environment variable.
+   *
+   * Coolify's create route returns the created variable; the reference it
+   * carries is what a later delete addresses, so it is kept rather than
+   * discarded.
+   */
+  createEnvVar(
+    ctx: AdapterContext,
+    input: { applicationRef: ProviderRef; variable: EnvVarWrite },
+  ): Promise<AdapterResult<EnvVarState>>;
+  /**
+   * Update one environment variable.
+   *
+   * Coolify's update route identifies the variable by its `key`, not by its
+   * uuid — so that is the identity here too. An adapter that pretended
+   * otherwise would send a request the engine accepts but applies to the wrong
+   * variable.
+   */
+  updateEnvVar(
+    ctx: AdapterContext,
+    input: { applicationRef: ProviderRef; variable: EnvVarWrite },
+  ): Promise<AdapterResult<EnvVarState>>;
+  /** Delete one environment variable by its engine reference (Coolify's uuid). */
+  deleteEnvVar(
+    ctx: AdapterContext,
+    input: { applicationRef: ProviderRef; engineRef: string },
+  ): Promise<AdapterResult<void>>;
   deleteApplication(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
   reconcile(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<DeploymentState>>;
 }

@@ -461,6 +461,131 @@ describe("the public landing page", () => {
   });
 });
 
+describe("project environment variables", () => {
+  const vars = [
+    {
+      id: "ev-1",
+      key: "DATABASE_URL",
+      valuePrefix: "a1b2",
+      isBuildTime: true,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    },
+    {
+      id: "ev-2",
+      key: "FEATURE_FLAG",
+      valuePrefix: "c3d4",
+      isBuildTime: false,
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    },
+  ];
+
+  it("lists variables with their fingerprint and scope, never a value", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: vars };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+
+    await waitFor(() => expect(screen.getByText("DATABASE_URL")).toBeTruthy());
+    expect(screen.getByText("FEATURE_FLAG")).toBeTruthy();
+    // The fingerprint is shown; the value never is, and no reveal control exists.
+    expect(screen.getByText("a1b2…")).toBeTruthy();
+    expect(screen.getByText("Build & runtime")).toBeTruthy();
+    expect(screen.getByText("Runtime only")).toBeTruthy();
+    expect(screen.queryByText(/reveal/i)).toBeNull();
+  });
+
+  it("adds a variable through env.set and reports where it landed", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    let stored = [...vars];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: stored };
+      }
+      if (procedure === "env.set") {
+        const body = input as { key: string; value: string; isBuildTime?: boolean };
+        const next = {
+          id: "ev-3",
+          key: body.key,
+          valuePrefix: "ffff",
+          isBuildTime: body.isBuildTime ?? true,
+          updatedAt: "2026-01-04T00:00:00.000Z",
+        };
+        stored = [...stored, next];
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            variable: next,
+            applied: "stored",
+            redeployRequired: true,
+            engineReason: "This project has no application on the hosting engine yet.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add variable" }));
+    await user.type(await screen.findByLabelText("Key"), "API_TOKEN");
+    await user.type(await screen.findByLabelText("Value"), "s3cret");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    // The outcome is honest: saved but not applied, because no engine app exists.
+    await waitFor(() =>
+      expect(screen.getByText(/saved\. The hosting engine has not been reached/i)).toBeTruthy(),
+    );
+    expect(JSON.stringify(calls)).toContain("env.set");
+    // The plaintext the operator typed is not echoed back into the page.
+    expect(screen.queryByText("s3cret")).toBeNull();
+  });
+
+  it("removes a variable and reports the engine's refusal instead of pretending", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: [vars[0]] };
+      }
+      if (procedure === "env.remove") {
+        return {
+          ok: true,
+          status: 200,
+          data: { removed: false, engineReason: "The engine refused to remove the variable." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
+
+    await waitFor(() =>
+      expect(screen.getByText("The engine refused to remove the variable.")).toBeTruthy(),
+    );
+    // The variable is still listed (the modal also names it), because the row
+    // was never removed.
+    expect(screen.getAllByText("DATABASE_URL").length).toBeGreaterThan(0);
+  });
+});
+
 describe("requesting and rolling back a deployment", () => {
   /**
    * A control plane that really records deployments, so the test exercises the
@@ -2979,5 +3104,75 @@ describe("the Security policy write path", () => {
     renderApp(url, "#/orgs/org-1/projects/p-1/security");
 
     expect(await screen.findByText(/cannot record rules yet/)).toBeTruthy();
+  });
+
+  it("shows the edge's decisions so a block is attributable, not a mystery", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.events.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            events: [
+              {
+                id: "evt-1",
+                host: "app.example.com",
+                stage: "block-deny-list",
+                action: "block",
+                clientIp: "203.0.113.9",
+                method: "GET",
+                path: "/admin",
+                userAgent: "curl/8",
+                observedAt: new Date().toISOString(),
+              },
+              {
+                id: "evt-2",
+                host: "app.example.com",
+                stage: "allow-verified-bot",
+                action: "allow",
+                clientIp: "66.249.66.1",
+                method: "GET",
+                path: "/",
+                userAgent: "Googlebot",
+                observedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("block-deny-list")).toBeTruthy();
+    expect(await screen.findByText("block")).toBeTruthy();
+    expect(await screen.findByText("allow-verified-bot")).toBeTruthy();
+  });
+
+  it("reports an edge-decisions read the deployment cannot serve as degraded, not empty", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.events.list") {
+        return {
+          ok: false,
+          status: 503,
+          error: {
+            code: "engine_unavailable",
+            message: "This deployment cannot read edge decisions yet.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/cannot read edge decisions yet/)).toBeTruthy();
   });
 });

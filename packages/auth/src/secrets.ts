@@ -23,6 +23,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   createHmac,
   randomBytes,
   timingSafeEqual,
@@ -146,6 +147,19 @@ export function tokenMatches(secret: string, presented: string | null | undefine
 /** A short, non-secret fragment shown in the dashboard to name a secret. */
 export function secretPrefix(secret: string): string {
   return `whsec_${secret.slice(0, 4)}`;
+}
+
+/**
+ * A short fingerprint of a secret value, safe to show in a list.
+ *
+ * Unlike `secretPrefix`, this reveals nothing about the value: it is the first
+ * four hex characters of a SHA-256 digest, so a customer can tell quickly
+ * whether two variables hold the *same* value (a copy/paste mistake, or a stale
+ * duplicate) without either value being recoverable. A prefix of a secret is a
+ * partial disclosure; a digest prefix is not.
+ */
+export function valueFingerprint(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 4);
 }
 
 /** Generate a webhook secret. 32 bytes, base64url, so it is URL-safe to paste. */

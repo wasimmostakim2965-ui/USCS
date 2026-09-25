@@ -142,6 +142,13 @@ export function projectNav(
       route: { name: "git", organizationId, projectId },
     },
     {
+      id: "env",
+      label: "Environment",
+      icon: "env",
+      description: "Variables injected into this project's builds and runtime.",
+      route: { name: "env", organizationId, projectId },
+    },
+    {
       id: "database",
       label: "Database",
       icon: "database",
@@ -271,6 +278,7 @@ export function navForRoute(
     case "deployments":
     case "domains":
     case "git":
+    case "env":
     case "security":
     case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
@@ -355,6 +363,8 @@ export function titleForRoute(route: Route): string {
       return "Security";
     case "git":
       return "Git";
+    case "env":
+      return "Environment";
     case "projectSettings":
       return "Settings";
     case "apiKeys":
@@ -380,6 +390,7 @@ export function backTargetFor(route: Route): Route | null {
     case "deployments":
     case "domains":
     case "git":
+    case "env":
     case "security":
     case "projectSettings":
       return {

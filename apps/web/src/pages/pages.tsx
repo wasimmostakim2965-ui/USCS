@@ -38,6 +38,7 @@ import {
   loadDeployments,
   loadDeploymentLogs,
   loadDomains,
+  loadEnvVars,
   loadGitLinks,
   loadOrganization,
   loadOrganizationMembers,
@@ -48,6 +49,7 @@ import {
   updateProject,
   loadProviderHealth,
   loadSecurityRules,
+  loadSecurityEvents,
   loadVerifiedBots,
   loadUsage,
   loadSecurityPolicy,
@@ -66,6 +68,8 @@ import {
   type DomainSummary,
   type DomainVerificationSummary,
   type GitLinkSummary,
+  type EnvVarSummary,
+  type SetEnvVarOutcome,
   type ConnectedGitLinkSummary,
   type IssuedApiKey,
   type OrganizationSummary,
@@ -73,6 +77,7 @@ import {
   type ProjectSummary,
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
+  type SecurityEventSummary,
   type SecurityRuleSummary,
   type ObservabilityReportSummary,
   type OrchestrationJobSummary,
@@ -1993,6 +1998,365 @@ function DisconnectRepositoryModal({
   );
 }
 
+/* -------------------------------------------------------------- environment */
+
+/**
+ * Project environment variables.
+ *
+ * The variables injected into this project's builds and runtime. A value is
+ * write-only: the API stores it encrypted and returns only a fingerprint, so
+ * this page can show that a key exists and where it landed but never reveal it —
+ * the same promise Vercel makes, and the reason there is no "reveal" button
+ * here. A variable a project has never deployed is stored and honestly reported
+ * as `stored` rather than applied, because a project with no application has
+ * nowhere to push it; the deploy that creates that application reconciles it.
+ */
+export function EnvVarsPage({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client } = useApp();
+  const { section, reload } = useSection(
+    () => loadEnvVars(client, projectId),
+    [client, projectId],
+    "Environment variables",
+  );
+
+  const [editing, setEditing] = useState<EnvVarSummary | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [removing, setRemoving] = useState<EnvVarSummary | null>(null);
+
+  return (
+    <PageShell
+      title="Environment"
+      subtitle="Variables injected into this project's builds and runtime. Values are encrypted and never shown again."
+      actions={
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button onClick={reload} aria-label="Refresh variables">
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={() => setCreating(true)}>
+            Add variable
+          </Button>
+        </div>
+      }
+    >
+      <Card flush>
+        <SectionView<EnvVarSummary>
+          section={section}
+          columns={[
+            {
+              key: "key",
+              header: "Key",
+              render: (item) => <span className="mono">{item.key}</span>,
+            },
+            {
+              key: "value",
+              header: "Value",
+              render: (item) => <span className="mono muted">{item.valuePrefix}…</span>,
+            },
+            {
+              key: "scope",
+              header: "Scope",
+              render: (item) => (
+                <StatusBadge
+                  label={item.isBuildTime ? "Build & runtime" : "Runtime only"}
+                  tone="neutral"
+                />
+              ),
+            },
+            {
+              key: "updatedAt",
+              header: "Updated",
+              render: (item) => <Timestamp value={item.updatedAt} />,
+            },
+            {
+              key: "actions",
+              header: "",
+              render: (item) => (
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <Button size="sm" onClick={() => setEditing(item)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => setRemoving(item)}>
+                    Remove
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+          rowKey={(item) => item.id}
+          onRetry={reload}
+          emptyMessage="No environment variables yet. Add one and it is injected into the next build."
+          filterText={(item) => item.key}
+          filterLabel="Filter variables"
+        />
+      </Card>
+
+      <EnvVarModal
+        key={`create-${String(creating)}`}
+        open={creating}
+        projectId={projectId}
+        existing={null}
+        onClose={() => setCreating(false)}
+        onSaved={() => {
+          setCreating(false);
+          reload();
+        }}
+      />
+
+      <EnvVarModal
+        key={`edit-${editing?.id ?? "none"}`}
+        open={editing !== null}
+        projectId={projectId}
+        existing={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          reload();
+        }}
+      />
+
+      <RemoveEnvVarModal
+        projectId={projectId}
+        variable={removing}
+        onClose={() => setRemoving(null)}
+        onRemoved={() => {
+          setRemoving(null);
+          reload();
+        }}
+      />
+    </PageShell>
+  );
+}
+
+/**
+ * Add or edit one variable.
+ *
+ * A value is write-only, so editing never pre-fills it: the form states the
+ * value must be re-entered and does not pretend the stored one is readable. The
+ * outcome is reported from what the server actually did — `engine` when the
+ * adapter confirmed the write, `stored` when it could only be saved — and a
+ * build-time save offers a redeploy, because that is the only thing that makes a
+ * build-time change take effect.
+ */
+function EnvVarModal({
+  open,
+  projectId,
+  existing,
+  onClose,
+  onSaved,
+}: {
+  readonly open: boolean;
+  readonly projectId: string;
+  readonly existing: EnvVarSummary | null;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const { client } = useApp();
+  const [key, setKey] = useState(existing?.key ?? "");
+  const [value, setValue] = useState("");
+  const [isBuildTime, setIsBuildTime] = useState(existing?.isBuildTime ?? true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<SetEnvVarOutcome | null>(null);
+
+  const editing = existing !== null;
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<SetEnvVarOutcome>("env.set", {
+      projectId,
+      key,
+      value,
+      isBuildTime,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The variable could not be saved.");
+      return;
+    }
+    setOutcome(response.data);
+  };
+
+  const close = () => {
+    setValue("");
+    setError(null);
+    setOutcome(null);
+    onClose();
+  };
+
+  return (
+    <Modal
+      title={editing ? `Edit ${existing.key}` : "Add environment variable"}
+      open={open}
+      onClose={close}
+      footer={
+        outcome ? (
+          <Button variant="primary" onClick={onSaved}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="primary"
+              onClick={() => void submit()}
+              busy={busy}
+              disabled={!key.trim() || value.length === 0}
+            >
+              {editing ? "Save" : "Add"}
+            </Button>
+          </>
+        )
+      }
+    >
+      {outcome ? (
+        <div className="stack">
+          <p className="small">
+            <span className="mono">{outcome.variable.key}</span>{" "}
+            {outcome.applied === "engine"
+              ? "was saved and applied to the hosting engine."
+              : "was saved. The hosting engine has not been reached yet."}
+          </p>
+          {outcome.engineReason ? <p className="small muted">{outcome.engineReason}</p> : null}
+          {outcome.redeployRequired ? (
+            <p className="small muted">
+              This is a build-time variable, so it takes effect on the next deployment. Redeploy
+              the project to apply it to the running output.
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <div className="stack">
+          {editing ? (
+            <p className="small muted">
+              The stored value cannot be read back — Cloud Wai keeps it encrypted. Enter the value
+              again to replace it.
+            </p>
+          ) : null}
+          <Field
+            label="Key"
+            hint="Uppercase letters, digits and underscores, e.g. DATABASE_URL."
+            {...(error ? { error } : {})}
+          >
+            {(id) => (
+              <TextInput
+                id={id}
+                value={key}
+                onChange={(next) => setKey(next.toUpperCase())}
+                placeholder="DATABASE_URL"
+                error={Boolean(error)}
+                autoFocus={!editing}
+              />
+            )}
+          </Field>
+          <Field label="Value" hint="Encrypted before it is stored. Never shown again.">
+            {(id) => (
+              <TextInput
+                id={id}
+                value={value}
+                onChange={setValue}
+                placeholder="postgres://…"
+                autoFocus={editing}
+                onEnter={() => {
+                  if (key.trim() && value.length > 0) void submit();
+                }}
+              />
+            )}
+          </Field>
+          <label className="row small">
+            <input
+              type="checkbox"
+              aria-label="Available at build time"
+              checked={isBuildTime}
+              onChange={(event) => setIsBuildTime(event.target.checked)}
+            />
+            <span>Available during the build (a change needs a redeploy).</span>
+          </label>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Remove one variable.
+ *
+ * The engine's copy is deleted before the row, so a failure leaves a variable
+ * the customer can still see and retry rather than an invisible engine variable
+ * still fed to a build. That is why a failure here surfaces the engine's reason
+ * instead of a generic error.
+ */
+function RemoveEnvVarModal({
+  projectId,
+  variable,
+  onClose,
+  onRemoved,
+}: {
+  readonly projectId: string;
+  readonly variable: EnvVarSummary | null;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!variable) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ removed: boolean; engineReason: string | null }>(
+      "env.remove",
+      { projectId, key: variable.key },
+    );
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The variable could not be removed.");
+      return;
+    }
+    if (!response.data.removed) {
+      setError(response.data.engineReason ?? "The engine refused to remove the variable.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title="Remove environment variable"
+      open={variable !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Remove <span className="mono">{variable?.key}</span> from this project and from the
+          hosting engine. A build-time variable stops affecting the build after the next
+          deployment.
+        </p>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
 /* ------------------------------------------------------------------ security */
 
 /**
@@ -2046,6 +2410,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     () => loadVerifiedBots(client, organizationId),
     [client, organizationId],
     "Verified bots",
+  );
+  const edgeEvents = useSection(
+    () => loadSecurityEvents(client, organizationId),
+    [client, organizationId],
+    "Edge decisions",
   );
   const [saving, setSaving] = useState(false);
   const [distributing, setDistributing] = useState(false);
@@ -2373,6 +2742,61 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       </SectionShell>
 
       <SectionShell
+        title="Edge decisions"
+        hint="What the edge did with recent requests: allowed, logged, challenged or blocked, and at which stage. Written by the edge, read-only here."
+        actions={
+          <Button size="sm" onClick={() => edgeEvents.reload()}>
+            Refresh
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<SecurityEventSummary>
+            section={edgeEvents.section}
+            onRetry={edgeEvents.reload}
+            emptyMessage="No edge decisions recorded yet. Once the edge is enforcing, each request's outcome appears here."
+            columns={[
+              {
+                key: "action",
+                header: "Decision",
+                render: (item) => <EdgeActionBadge action={item.action} />,
+              },
+              {
+                key: "stage",
+                header: "Stage",
+                render: (item) => <span className="mono small">{item.stage}</span>,
+              },
+              {
+                key: "request",
+                header: "Request",
+                render: (item) => (
+                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 300 }}>
+                    {item.method ?? "—"} {item.path ?? ""}
+                  </span>
+                ),
+              },
+              {
+                key: "host",
+                header: "Host",
+                render: (item) => <span className="mono small">{item.host}</span>,
+              },
+              {
+                key: "clientIp",
+                header: "Client",
+                render: (item) => <span className="mono small">{item.clientIp ?? "—"}</span>,
+              },
+              {
+                key: "observedAt",
+                header: "When",
+                render: (item) => <Timestamp value={item.observedAt} />,
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell
         title="Policy history"
         hint="Every transition the server recorded, including refusals"
       >
@@ -2473,6 +2897,24 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
 function PolicyStateBadge({ state }: { readonly state: string }) {
   const tone = state === "active" ? "positive" : state === "rejected" ? "danger" : "warning";
   return <StatusBadge label={state} tone={tone} />;
+}
+
+/**
+ * One edge decision, coloured by what the edge did.
+ *
+ * A block is danger, a challenge is a warning, an allow is positive, and a log
+ * is neutral — the tone tracks the customer's exposure, not the tone of voice.
+ */
+function EdgeActionBadge({ action }: { readonly action: SecurityEventSummary["action"] }) {
+  const tone =
+    action === "block" || action === "quarantine"
+      ? "danger"
+      : action === "challenge"
+        ? "warning"
+        : action === "allow"
+          ? "positive"
+          : "neutral";
+  return <StatusBadge label={action} tone={tone} />;
 }
 
 /**

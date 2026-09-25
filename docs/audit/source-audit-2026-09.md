@@ -96,7 +96,7 @@ Traced from the code, not from prose:
 | D2 | Rollback requires a commit (Coolify refuses otherwise), is recorded as its own deployment row, and reads the engine's state back. | `apps/api/src/procedures/deployments.ts:rollbackDeployment`; `packages/adapters/src/coolify.ts:353` | Implemented |
 | D3 | Build-vs-runtime logs are distinguished by `source`, preferring the engine's *deployment* handle so a failed build is explainable. | `apps/api/src/procedures/deployments.ts:deploymentsLogs` | Implemented |
 | D4 | Git integration is wired: a repository is connected (`git.connect`, secret shown once, AES-256-GCM at rest) and a push/PR delivered to `POST /hooks/git/{org}/{link}` is HMAC-verified and enqueues the **same** `deployments.execute` job the button does. A non-production branch (or a PR) is a preview with a recorded target; the production branch is a production build. | `apps/api/src/procedures/git-links.ts`; `apps/api/src/git-hook.ts`; `apps/api/src/server.ts`; `supabase/migrations/0011_project_git_links.sql` | Implemented (dashboard page pending) |
-| D5 | No environment variables per environment anywhere (Vercel's most-used project setting). Coolify exposes `/applications/{uuid}/envs`; the adapter does not use it. | `tests/fixtures/coolify-routes.json` (`…/envs` routes exist); no `envs` in `apps/api/src`, `packages/adapters/src/coolify.ts` | **Missing** |
+| D5 | **Closed.** Environment variables are wired end to end: `project_env_vars` (migration `0015`, org RLS, `value_encrypted` outside the client SELECT grant, `engine_ref`/`provider`/`provider_resource_id` frozen against client writes), `env.list/set/remove` (`apps/api/src/procedures/env-vars.ts`) over Coolify `/applications/{uuid}/envs` through the adapter, worker reconciliation before each build (`apps/worker/src/env-sync.ts`), and `EnvVarsPage`. A build-time change is expressed as a redeploy, not a silent edit. Value AES-256-GCM encrypted, never returned. Probe `21_env_var_probe.sql`, isolation `tests/isolation/env-vars.test.ts`, adapter `tests/engines/coolify.test.ts`, sync `tests/integration/env-sync.test.ts`. | Implemented |
 | D6 | No "promote to production" / staged production deployment. A deploy is production by definition. | absent | Missing |
 | D7 | No deployment protection (auth to view a preview URL), no password/IP gate. | absent | Missing |
 | D8 | No cron jobs, functions, edge config, analytics, speed insights, feature flags or notifications. | absent | Missing |
@@ -135,10 +135,20 @@ Ordered by impact on the brief's goal ("better than Vercel, provably"):
    and Coolify already exposes the routes.
 4. **The Database sub-pages (B2).** The first differentiator is two-ninths
    built; the blocker is a genuine ADR decision, recorded and not papered over.
-5. **No cancel, no edge traffic view (C1 ✅, B3 ✅, S7).** The "built but
-   unreachable" class is shrinking: cancel and restore are now wired end to end
-   with tests. The edge traffic view (what was blocked) remains, and it needs the
-   live edge.
+5. **Edge traffic view (X16 ✅, S7).** The "built but unreachable" class keeps
+   shrinking: cancel, restore and the edge decided-traffic view are now wired end
+   to end with tests. X16 was previously **missing** — the `security_events` table
+   existed (migration `0010`) with org-scoped, append-only RLS, but had no read
+   path. It is now reachable: `security.events.list`
+   (`apps/api/src/procedures/security.ts`) reads it membership-scoped, the store
+   method is `listSecurityEvents` (`packages/database/src/supabase-store.ts`), and
+   the Dashboard "Edge decisions" table (`apps/web/src/pages/pages.tsx`) shows
+   each decision, stage and client. A deployment whose store predates the read
+   answers with the honest `engine_unavailable`, surfaced as degraded rather than
+   empty. What remains is not code: rows appear only when a **live edge** writes
+   them, so the view is honest n/c until the edge host exists (gate 6–8
+   territory). The incident lifecycle (`IncidentTracker`, X15) is still
+   contract-only and stays that way.
 
 ## What was *not* found
 
@@ -148,7 +158,7 @@ dead button that claims to act. The honesty rule holds across the wired surface.
 
 ## Method
 
-Every row was read in the file it cites. `pnpm verify` (442 tests) and
+Every row was read in the file it cites. `pnpm verify` (554 tests) and
 `pnpm verify:rls` were run in this session and passed. Where a finding is a
 *new* one (S5, S6, S7, C1, C3, D4–D8) it is marked, because the existing
 `docs/audit/dashboard-inventory.md` and ADR-0016 did not record it.

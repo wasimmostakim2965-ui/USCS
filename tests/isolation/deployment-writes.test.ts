@@ -579,15 +579,27 @@ describe("deployments.rollback through the registered procedures", () => {
   });
 
   it("rolls back through the engine when the project has an application", async () => {
-    // A store where the project already has an engine-side application.
+    // A store where the project already has an engine-side application. The
+    // handle is minted by the *real* fake adapter, not invented here: rollback
+    // addresses the application by its `resourceId`, so a handle the engine
+    // never issued would not resolve — the same rule Coolify enforces.
     const { store, deployments } = makeStore();
+    const engines = workingEngines();
+    const created = await engines.hosting.createApplication(
+      { organizationId: ORG_A, idempotencyKey: "app-provision", timeoutMs: 100 },
+      { name: "alpha" },
+    );
+    if (!created.ok) throw new Error("the fake engine refused to create the application");
     const withTarget = {
       ...store,
       async getProjectDeploymentTarget() {
-        return { provider: "coolify", providerResourceId: "app-1" };
+        return {
+          provider: "coolify" as const,
+          providerResourceId: created.value.providerRef.resourceId,
+        };
       },
     } as DataStoreLike;
-    const router = routerWith(withTarget, workingEngines());
+    const router = routerWith(withTarget, engines);
 
     const res = await router.route({
       procedure: "deployments.rollback",

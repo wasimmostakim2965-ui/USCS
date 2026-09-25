@@ -180,6 +180,9 @@ importers:
       '@cloud-wai/adapters':
         specifier: workspace:*
         version: link:../../packages/adapters
+      '@cloud-wai/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@cloud-wai/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts

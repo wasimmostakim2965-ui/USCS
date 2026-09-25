@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@cloud-wai/adapters": "workspace:*",
+    "@cloud-wai/auth": "workspace:*",
     "@cloud-wai/contracts": "workspace:*",
     "@cloud-wai/database": "workspace:*",
     "@cloud-wai/observability": "workspace:*",

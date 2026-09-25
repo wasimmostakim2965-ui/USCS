@@ -82,6 +82,7 @@ import {
 import {
   addSecurityRule,
   distributeSecurityPolicy,
+  listSecurityEvents,
   listSecurityRules,
   readSecurityPolicy,
   readVerifiedBots,
@@ -103,6 +104,15 @@ import {
   type GitLinkDeps,
 } from "./git-links.js";
 import type { SecretCipher } from "@cloud-wai/auth";
+import {
+  listEnvVars,
+  removeEnvVar,
+  setEnvVar,
+  type EnvVarDeps,
+  type ListEnvVarsInput,
+  type RemoveEnvVarInput,
+  type SetEnvVarInput,
+} from "./env-vars.js";
 import { readUsage, readBudgets, saveBudget, removeBudget, type BillingDeps } from "./billing.js";
 import { readObservability, type ObservabilityDeps } from "./observability.js";
 import type { RequestContext } from "../context.js";
@@ -206,6 +216,13 @@ export function buildProcedures(
     cipher: extras.secretCipher ?? null,
     ...(extras.now ? { now: extras.now } : {}),
     ...(extras.newSecret ? { newSecret: extras.newSecret } : {}),
+  };
+  const envVarDeps: EnvVarDeps = {
+    store,
+    newId,
+    engines: extras.engines ?? missingEngines,
+    cipher: extras.secretCipher ?? null,
+    ...(extras.now ? { now: extras.now } : {}),
   };
 
   return [
@@ -323,6 +340,21 @@ export function buildProcedures(
         disconnectGitLink(ctx, gitLinkDeps, inputOf<DisconnectGitLinkInput>(input)),
     },
     {
+      name: "env.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listEnvVars(ctx, envVarDeps, inputOf<ListEnvVarsInput>(input)),
+    },
+    {
+      name: "env.set",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        setEnvVar(ctx, envVarDeps, inputOf<SetEnvVarInput>(input)),
+    },
+    {
+      name: "env.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeEnvVar(ctx, envVarDeps, inputOf<RemoveEnvVarInput>(input)),
+    },
+    {
       name: "domains.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) => {
         const parsed = inputOf<{ organizationId: OrganizationId; projectId?: ProjectId }>(input);
@@ -429,6 +461,13 @@ export function buildProcedures(
           securityDeps,
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
         ),
+    },
+    {
+      name: "security.events.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) => {
+        const parsed = inputOf<{ organizationId: OrganizationId; limit?: number }>(input);
+        return listSecurityEvents(ctx, securityDeps, parsed.organizationId, parsed.limit);
+      },
     },
     {
       name: "apiKeys.list",
@@ -566,6 +605,9 @@ export const ROUTE_SHAPES = {
     previewsEnabled: "boolean?",
   },
   "git.disconnect": { projectId: "ProjectId", linkId: "string" },
+  "env.list": { projectId: "ProjectId" },
+  "env.set": { projectId: "ProjectId", key: "string", value: "string", isBuildTime: "boolean?" },
+  "env.remove": { projectId: "ProjectId", key: "string" },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId", projectId: "ProjectId?" },
   "domains.create": {
@@ -615,6 +657,7 @@ export const ROUTE_SHAPES = {
   },
   "security.rules.remove": { organizationId: "OrganizationId", ruleId: "string" },
   "security.bots.list": { organizationId: "OrganizationId" },
+  "security.events.list": { organizationId: "OrganizationId", limit: "number?" },
   "apiKeys.list": { organizationId: "OrganizationId" },
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },

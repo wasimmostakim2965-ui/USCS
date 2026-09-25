@@ -85,7 +85,7 @@ object we have not built.
 | P10 | Promote preview → production | none | **Missing (D6)** |
 | P11 | Staged production deployment (`--skip-domain`) | none | **Missing** |
 | P12 | Deployment protection (auth/password/IP) | none | **Missing (D7)** |
-| P13 | Environment variables (per env) | none; Coolify `/envs` routes exist upstream (`tests/fixtures/coolify-routes.json`) | **Missing (D5)** |
+| P13 | Environment variables (per env) | `project_env_vars` table + RLS + guarded engine columns (`supabase/migrations/0015_project_env_vars.sql`); `env.list/set/remove` (`apps/api/src/procedures/env-vars.ts`); Coolify `/envs` through the adapter (`packages/adapters/src/coolify.ts`); worker reconciliation before each build (`apps/worker/src/env-sync.ts`); `EnvVarsPage` (`apps/web/src/pages/pages.tsx`); probe `21_env_var_probe.sql` | **Wired** (values encrypted, never returned) |
 | P14 | Environments (Local/Preview/Production) model | `environments` table exists (`0001_control_plane.sql:133`), unused | **Missing (C3)** |
 | P15 | Project settings: rename | `projects.update` (`index.ts:~240`); `ProjectSettingsPage` | **Wired** |
 | P16 | Project settings: slug↔engine name sync | slug rename does not rename the engine app (C10) | **Partial** |
@@ -122,7 +122,7 @@ object we have not built.
 | X13 | IP blocking / trusted IPs | deny list supports `ip`/`cidr`/`asn`/`user-agent` kinds (`packages/security`) | **Wired (deny)**; trusted-IP allow-list **Missing** |
 | X14 | DDoS mitigation | engine-side (edge host); no control-plane surface | **Honest n/c** |
 | X15 | Security incidents surfaced | `IncidentTracker` (`apps/security-control/src/index.ts:85-160`) exists, **not wired to the API** | **Contract-only (S7)** |
-| X16 | Edge decided-traffic view (what was blocked) | none | **Missing (S7)** |
+| X16 | Edge decided-traffic view (what was blocked) | `security_events` table + org-scoped RLS (`supabase/migrations/0010_security_protection_and_events.sql`); read via `security.events.list` (`apps/api/src/procedures/security.ts`), store `listSecurityEvents` (`packages/database/src/supabase-store.ts`), Dashboard "Edge decisions" table (`apps/web/src/pages/pages.tsx`) | **Wired (read)** — the edge writes rows; **Honest n/c** until a live edge populates them |
 | X17 | Security dashboard (posture across projects) | the org Security page shows posture, deny list, verified bots, engine state | **Partial** |
 
 ## Database (differentiator one — Vercel has no equivalent surface)
@@ -164,7 +164,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅ | Medium | **Partly closed** — the compile and control-plane surface are wired; the live edge application stays an open gate |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
 | 4 | Usage recording + hard spend cap | W8 ✅, W9 ✅ | Medium | **Closed** — the top user complaint |
-| 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X15, X16 | Medium | "Built but unreachable" class — cancel and restore are wired; traffic view remains |
+| 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X16 ✅ | Medium | **Closed for read** — cancel, restore and the edge decided-traffic view are wired; the incident surface (X15) remains |
 | 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
 | 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
 
@@ -172,6 +172,6 @@ Ranked against the brief. Each row is a workstream, not a wish:
 
 Vercel rows come from Vercel's own docs pages named above; user rows come from the
 review sources named above. Our rows were read in the file cited, in this
-session. `pnpm verify` (511 tests) and `pnpm verify:rls` were green when this was
+session. `pnpm verify` (554 tests) and `pnpm verify:rls` were green when this was
 written. A row moves to **Wired** only with a procedure, a page and a test in the
 same commit.

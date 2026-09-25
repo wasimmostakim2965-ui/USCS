@@ -49,6 +49,7 @@ import type {
   SecurityPolicyInput,
   SecurityRule,
   SecurityRuleCreateInput,
+  SecurityEvent,
 } from "@cloud-wai/database";
 import type { AdapterContext, JobQueue, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
 import {
@@ -160,6 +161,7 @@ function makeStore() {
   const policies: SecurityPolicy[] = [];
   const policyEvents: SecurityPolicyEvent[] = [];
   const securityRules: SecurityRule[] = [];
+  const securityEvents: SecurityEvent[] = [];
   const audit: AuditEvent[] = [];
   const deployments: Deployment[] = [];
   const domains: Domain[] = [];
@@ -429,6 +431,13 @@ function makeStore() {
       if (!isMember(userId, org)) return [];
       return securityRules.filter((r) => r.organizationId === org);
     },
+    async listSecurityEvents(userId: UserId, org: OrganizationId, limit = 100) {
+      if (!isMember(userId, org)) return [];
+      return securityEvents
+        .filter((e) => e.organizationId === org)
+        .sort((a, b) => b.observedAt.localeCompare(a.observedAt))
+        .slice(0, limit);
+    },
     async createSecurityRule(input: SecurityRuleCreateInput) {
       const rule: SecurityRule = {
         id: input.id,
@@ -451,7 +460,17 @@ function makeStore() {
     },
   } satisfies DataStoreLike;
 
-  return { store, resources, backups, restores, policies, policyEvents, securityRules, audit };
+  return {
+    store,
+    resources,
+    backups,
+    restores,
+    policies,
+    policyEvents,
+    securityRules,
+    securityEvents,
+    audit,
+  };
 }
 
 type DataStoreLike = import("@cloud-wai/database").DataStore & Partial<ControlPlaneWrites>;
@@ -1110,6 +1129,117 @@ describe("security.rules through the registered procedures", () => {
     expect(res.ok, JSON.stringify(res.error)).toBe(true);
     const bots = (res.data as { bots: readonly { name: string }[] }).bots;
     expect(bots.some((b) => b.name === "googlebot")).toBe(true);
+  });
+});
+
+describe("security.events.list through the registered procedures", () => {
+  function seedEvent(org: OrganizationId, over: Partial<SecurityEvent> = {}): SecurityEvent {
+    const event: SecurityEvent = {
+      id: `evt-${org}-${over.observedAt ?? "x"}`,
+      organizationId: org,
+      host: "app.example.com",
+      stage: "block-deny-list",
+      action: "block",
+      ruleId: 9,
+      policyVersion: 3,
+      clientIp: "203.0.113.9",
+      method: "GET",
+      path: "/admin",
+      userAgent: "curl/8",
+      observedAt: "2026-01-01T00:00:00Z",
+      createdAt: "2026-01-01T00:00:00Z",
+      ...over,
+    };
+    return event;
+  }
+
+  it("returns only the caller's own organization's decisions, newest first", async () => {
+    const { store, securityEvents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    securityEvents.push(
+      seedEvent(ORG_A, { id: "a-old", observedAt: "2026-01-01T00:00:00Z" }),
+      seedEvent(ORG_A, { id: "a-new", observedAt: "2026-01-02T00:00:00Z" }),
+      seedEvent(ORG_B, { id: "b-only", observedAt: "2026-01-03T00:00:00Z" }),
+    );
+
+    const res = await router.route({
+      procedure: "security.events.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    const events = (res.data as { events: readonly SecurityEvent[] }).events;
+    expect(events.map((e) => e.id)).toEqual(["a-new", "a-old"]);
+  });
+
+  it("refuses a caller who is not a member of the organization", async () => {
+    const { store, securityEvents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    securityEvents.push(seedEvent(ORG_A, { id: "a-only" }));
+
+    // Carol belongs to no organization, so the read is refused by the guard.
+    const res = await router.route({
+      procedure: "security.events.list",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
+  });
+
+  it("never returns another tenant's rows, even for a caller who belongs to both", async () => {
+    const { store, securityEvents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    securityEvents.push(
+      seedEvent(ORG_A, { id: "a-only" }),
+      seedEvent(ORG_B, { id: "b-only" }),
+    );
+
+    // Dave belongs to A and B. Asking for B must return only B's rows.
+    const res = await router.route({
+      procedure: "security.events.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_B },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    const events = (res.data as { events: readonly SecurityEvent[] }).events;
+    expect(events.map((e) => e.id)).toEqual(["b-only"]);
+  });
+
+  it("honours the limit window", async () => {
+    const { store, securityEvents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    for (let i = 0; i < 5; i += 1) {
+      securityEvents.push(
+        seedEvent(ORG_A, {
+          id: `a-${i}`,
+          observedAt: `2026-01-0${i + 1}T00:00:00Z`,
+        }),
+      );
+    }
+    const res = await router.route({
+      procedure: "security.events.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, limit: 2 },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    expect((res.data as { events: readonly SecurityEvent[] }).events).toHaveLength(2);
+  });
+
+  it("answers with the honest engine_unavailable when the store cannot read events", async () => {
+    const { store } = makeStore();
+    // A deployment that predates the read: the method is absent.
+    const withoutRead = { ...store } as Record<string, unknown>;
+    delete withoutRead.listSecurityEvents;
+    const router = routerWith(withoutRead as DataStoreLike, unconfiguredEngines());
+    const res = await router.route({
+      procedure: "security.events.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(503);
+    expect(res.error?.message).toContain("cannot read edge decisions");
   });
 });
 

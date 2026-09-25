@@ -802,6 +802,47 @@ export async function loadSecurityRules(
 }
 
 /**
+ * Load the edge's recent decisions — what it allowed, logged, challenged or
+ * blocked, and at which stage of the ladder.
+ *
+ * This is the read that turns a block from a mystery into an attributable
+ * event. A deployment whose store predates the read answers with the honest
+ * `engine_unavailable`, surfaced as degraded rather than an empty list.
+ */
+export async function loadSecurityEvents(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<SecurityEventSummary>> {
+  const response = await client.call<{ events: readonly SecurityEventSummary[] }>(
+    "security.events.list",
+    { organizationId },
+  );
+  if (response.notConfigured) {
+    return {
+      title: "Edge decisions",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Edge decisions", response.error?.message ?? "Request failed.");
+  }
+  return ready("Edge decisions", response.data?.events ?? []);
+}
+
+/** One request-level decision the edge made. */
+export interface SecurityEventSummary {
+  readonly id: string;
+  readonly host: string;
+  readonly stage: string;
+  readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
+  readonly clientIp: string | null;
+  readonly method: string | null;
+  readonly path: string | null;
+  readonly userAgent: string | null;
+  readonly observedAt: string;
+}
+
+/**
  * Load the verified-bot directory.
  *
  * This is the answer to "will attack mode break my search ranking": the crawlers
@@ -854,6 +895,40 @@ export async function loadGitLinks(
 ): Promise<Section<GitLinkSummary>> {
   const response = await client.call<readonly GitLinkSummary[]>("git.links.list", { projectId });
   return sectionFrom("Repositories", response);
+}
+
+/**
+ * One environment variable, as the browser is allowed to see it.
+ *
+ * There is no `value` field and there never will be: the API returns a
+ * fingerprint (`valuePrefix`) and the engine reference, so a page can show that
+ * a variable exists and where it landed without ever holding the secret. That is
+ * why this type is separate from the write input below rather than optional
+ * fields on a shared shape.
+ */
+export interface EnvVarSummary {
+  readonly id: string;
+  readonly key: string;
+  readonly valuePrefix: string;
+  readonly isBuildTime: boolean;
+  readonly updatedAt: string;
+}
+
+/** The project's environment variables. */
+export async function loadEnvVars(
+  client: ApiClient,
+  projectId: string,
+): Promise<Section<EnvVarSummary>> {
+  const response = await client.call<readonly EnvVarSummary[]>("env.list", { projectId });
+  return sectionFrom("Environment variables", response);
+}
+
+/** What the API reports after a variable is set or replaced. */
+export interface SetEnvVarOutcome {
+  readonly variable: EnvVarSummary;
+  readonly applied: "engine" | "stored";
+  readonly redeployRequired: boolean;
+  readonly engineReason: string | null;
 }
 
 export interface DashboardModel {
@@ -920,6 +995,12 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       return {
         title: "Git",
         sections: [await loadGitLinks(client, route.projectId)],
+      };
+
+    case "env":
+      return {
+        title: "Environment",
+        sections: [await loadEnvVars(client, route.projectId)],
       };
 
     case "audit":

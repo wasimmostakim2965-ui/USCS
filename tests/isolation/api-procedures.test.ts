@@ -248,6 +248,9 @@ describe("the registered procedure table", () => {
       "domains.list",
       "domains.remove",
       "domains.verify",
+      "env.list",
+      "env.remove",
+      "env.set",
       "git.connect",
       "git.disconnect",
       "git.links.list",
@@ -262,6 +265,7 @@ describe("the registered procedure table", () => {
       "projects.update",
       "providers.health",
       "security.bots.list",
+      "security.events.list",
       "security.policy.distribute",
       "security.policy.get",
       "security.policy.save",
@@ -336,6 +340,7 @@ describe("the registered procedure table", () => {
       "security.rules.add": { organizationId: ORG_A, kind: "ip", value: "10.0.0.1" },
       "security.rules.remove": { organizationId: ORG_A, ruleId: "r-1" },
       "security.bots.list": { organizationId: ORG_A },
+      "security.events.list": { organizationId: ORG_A },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {

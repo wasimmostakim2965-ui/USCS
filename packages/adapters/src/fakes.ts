@@ -21,6 +21,7 @@ import type {
   DatabaseAdapter,
   DeploymentState,
   DomainVerifier,
+  EnvVarState,
   HostingAdapter,
   LogPage,
   SecurityEdgeAdapter,
@@ -86,6 +87,10 @@ export function hostingNotConfigured(engine: string, hint?: string): HostingAdap
     cancelDeployment: miss,
     rollback: miss,
     getLogs: miss,
+    listEnvVars: miss,
+    createEnvVar: miss,
+    updateEnvVar: miss,
+    deleteEnvVar: miss,
     deleteApplication: miss,
     reconcile: miss,
   };
@@ -183,7 +188,12 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
   const delay = options.delayMs ?? 0;
   const applications = new Map<
     string,
-    { name: string; deployment: DeploymentState; logs: string[] }
+    {
+      name: string;
+      deployment: DeploymentState;
+      logs: string[];
+      env: Map<string, EnvVarState>;
+    }
   >();
 
   const gate = async <T>(compute: () => AdapterResult<T>): Promise<AdapterResult<T>> => {
@@ -200,25 +210,44 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
   const appRef = (ctx: AdapterContext) =>
     refFor(engine, ctx.idempotencyKey, ctx.organizationId, "application");
 
+  /**
+   * Resolve an application the way the real Coolify adapter does: by the
+   * engine's own `resourceId`, not the caller's idempotency key.
+   *
+   * A deploy and a later env write are separate calls with different idempotency
+   * keys, so they can only meet on the application's `resourceId` — the handle
+   * the control plane stored when the application was created. A fake that
+   * keyed by idempotency key would let a cross-call write pass that Coolify
+   * would 404, which is precisely the bug this fidelity prevents. The
+   * idempotency key is the fallback only for the same call that created it.
+   */
+  const resolve = (ctx: AdapterContext, ref: { readonly resourceId: string }) =>
+    applications.get(ref.resourceId) ?? applications.get(ctxKey(ctx));
+
   return {
     createApplication: (ctx, input) =>
       gate(() => {
         const key = ctxKey(ctx);
-        applications.set(key, {
+        const created = operationRef(engine, key, ctx.organizationId, "application");
+        // Indexed by the engine's own resourceId, so a later call that only has
+        // the stored handle can find it — the way Coolify's uuid works.
+        applications.set(created.providerRef.resourceId, {
           name: input.name,
-          deployment: { ref: appRef(ctx), status: "pending", url: null },
+          deployment: { ref: created.providerRef, status: "pending", url: null },
           logs: [`created application ${input.name}`],
+          env: new Map<string, EnvVarState>(),
         });
-        return ok("succeeded", operationRef(engine, key, ctx.organizationId, "application"));
+        return ok("succeeded", created);
       }),
 
     deploy: (ctx, input) =>
       gate(() => {
         const key = ctxKey(ctx);
-        const app = applications.get(key) ?? {
+        const app = resolve(ctx, input.applicationRef) ?? {
           name: String(input.applicationRef.resourceId),
           deployment: { ref: input.applicationRef, status: "pending" as const, url: null },
           logs: [],
+          env: new Map<string, EnvVarState>(),
         };
         app.deployment = {
           ref: input.applicationRef,
@@ -226,57 +255,112 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
           url: `https://${key}.fake.cloud-wai.test`,
         };
         app.logs.push("deployed");
-        applications.set(key, app);
+        applications.set(input.applicationRef.resourceId, app);
         return ok("succeeded", operationRef(engine, key, ctx.organizationId, "deployment"));
       }),
 
     getDeployment: (ctx, ref) =>
       gate(() => {
-        const app = applications.get(ctxKey(ctx));
+        const app = applications.get(ref.resourceId);
         return ok("succeeded", app?.deployment ?? { ref, status: "pending", url: null });
       }),
 
-    cancelDeployment: (ctx) =>
+    cancelDeployment: (ctx, ref) =>
       gate(() => {
-        const app = applications.get(ctxKey(ctx));
+        const app = applications.get(ref.resourceId);
         if (app) app.deployment = { ...app.deployment, status: "failed" };
         return ok("succeeded", undefined);
       }),
 
-    rollback: (ctx) =>
+    rollback: (ctx, input) =>
       gate(() => {
         const key = ctxKey(ctx);
         // A real engine answers a rollback with a queued deployment, and a later
         // read of that deployment reports its state. The fake records the state
         // too, so a caller that reads back after rolling back gets the same shape
         // of answer it would get from Coolify instead of a fabricated "pending".
-        const app = applications.get(key);
-        applications.set(key, {
+        const app = resolve(ctx, input.applicationRef);
+        const deploymentRef = refFor(engine, key, ctx.organizationId, "deployment");
+        applications.set(input.applicationRef.resourceId, {
           name: app?.name ?? "application",
           deployment: {
-            ref: refFor(engine, key, ctx.organizationId, "application"),
+            ref: input.applicationRef,
             status: "succeeded",
             url: app?.deployment.url ?? `https://${key}.fake.cloud-wai.test`,
           },
           logs: [...(app?.logs ?? []), "rolled back"],
+          env: app?.env ?? new Map<string, EnvVarState>(),
         });
-        return ok("succeeded", operationRef(engine, key, ctx.organizationId, "deployment"));
+        // Coolify answers a rollback with the *application* handle when it has
+        // no deployment uuid to give (see the real adapter), so the caller can
+        // read the state back through the handle it already holds.
+        return ok("succeeded", { jobId: deploymentRef.resourceId, providerRef: input.applicationRef });
       }),
 
-    getLogs: (ctx, _ref, _cursor): Promise<AdapterResult<LogPage>> =>
-      gate(() =>
-        ok("succeeded", { lines: applications.get(ctxKey(ctx))?.logs ?? [], cursor: null }),
-      ),
+    getLogs: (ctx, ref, _cursor): Promise<AdapterResult<LogPage>> =>
+      gate(() => ok("succeeded", { lines: applications.get(ref.resourceId)?.logs ?? [], cursor: null })),
 
-    deleteApplication: (ctx) =>
+    listEnvVars: (ctx, ref) =>
       gate(() => {
-        applications.delete(ctxKey(ctx));
+        const app = resolve(ctx, ref);
+        return ok("succeeded", [...(app?.env.values() ?? [])]);
+      }),
+
+    createEnvVar: (ctx, input) =>
+      gate(() => {
+        const app = resolve(ctx, input.applicationRef);
+        if (!app) return err("not_configured", `${label} has no application for this deploy.`);
+        const state: EnvVarState = {
+          key: input.variable.key,
+          value: input.variable.value,
+          isBuildTime: input.variable.isBuildTime ?? true,
+          engineRef: `env-${input.variable.key}`,
+        };
+        app.env.set(input.variable.key, state);
+        return ok("succeeded", state);
+      }),
+
+    updateEnvVar: (ctx, input) =>
+      gate(() => {
+        const app = resolve(ctx, input.applicationRef);
+        if (!app) return err("not_configured", `${label} has no application for this deploy.`);
+        const existing = app.env.get(input.variable.key);
+        // An update of a variable that does not exist is a refusal, not an
+        // upsert: the engine would 404, and inventing the row would hide that.
+        if (!existing) {
+          return err("failed", `${label} has no environment variable ${input.variable.key}.`);
+        }
+        const state: EnvVarState = {
+          ...existing,
+          value: input.variable.value,
+          isBuildTime: input.variable.isBuildTime ?? existing.isBuildTime,
+        };
+        app.env.set(input.variable.key, state);
+        return ok("succeeded", state);
+      }),
+
+    deleteEnvVar: (ctx, input) =>
+      gate(() => {
+        const app = resolve(ctx, input.applicationRef);
+        if (!app) return err("not_configured", `${label} has no application for this deploy.`);
+        for (const [key, state] of app.env) {
+          if (state.engineRef === input.engineRef) {
+            app.env.delete(key);
+            return ok("succeeded", undefined);
+          }
+        }
+        return err("failed", `${label} has no environment variable ${input.engineRef}.`);
+      }),
+
+    deleteApplication: (ctx, ref) =>
+      gate(() => {
+        applications.delete(ref.resourceId);
         return ok("succeeded", undefined);
       }),
 
     reconcile: (ctx, ref) =>
       gate(() => {
-        const app = applications.get(ctxKey(ctx));
+        const app = resolve(ctx, ref);
         // Reconciling an application we never created is honestly
         // `not_configured` for that ref, not a fabricated success.
         if (!app)

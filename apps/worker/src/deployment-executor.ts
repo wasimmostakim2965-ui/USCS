@@ -107,6 +107,27 @@ export interface DeploymentExecutionResult {
 export interface DeploymentExecutorDeps {
   readonly hosting: HostingAdapter;
   readonly writes: DeploymentExecutionWrites;
+  /**
+   * Push a project's stored environment variables onto the application before
+   * it deploys, or null when env vars are not configured.
+   *
+   * A variable can be stored before the project has an application — a customer
+   * configures the project before its first deploy. This reconciles the engine
+   * with what is stored at the moment the application first exists, so a
+   * pre-deploy variable is not silently absent from the build. It is optional
+   * because a test that pins deploy behaviour need not model configuration, and
+   * an absent port means "nothing to reconcile", never a fabricated success.
+   */
+  readonly envVars?: EnvVarSync | null;
+}
+
+/** Reconcile the engine's environment with what the control plane stores. */
+export interface EnvVarSync {
+  sync(
+    ctx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
+    applicationRef: ProviderRef,
+    projectId: string,
+  ): Promise<void>;
 }
 
 /**
@@ -202,6 +223,16 @@ export async function executeDeployment(
         providerResourceId: application.resourceId,
       });
     }
+  }
+
+  // Reconcile the engine's environment before the build, so a variable stored
+  // before the application existed is present in this build rather than absent
+  // until someone re-saves it. A reconciliation failure does not fail the
+  // deployment: the same rule the applier uses for a promotion — a build that
+  // genuinely built is worth shipping, and an env sync that could not run is
+  // reported by the env page's own state, not by discarding a good build.
+  if (deps.envVars) {
+    await deps.envVars.sync(adapterCtx, application, input.projectId);
   }
 
   const deployed = await deps.hosting.deploy(adapterCtx, { applicationRef: application });

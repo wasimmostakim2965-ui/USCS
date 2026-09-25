@@ -45,6 +45,7 @@ SQL_STEPS=(
   "data restores|supabase/migrations/0012_data_restores.sql"
   "organization budgets|supabase/migrations/0013_organization_budgets.sql"
   "deployment production pointer|supabase/migrations/0014_deployment_production_pointer.sql"
+  "project env vars|supabase/migrations/0015_project_env_vars.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
@@ -56,6 +57,7 @@ SQL_STEPS=(
   "data restore probe|tests/isolation/rls/18_data_restore_probe.sql"
   "budget probe|tests/isolation/rls/19_budget_probe.sql"
   "production pointer probe|tests/isolation/rls/20_production_pointer_probe.sql"
+  "env var probe|tests/isolation/rls/21_env_var_probe.sql"
 )
 
 run_all() {

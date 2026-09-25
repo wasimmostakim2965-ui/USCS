@@ -16,6 +16,7 @@ import {
   SqlJobQueue,
 } from "@cloud-wai/database";
 import { buildEngines, engineConfigFromEnv } from "@cloud-wai/adapters";
+import { secretCipherFromEnv, type SecretCipher } from "@cloud-wai/auth";
 import { randomUUID } from "node:crypto";
 import {
   InProcessWorker,
@@ -24,6 +25,7 @@ import {
   buildBackupJobHandler,
   buildDeploymentApplier,
   buildDeploymentJobHandler,
+  buildEnvVarSync,
   buildPolicyApplier,
   buildPolicyJobHandler,
   buildRestoreApplier,
@@ -74,6 +76,7 @@ export function buildWorkerWiring(
   engines: Engines,
   newId: () => string,
   now: () => Date,
+  cipher: SecretCipher | null = null,
 ): WorkerWiring {
   const deploymentWrites = {
     getProjectDeploymentTargetForService: (organizationId: string, projectId: string) =>
@@ -129,6 +132,15 @@ export function buildWorkerWiring(
       hosting: engines.hosting,
       writes: deploymentWrites,
       outcome: deploymentOutcome,
+      // Push the project's stored environment onto the application before it
+      // builds, so a variable saved before the first deploy is present in it.
+      // Null when no encryption key is set: nothing can be decrypted, so the
+      // step is honestly absent rather than pretending to run.
+      envVars: buildEnvVarSync({
+        hosting: engines.hosting,
+        store,
+        cipher,
+      }),
       now,
     }),
     [BACKUP_JOB_KIND]: buildBackupJobHandler({
@@ -192,7 +204,7 @@ export async function startWorker(
   const store = createSupabaseControlPlaneStore({ client, newId });
   const engines = buildEngines(engineConfigFromEnv(env));
   const queue = new SqlJobQueue(client);
-  const { handlers, apply } = buildWorkerWiring(store, engines, newId, () => new Date());
+  const { handlers, apply } = buildWorkerWiring(store, engines, newId, () => new Date(), secretCipherFromEnv(env));
 
   const worker = new InProcessWorker({
     queue,

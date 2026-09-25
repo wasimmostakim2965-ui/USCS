@@ -41,6 +41,7 @@ export {
   type PolicyExecutionResult,
 } from "./policy-job.js";
 export { buildApplier, type JobOutcomeWriter } from "./applier.js";
+export { buildEnvVarSync, type EnvSyncDeps, type EnvSyncStore } from "./env-sync.js";
 export {
   DEPLOYMENT_JOB_KIND,
   BACKUP_JOB_KIND,

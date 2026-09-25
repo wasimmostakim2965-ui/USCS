@@ -28,6 +28,7 @@ import type {
   AdapterContext,
   CreateApplicationInput,
   DeploymentState,
+  EnvVarState,
   HostingAdapter,
   LogPage,
 } from "./index.js";
@@ -118,6 +119,24 @@ export function mapQueueStatus(raw: string | undefined): DeploymentState["status
   }
 }
 
+/**
+ * Map one Coolify environment-variable row to `EnvVarState`.
+ *
+ * Coolify serialises a variable as `{ key, value, is_buildtime, uuid, ... }`
+ * with `value` masked unless the token carries `read:sensitive`. The mask is
+ * kept as-is rather than treated as the real value: reporting a masked string
+ * as a secret would be worse than reporting nothing.
+ */
+function toEnvVarState(row: Record<string, unknown>): EnvVarState {
+  const value = row["value"] ?? row["real_value"];
+  return {
+    key: String(row["key"] ?? ""),
+    value: typeof value === "string" ? value : "",
+    isBuildTime: row["is_buildtime"] !== false,
+    engineRef: typeof row["uuid"] === "string" && row["uuid"] !== "" ? row["uuid"] : null,
+  };
+}
+
 /** Fields `POST /applications/public` requires that we must supply. */
 function missingCreateConfig(creds: CoolifyCredentials): readonly string[] {
   const missing: string[] = [];
@@ -152,7 +171,7 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
   const call = <T>(
     ctx: AdapterContext,
     creds: CoolifyCredentials,
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
   ) =>
@@ -404,6 +423,124 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
         // null rather than an invented value.
         cursor: null,
       });
+    },
+
+    /**
+     * List an application's environment variables.
+     *
+     * Coolify returns each variable with its `value` masked unless the token has
+     * `read:sensitive`, so this is a key inventory by construction — it says
+     * which variables exist and whether they are build-time, never their
+     * secret values. `removeSensitiveData` also hides `id`/`uuid` only when
+     * `is_shown_once`; where a uuid is present it is kept as the engine handle a
+     * delete addresses.
+     */
+    async listEnvVars(ctx, ref) {
+      const resolved = credentialsFor<readonly EnvVarState[]>(ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const response = await call<readonly Record<string, unknown>[]>(
+        ctx,
+        resolved.creds,
+        "GET",
+        `/api/v1/applications/${encodeURIComponent(ref.resourceId)}/envs`,
+      );
+      if (!response.ok) return response;
+
+      const rows = Array.isArray(response.value.value) ? response.value.value : [];
+      return ok(
+        "succeeded",
+        rows.map(toEnvVarState),
+      );
+    },
+
+    /**
+     * Create one environment variable.
+     *
+     * `is_buildtime` follows Coolify's own default (true) so a variable a
+     * customer adds is available at build time unless they say otherwise; a
+     * create that returns no key is reported `degraded` rather than invented.
+     */
+    async createEnvVar(ctx, input) {
+      const resolved = credentialsFor<EnvVarState>(ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const response = await call<Record<string, unknown>>(
+        ctx,
+        resolved.creds,
+        "POST",
+        `/api/v1/applications/${encodeURIComponent(input.applicationRef.resourceId)}/envs`,
+        {
+          key: input.variable.key,
+          value: input.variable.value,
+          is_buildtime: input.variable.isBuildTime ?? true,
+        },
+      );
+      if (!response.ok) return response;
+
+      const created = response.value.value ?? {};
+      if (typeof created["key"] !== "string" || created["key"] === "") {
+        return err("degraded", "Coolify accepted the environment variable but returned no key.");
+      }
+      return ok("succeeded", toEnvVarState(created));
+    },
+
+    /**
+     * Update one environment variable by key.
+     *
+     * Coolify's update route matches the variable by `key` (see
+     * `update_env_by_uuid` in the pinned controller), so the key is the identity
+     * sent; sending a uuid instead would update the wrong variable or 404.
+     */
+    async updateEnvVar(ctx, input) {
+      const resolved = credentialsFor<EnvVarState>(ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const response = await call<Record<string, unknown>>(
+        ctx,
+        resolved.creds,
+        "PATCH",
+        `/api/v1/applications/${encodeURIComponent(input.applicationRef.resourceId)}/envs`,
+        {
+          key: input.variable.key,
+          value: input.variable.value,
+          ...(input.variable.isBuildTime === undefined
+            ? {}
+            : { is_buildtime: input.variable.isBuildTime }),
+        },
+      );
+      if (!response.ok) return response;
+
+      const updated = response.value.value ?? {};
+      if (typeof updated["key"] !== "string" || updated["key"] === "") {
+        return err("degraded", "Coolify accepted the environment variable update but returned no key.");
+      }
+      return ok("succeeded", toEnvVarState(updated));
+    },
+
+    /**
+     * Delete one environment variable by its uuid.
+     *
+     * A missing handle is a caller error, reported rather than sent as a request
+     * Coolify would reject: the delete route identifies the variable by uuid.
+     */
+    async deleteEnvVar(ctx, input) {
+      const resolved = credentialsFor<void>(ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const engineRef = input.engineRef?.trim();
+      if (!engineRef) {
+        return err("failed", "Deleting an environment variable requires its engine reference.");
+      }
+
+      const response = await call<unknown>(
+        ctx,
+        resolved.creds,
+        "DELETE",
+        `/api/v1/applications/${encodeURIComponent(input.applicationRef.resourceId)}/envs/${encodeURIComponent(engineRef)}`,
+      );
+      if (!response.ok) return response;
+      return ok("succeeded", undefined);
     },
 
     async deleteApplication(ctx, ref) {

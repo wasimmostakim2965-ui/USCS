@@ -91,6 +91,11 @@ const ICON_SET = {
     ],
   },
 
+  /* an environment variable: a terminal prompt over a value line */
+  env: {
+    paths: ["M5 8.5 9 12l-4 3.5", "M12 16h7", "M4.5 4.5h15v15h-15z"],
+  },
+
   /* database sub-level */
   table: {
     paths: ["M4.5 5.5h15v13h-15z", "M4.5 10h15", "M10 5.5v13"],

@@ -29,6 +29,7 @@ import { VERIFIED_BOTS, validateDenyRule, type Engines, type JobQueue } from "@c
 import type {
   ControlPlaneWrites,
   DataStore,
+  SecurityEvent,
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityRule,
@@ -55,6 +56,8 @@ type SecurityRuleWrites = Pick<
   ControlPlaneWrites,
   "listSecurityRules" | "createSecurityRule" | "deleteSecurityRule"
 >;
+
+type SecurityEventReads = Pick<ControlPlaneWrites, "listSecurityEvents">;
 
 const REQUIRED_WRITES = [
   "getSecurityPolicy",
@@ -526,6 +529,27 @@ export async function removeSecurityRule(
   });
 
   return { removed };
+}
+
+/** The edge's recent decisions for this organization, newest first. */
+export async function listSecurityEvents(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+  limit?: number,
+): Promise<{ events: readonly SecurityEvent[] }> {
+  requireCapability(ctx, organizationId, "security:read");
+
+  const store = deps.store;
+  if (typeof store.listSecurityEvents !== "function") {
+    throw new ApiError(
+      "engine_unavailable",
+      "This deployment cannot read edge decisions yet.",
+    );
+  }
+  const reads = store as unknown as SecurityEventReads;
+  const events = await reads.listSecurityEvents(ctx.principal.userId, organizationId, limit);
+  return { events };
 }
 
 /**
