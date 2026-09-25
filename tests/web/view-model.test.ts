@@ -13,6 +13,7 @@ import {
   loadRoute,
   loadUsage,
   loadBudgets,
+  loadTrustedSources,
   sectionFrom,
 } from "@cloud-wai/web";
 import {
@@ -282,6 +283,49 @@ describe("loaders", () => {
     });
 
     const section = await loadBudgets(client, "org-a");
+    expect(section.state.kind).toBe("degraded");
+    expect(hasData(section)).toBe(false);
+  });
+
+  it("renders a trusted source the deployment stores, so attack mode's allow-list is real", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: [
+        {
+          id: "ts-1",
+          kind: "cidr",
+          value: "192.0.2.0/24",
+          note: "CI runners",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const section = await loadTrustedSources(client, "org-a");
+    expect(section.state.kind).toBe("ready");
+    if (section.state.kind !== "ready") throw new Error("unreachable");
+    // The page shows exactly what the server stored; it never synthesises a row.
+    expect(section.state.items[0]?.value).toBe("192.0.2.0/24");
+    expect(section.state.items[0]?.kind).toBe("cidr");
+  });
+
+  it("renders an empty trusted-source list as empty, not as a not-configured state", async () => {
+    const client = clientReturning({ ok: true, status: 200, data: [] });
+
+    const section = await loadTrustedSources(client, "org-a");
+    expect(section.state.kind).toBe("empty");
+  });
+
+  it("reports a trusted-source read the deployment does not support as degraded", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      notConfigured: true,
+      error: { code: "engine_unavailable", message: "This deployment cannot record trusted sources yet." },
+    });
+
+    const section = await loadTrustedSources(client, "org-a");
     expect(section.state.kind).toBe("degraded");
     expect(hasData(section)).toBe(false);
   });

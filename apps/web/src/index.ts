@@ -25,6 +25,10 @@ export {
   loadUsage,
   loadBudgets,
   loadRoute,
+  loadSecurityRules,
+  loadTrustedSources,
+  addTrustedSource,
+  removeTrustedSource,
   sectionFrom,
 } from "./view-model.js";
 export type {
@@ -42,6 +46,8 @@ export type {
   UsageTotalSummary,
   BudgetSummary,
   DashboardModel,
+  SecurityRuleSummary,
+  TrustedSourceSummary,
 } from "./view-model.js";
 export {
   backTargetFor,
