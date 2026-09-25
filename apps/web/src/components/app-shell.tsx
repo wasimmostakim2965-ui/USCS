@@ -11,7 +11,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Button, Icon, Modal, TextInput, type Toast } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
-import { useCommandShortcut, useDismissable } from "../react/hooks.js";
+import { useCommandShortcut, useDismissable, useMediaQuery } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
 import { backTargetFor, navForRoute, titleForRoute, type NavItem } from "../navigation.js";
 
@@ -162,6 +162,9 @@ export function AppShell({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
+  // The compact bar is only rendered when the sidebar is genuinely unavailable,
+  // so a wide screen never has two navigations in its accessibility tree.
+  const compactNav = useMediaQuery("(max-width: 960px)");
 
   const profile = useDismissable(profileOpen, () => setProfileOpen(false));
   const workspace = useDismissable(workspaceOpen, () => setWorkspaceOpen(false));
@@ -477,6 +480,54 @@ export function AppShell({
         ) : null}
         {children}
       </main>
+
+      {/* On a narrow screen the sidebar is hidden and reachable only through the
+          menu button, which puts the sections out of thumb reach and hides the
+          current one. This bar surfaces the same nav items the sidebar holds, in
+          the same order, so the two can never disagree about a section. */}
+      {activeOrganizationId && compactNav ? (
+        <nav className="mobilebar" aria-label="Sections (compact)">
+          {back ? (
+            <button
+              type="button"
+              className="mobilebar__item"
+              onClick={() => go(back)}
+              title="Back"
+            >
+              <span className="mobilebar__glyph" aria-hidden="true">
+                <Icon name="back" size={20} />
+              </span>
+              <span className="mobilebar__label">Back</span>
+            </button>
+          ) : null}
+          {nav.items.slice(0, back ? 3 : 4).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`mobilebar__item${item.id === nav.activeId ? " mobilebar__item--active" : ""}`}
+              aria-current={item.id === nav.activeId ? "page" : undefined}
+              title={item.description}
+              onClick={() => go(item.route)}
+            >
+              <span className="mobilebar__glyph" aria-hidden="true">
+                <Icon name={item.icon} size={20} />
+              </span>
+              <span className="mobilebar__label truncate">{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className="mobilebar__item"
+            onClick={() => setSidebarOpen(true)}
+            title="All sections"
+          >
+            <span className="mobilebar__glyph" aria-hidden="true">
+              <Icon name="menu" size={20} />
+            </span>
+            <span className="mobilebar__label">More</span>
+          </button>
+        </nav>
+      ) : null}
 
       <Modal
         title="Command palette"

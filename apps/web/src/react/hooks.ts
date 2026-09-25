@@ -9,7 +9,7 @@
  * `parseRoute`/`toPath` from `routes.ts` are the source of truth, so this file
  * cannot invent a URL shape the rest of the app does not understand.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Section } from "@cloud-wai/ui";
 import { loading } from "@cloud-wai/ui";
 import { parseRoute, toPath, type Route } from "../routes.js";
@@ -207,4 +207,32 @@ export function useCommandShortcut(open: () => void): void {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
+}
+
+/**
+ * Whether a media query currently matches.
+ *
+ * Used to *render* a viewport-specific control rather than only hiding it with
+ * CSS: a control hidden by `display: none` is still in the accessibility tree
+ * of an engine that does not apply the sheet, which would expose two copies of
+ * the navigation. Engines without `matchMedia` (and the test environment) get
+ * `false`, i.e. the wide layout.
+ */
+export function useMediaQuery(query: string): boolean {
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      if (typeof window.matchMedia !== "function") return () => {};
+      const list = window.matchMedia(query);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    [query],
+  );
+
+  const getSnapshot = useCallback(() => {
+    if (typeof window.matchMedia !== "function") return false;
+    return window.matchMedia(query).matches;
+  }, [query]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
