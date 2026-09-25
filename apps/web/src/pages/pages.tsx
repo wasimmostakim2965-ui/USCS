@@ -2416,6 +2416,10 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
               <Table
                 items={items}
                 rowKey={(item) => item.userId}
+                filterText={(item) =>
+                  `${item.displayName ?? ""} ${item.email ?? ""} ${item.role}`
+                }
+                filterLabel="Filter members"
                 columns={[
                   {
                     key: "member",
