@@ -140,6 +140,9 @@ function makeStore() {
     async listOrganizations(userId) {
       return organizations.filter((o) => isMember(userId, o.id));
     },
+    async listOrganizationMembers(userId, org) {
+      return isMember(userId, org) ? [] : [];
+    },
     async createOrganization(input) {
       const org: Organization = {
         id: `org-${input.slug}` as OrganizationId,

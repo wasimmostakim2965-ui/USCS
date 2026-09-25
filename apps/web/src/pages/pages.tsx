@@ -38,6 +38,7 @@ import {
   loadDeploymentLogs,
   loadDomains,
   loadOrganization,
+  loadOrganizationMembers,
   loadOrganizations,
   loadProject,
   loadProjects,
@@ -58,6 +59,7 @@ import {
   type DomainVerificationSummary,
   type IssuedApiKey,
   type OrganizationSummary,
+  type OrganizationMemberSummary,
   type ProjectSummary,
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
@@ -2358,6 +2360,11 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Engine status",
   );
+  const members = useSection(
+    () => loadOrganizationMembers(client, organizationId),
+    [client, organizationId],
+    "Members",
+  );
 
   const org =
     organization.section.state.kind === "ready" ? organization.section.state.items[0] : undefined;
@@ -2387,6 +2394,59 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
             />
           )}
         </Card>
+      </SectionShell>
+
+      <SectionShell
+        title="Members"
+        hint="Everyone with access to this organization, and the role that decides what they can do"
+      >
+        <Card flush>
+          <SectionView<OrganizationMemberSummary>
+            section={members.section}
+            rowKey={(item) => item.userId}
+            onRetry={members.reload}
+            emptyMessage="This organization has no members recorded."
+            renderReady={(items) => (
+              <Table
+                items={items}
+                rowKey={(item) => item.userId}
+                columns={[
+                  {
+                    key: "member",
+                    header: "Member",
+                    render: (item) => (
+                      <span>{item.displayName ?? item.email ?? "Not yet signed in"}</span>
+                    ),
+                  },
+                  {
+                    key: "email",
+                    header: "Email",
+                    render: (item) =>
+                      item.email ? (
+                        <span className="mono small">{item.email}</span>
+                      ) : (
+                        <span className="faint">—</span>
+                      ),
+                  },
+                  {
+                    key: "role",
+                    header: "Role",
+                    render: (item) => <StatusBadge label={roleLabel(item.role)} tone="neutral" />,
+                  },
+                  {
+                    key: "since",
+                    header: "Added",
+                    render: (item) => <Timestamp value={item.createdAt} />,
+                  },
+                ]}
+              />
+            )}
+          />
+        </Card>
+        <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
+          Inviting, changing and removing members is not wired in this build. The list above is real
+          membership data; the controls would be here once the invite procedure exists.
+        </p>
       </SectionShell>
 
       <SectionShell
@@ -2442,6 +2502,20 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
       </SectionShell>
     </PageShell>
   );
+}
+
+/** A membership role, spelled for a reader. */
+function roleLabel(role: OrganizationMemberSummary["role"]): string {
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "admin":
+      return "Admin";
+    case "member":
+      return "Member";
+    case "viewer":
+      return "Viewer";
+  }
 }
 
 /* ------------------------------------------------------------------ not found */

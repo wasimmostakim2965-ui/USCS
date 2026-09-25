@@ -11,7 +11,13 @@
  */
 import { allowed, requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { ControlPlaneWrites, DataStore, Organization, Project } from "@cloud-wai/database";
+import type {
+  ControlPlaneWrites,
+  DataStore,
+  Organization,
+  OrganizationMember,
+  Project,
+} from "@cloud-wai/database";
 import type { OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
@@ -141,6 +147,24 @@ export async function createProject(
 /** Non-throwing variant, for callers that want a boolean and no error. */
 export function mayReadProject(ctx: RequestContext, organizationId: OrganizationId): boolean {
   return allowed(ctx, organizationId, "project:read");
+}
+
+/**
+ * The members of an organization.
+ *
+ * `member:read` already exists in the capability matrix and the members table
+ * already has a policy, so this closes the gap between the contract and the
+ * running system rather than adding a new permission. The guard runs first; the
+ * store then re-filters by the caller's own membership, so a service-role
+ * connection cannot turn this into a cross-tenant read.
+ */
+export async function listOrganizationMembers(
+  ctx: RequestContext,
+  deps: OrgDeps,
+  organizationId: OrganizationId,
+): Promise<readonly OrganizationMember[]> {
+  requireCapability(ctx, organizationId, "member:read");
+  return deps.store.listOrganizationMembers(ctx.principal.userId, organizationId);
 }
 
 /**

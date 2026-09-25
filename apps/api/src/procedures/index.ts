@@ -26,6 +26,7 @@ import {
   createProject,
   getOrganization,
   getProject,
+  listOrganizationMembers,
   listOrganizations,
   listProjects,
   updateProject,
@@ -179,6 +180,15 @@ export function buildProcedures(
       name: "organizations.get",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         getOrganization(
+          ctx,
+          orgDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "organizations.members.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listOrganizationMembers(
           ctx,
           orgDeps,
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
@@ -372,6 +382,7 @@ export const ROUTE_SHAPES = {
   "organizations.list": {},
   "organizations.create": { name: "string", slug: "string" },
   "organizations.get": { organizationId: "OrganizationId" },
+  "organizations.members.list": { organizationId: "OrganizationId" },
   "projects.list": { organizationId: "OrganizationId" },
   "projects.get": { projectId: "ProjectId" },
   "projects.create": { organizationId: "OrganizationId", name: "string", slug: "string" },

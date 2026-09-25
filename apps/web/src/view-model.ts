@@ -241,11 +241,38 @@ export async function loadOrganization(
   );
 }
 
+/** Load the members of an organization. */
+export async function loadOrganizationMembers(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<OrganizationMemberSummary>> {
+  const response = await client.call<readonly OrganizationMemberSummary[]>(
+    "organizations.members.list",
+    { organizationId },
+  );
+  return sectionFrom("Members", response);
+}
+
 export interface DomainSummary {
   readonly id: string;
   readonly hostname: string;
   readonly verified: boolean;
   readonly verifiedAt: string | null;
+}
+
+/**
+ * A member of the organization, as the settings page lists them.
+ *
+ * `email` and `displayName` can be null: a membership row exists before the
+ * invited user has ever signed in and written a profile, and the page says
+ * "not yet signed in" rather than inventing an address.
+ */
+export interface OrganizationMemberSummary {
+  readonly userId: string;
+  readonly role: "owner" | "admin" | "member" | "viewer";
+  readonly email: string | null;
+  readonly displayName: string | null;
+  readonly createdAt: string;
 }
 
 /**

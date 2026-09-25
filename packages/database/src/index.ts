@@ -16,7 +16,7 @@ import type {
   ProjectId,
   UserId,
 } from "@cloud-wai/contracts";
-import type { Membership } from "@cloud-wai/authorization";
+import type { Membership, OrgRole } from "@cloud-wai/authorization";
 
 /** Tables that make up the control-plane schema (see supabase/migrations). */
 export const CONTROL_PLANE_TABLES = [
@@ -77,6 +77,18 @@ export interface DataStore {
     slug: string;
     createdBy: UserId;
   }): Promise<Organization>;
+  /**
+   * The members of an organization, oldest first.
+   *
+   * Scoped to a caller who is a member, exactly like every other read: the
+   * store re-filters by user so the list is correct even when the server holds
+   * a service-role key. Emails and names come from `profiles`, which RLS
+   * exposes to a co-member, so this never widens who can see whose address.
+   */
+  listOrganizationMembers(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly OrganizationMember[]>;
   listProjects(userId: UserId, organizationId: OrganizationId): Promise<readonly Project[]>;
   getProject(userId: UserId, projectId: ProjectId): Promise<Project | null>;
   createProject(input: {
@@ -579,6 +591,24 @@ export interface AuditEventInput {
 
 export interface AuditEvent extends AuditEventInput {
   readonly id: AuditEventId;
+  readonly createdAt: string;
+}
+
+/**
+ * A member of an organization, as the settings page needs to show them.
+ *
+ * The email and display name live in `profiles`, which RLS exposes to a
+ * co-member; both are nullable because a profile row may not have been written
+ * yet for an invited user. No token, secret or session field is part of this:
+ * membership is a fact about a person, not about their credentials.
+ */
+export interface OrganizationMember {
+  readonly organizationId: OrganizationId;
+  readonly userId: UserId;
+  readonly role: OrgRole;
+  readonly email: string | null;
+  readonly displayName: string | null;
+  readonly invitedBy: UserId | null;
   readonly createdAt: string;
 }
 

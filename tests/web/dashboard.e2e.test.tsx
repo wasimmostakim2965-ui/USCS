@@ -890,6 +890,81 @@ describe("creating and revoking an API key", () => {
   });
 });
 
+describe("the organization member list", () => {
+  it("lists real members with their role, and says who has never signed in", async () => {
+    const members = [
+      {
+        organizationId: "org-1",
+        userId: "user-1",
+        role: "owner",
+        email: "operator@cloud-wai.test",
+        displayName: "Operator",
+        invitedBy: null,
+        createdAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        // A membership row with no profile yet is a real state, not an error.
+        organizationId: "org-1",
+        userId: "user-2",
+        role: "viewer",
+        email: null,
+        displayName: null,
+        invitedBy: "user-1",
+        createdAt: "2026-02-01T00:00:00Z",
+      },
+    ];
+    const calls: string[] = [];
+    const url = await startApi((procedure) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "organizations.get") {
+        return {
+          ok: true,
+          status: 200,
+          data: { id: "org-1", name: "Northwind", slug: "northwind" },
+        };
+      }
+      if (procedure === "organizations.members.list") {
+        return { ok: true, status: 200, data: members };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/settings");
+
+    expect(await screen.findByText("Operator")).toBeTruthy();
+    expect(screen.getByText("operator@cloud-wai.test")).toBeTruthy();
+    expect(screen.getByText("Owner")).toBeTruthy();
+    // The member the platform has no profile for is named honestly rather than
+    // hidden or given a made-up address.
+    expect(screen.getByText("Not yet signed in")).toBeTruthy();
+    expect(screen.getByText("Viewer")).toBeTruthy();
+    expect(calls).toContain("organizations.members.list");
+  });
+
+  it("reports a failed member read instead of showing an empty organization", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "organizations.members.list") {
+        return {
+          ok: false,
+          status: 500,
+          error: { code: "engine_unavailable", message: "The control plane is unreachable." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/settings");
+
+    expect(await screen.findByText(/unreachable/i)).toBeTruthy();
+  });
+});
+
 describe("adding, verifying and removing a domain", () => {
   /**
    * A control plane that holds domain rows and answers the challenge the way

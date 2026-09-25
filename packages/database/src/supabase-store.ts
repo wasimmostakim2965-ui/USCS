@@ -21,7 +21,7 @@ import type {
   ProjectId,
   UserId,
 } from "@cloud-wai/contracts";
-import type { Membership } from "@cloud-wai/authorization";
+import type { Membership, OrgRole } from "@cloud-wai/authorization";
 import type { PostgrestClient, PostgrestRequest } from "./postgrest.js";
 import type {
   ApiKeyCreateInput,
@@ -42,6 +42,7 @@ import type {
   DomainCreateInput,
   DomainVerificationInput,
   Organization,
+  OrganizationMember,
   PolicyEventInput,
   Project,
   ProjectDeploymentTarget,
@@ -139,6 +140,27 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       organizationId: str(row, "organization_id") as OrganizationId,
       name: str(row, "name"),
       slug: str(row, "slug"),
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  /**
+   * A membership joined with its profile.
+   *
+   * PostgREST returns an embedded table as an array here (a to-one embed is
+   * still shaped as a list by the client), so the profile is read from the first
+   * element. A missing profile is a null address, never a fabricated one.
+   */
+  function toOrganizationMember(row: Row): OrganizationMember {
+    const embedded = row["profiles"];
+    const profile = Array.isArray(embedded) ? (embedded[0] as Row | undefined) : undefined;
+    return {
+      organizationId: str(row, "organization_id") as OrganizationId,
+      userId: str(row, "user_id") as UserId,
+      role: str(row, "role") as OrgRole,
+      email: profile ? nullableStr(profile, "email") : null,
+      displayName: profile ? nullableStr(profile, "display_name") : null,
+      invitedBy: nullableStr(row, "invited_by") as UserId | null,
       createdAt: str(row, "created_at"),
     };
   }
@@ -292,6 +314,21 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/organizations?select=*&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toOrganization);
+    },
+
+    async listOrganizationMembers(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly OrganizationMember[]> {
+      // One request, two embeds: `organization_members` is filtered to the
+      // caller's own membership (the same tenant re-check every read uses), and
+      // `profiles` is embedded through the membership's `user_id` so RLS's
+      // "co-member" rule is what decides whose address is visible.
+      const found = await rows("listOrganizationMembers", {
+        method: "GET",
+        path: `/organization_members?select=*,profiles(email,display_name)&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.asc&limit=200`,
+      });
+      return found.map(toOrganizationMember);
     },
 
     async listProjects(

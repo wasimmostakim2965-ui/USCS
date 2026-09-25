@@ -19,6 +19,7 @@ import type {
   Domain,
   MembershipStore,
   Organization,
+  OrganizationMember,
   Project,
   UsageRecord,
 } from "@cloud-wai/database";
@@ -85,6 +86,20 @@ function makeStore() {
   const store: DataStore = {
     async listOrganizations(userId) {
       return organizations.filter((o) => isMember(userId, o.id));
+    },
+    async listOrganizationMembers(userId, org) {
+      if (!isMember(userId, org)) return [];
+      return memberships
+        .filter((m) => m.organizationId === org)
+        .map((m) => ({
+          organizationId: m.organizationId,
+          userId: m.userId,
+          role: m.role,
+          email: sessions[`t-${m.userId.replace("u-", "")}`]?.email ?? null,
+          displayName: null,
+          invitedBy: null,
+          createdAt: "2026-01-01T00:00:00Z",
+        }));
     },
     async createOrganization(input) {
       const org: Organization = {
@@ -217,6 +232,7 @@ describe("the registered procedure table", () => {
       "organizations.create",
       "organizations.get",
       "organizations.list",
+      "organizations.members.list",
       "projects.create",
       "projects.get",
       "projects.list",
@@ -245,6 +261,7 @@ describe("the registered procedure table", () => {
     // must refuse her; the two list procedures may succeed with an empty list.
     const scoped: Record<string, unknown> = {
       "organizations.get": { organizationId: ORG_A },
+      "organizations.members.list": { organizationId: ORG_A },
       "projects.list": { organizationId: ORG_A },
       "projects.get": { projectId: "p-1" },
       "projects.create": { organizationId: ORG_A, name: "Sneak", slug: "sneak" },
@@ -346,6 +363,32 @@ describe("the registered procedure table", () => {
     const res = await router.route({ procedure: "organizations.list", accessToken: TOKEN_ALICE });
     expect(res.ok).toBe(true);
     expect((res.data as Organization[]).map((o) => o.id)).toEqual([ORG_A]);
+  });
+
+  it("lists the members of an organization to a member, with their role", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+    const res = await router.route({
+      procedure: "organizations.members.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok).toBe(true);
+    const members = res.data as OrganizationMember[];
+    expect(members.map((m) => m.userId)).toEqual([ALICE]);
+    expect(members[0]!.role).toBe("owner");
+  });
+
+  it("refuses the member list to a non-member rather than returning an empty tenant", async () => {
+    const { store } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+    const res = await router.route({
+      procedure: "organizations.members.list",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A },
+    });
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
   });
 
   it("audits a creation through the registered create procedure", async () => {
