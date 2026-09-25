@@ -1,0 +1,153 @@
+# Source-code audit — Cloud Wai, 2026-09
+
+This is the audit the brief asked for before any design work: a file-by-file read
+of the whole product, a traced request flow, and a per-finding classification.
+It is deliberately *findings*, not a status report. Every row carries a status
+and, where it matters, a file and line so a reviewer can check it.
+
+## Status vocabulary (used everywhere in this record)
+
+| Status | Meaning |
+|---|---|
+| **Implemented** | A real procedure reaches a store or adapter; the UI shows that answer. |
+| **Partially implemented** | The path works end to end but a documented part is absent (one branch, one caller, one column). |
+| **Contract-only** | The adapter interface and its tests exist; no procedure or page reaches it. |
+| **Mocked / faked** | A test-only in-memory implementation. Correct only off the production path. |
+| **Not-configured** | The procedure is real; the engine has no credentials, so the adapter returns `not_configured` and the UI says so. Never a green badge. |
+| **Missing** | No route, page, procedure, store method or adapter operation. |
+
+## How a request flows, end to end
+
+Traced from the code, not from prose:
+
+1. **Browser** holds the Supabase anon key + the user's JWT and calls the
+   dashboard's own origin (`apps/web/src/api-client.ts`). It only ever talks to
+   `/rpc`; it never reaches Coolify, Postgres, MinIO or the edge.
+2. **Reverse proxy** (the web container's nginx) forwards `/rpc` and `/healthz`
+   to the API (`infra/deployment/docker-compose.yml`, `web` service), so the
+   browser has one origin and CORS stays empty.
+3. **API** (`apps/api/src/server.ts`) verifies the session
+   (`packages/auth/src/supabase-verifier.ts`), builds a `RequestContext` with a
+   verified principal, and routes to a procedure (`apps/api/src/router.ts`).
+4. **Procedure** (`apps/api/src/procedures/*.ts`) resolves scope from
+   server-side membership (`requireCapability`, `apps/api/src/guard.ts` +
+   `packages/authorization`), writes its row through the store, and only then
+   calls an engine — through `packages/adapters/*` and never directly.
+5. **Store** (`packages/database/src/supabase-store.ts`) talks PostgREST with
+   the service-role key; RLS is the second, independent enforcement layer
+   (`supabase/migrations/0002_rls.sql` + column guards `0006`/`0007`/`0009`).
+6. **Durable path**: deploy, rollback, backup and policy distribution enqueue an
+   `orchestration_jobs` row (`packages/database/src/sql-queue.ts`); the
+   **worker** (`apps/worker`) claims it, calls the adapter, and mirrors the
+   engine's own answer onto the customer-facing row. A non-success is never
+   written as success (`apps/worker/src/processor.ts`).
+7. **Engine** = Coolify (`packages/adapters/src/coolify.ts`), Coolify's database
+   API (`postgres.ts`), MinIO (`minio.ts`), Envoy/Coraza (`security-edge.ts`) —
+   each pinned, timeout-bounded, and checked against the engine's real route
+   table (`tests/fixtures/coolify-routes.json`, gate 14).
+
+## Findings
+
+### Architecture
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| A1 | Boundaries are clean: routers import procedures, procedures import the store and the `Engines` bag, only `packages/adapters/*` imports an engine SDK/URL. No router imports an engine. | `apps/api/src/procedures/index.ts:1-100`; `packages/adapters/src/engines.ts:1-40` | Implemented |
+| A2 | Tenant isolation is enforced twice — server-side membership in the guard, then RLS in Postgres — because the browser can reach PostgREST directly. | `apps/api/src/guard.ts`; `supabase/migrations/0002_rls.sql`; `tests/isolation/rls/10_isolation_probe.sql` | Implemented |
+| A3 | Engine-observed columns (`deployments.status/url/provider*`, `domains.verified`, `data_resources.state/provider`, `security_policies.state`, `projects.provider*`) are frozen against client writes on INSERT and UPDATE. | `supabase/migrations/0006_…sql`, `0009_…sql`; probes `12_`, `15_` | Implemented |
+| A4 | `apps/orchestrator` is a descriptor only (`describe()`); it has no runtime loop and nothing imports it. The orchestration *code* lives in `apps/worker` instead. | `apps/orchestrator/src/index.ts:1-24` vs `apps/worker/src/*` | Partially implemented (documentation-only boundary) |
+| A5 | `apps/worker/src/handlers.ts` (`buildHandlers`, `JOB_KINDS`) is **dead in production**: `runtime.ts` builds a different handler table (`buildDeploymentJobHandler`/`buildBackupJobHandler`/`buildPolicyJobHandler`). `buildHandlers` is referenced only from `tests/integration/worker-processing.test.ts`. Two handler tables for the same job kinds can drift. | `apps/worker/src/handlers.ts:12,61`; `apps/worker/src/runtime.ts:100-140`; `apps/worker/src/index.ts:9` | Dead code (test-only) |
+| A6 | The deployment algorithm exists twice — inline in the API's synchronous branch and in the worker's `executeDeployment`. This is *documented* as a deliberate apps-may-not-import-apps choice, but it is a duplication a reviewer must keep in step. | `apps/api/src/procedures/deployments.ts:388-420`; `apps/worker/src/deployment-executor.ts:1-20` | Partially implemented (documented duplication) |
+| A7 | The security edge adapter is real but not reachable in production: `buildEngines` only accepts a *pre-built* edge via `EngineConfig.securityEdge`, and no production caller constructs one (`createEnvoySecurityEdge` needs route/policy resolvers the API owns). So the edge is always the honest `not_configured` adapter in a real deployment. | `packages/adapters/src/engines.ts:200-215`; `apps/api/src/bootstrap.ts:120-135` | Contract-only in production |
+
+### Coding / behaviour
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| C1 | `HostingAdapter.cancelDeployment` is implemented and pinned against a real Coolify route, but **no procedure and no button reach it**. There is no way for a customer to cancel an in-flight deployment. `deployment:cancel` is a granted capability with no consumer. | `packages/adapters/src/index.ts:81`; `packages/adapters/src/coolify.ts:326`; no `deployments.cancel` in `apps/api/src/procedures/index.ts` | Contract-only |
+| C2 | `DomainResellerAdapter` (`search`, `register`) exists as an interface but has **no implementation, no fake, and no wiring**. The landing domain-search box is pure UI that states registrar lookup is not configured. | `packages/adapters/src/index.ts:131-134`; `apps/web/src/pages/landing.tsx:120-160` | Contract-only |
+| C3 | `environments` is a real table (`0001_control_plane.sql:133`) but **no procedure, store method or page reads or writes it**. Per-environment behaviour (Vercel's Preview/Production) has no surface. | `supabase/migrations/0001_control_plane.sql:133` | Missing |
+| C4 | `deployments` and `audit_logs` have no pagination/cursor anywhere; the pages load every row for the org. Fine now, unbounded later. | `apps/web/src/view-model.ts` (`loadDeployments`, `loadAudit`); `packages/database/src/supabase-store.ts` | Partially implemented |
+| C5 | The billing roll-up is real and org-scoped, but **nothing writes a `usage_record`**: no adapter reports a metric and no job records one. The page is honest about this, but the differentiator is inert. | `apps/api/src/procedures/billing.ts:1-20`; `packages/database/src/index.ts:124` | Implemented read, missing write |
+| C6 | `deployments.logs` reads the engine's own log lines with no redaction pass. The customer's own app logs are returned verbatim (correct); worth stating that any secret a customer's build echoes is the customer's, not scrubbed. | `apps/api/src/procedures/deployments.ts:180-230` | Implemented (by design) |
+| C7 | Idempotency is correct and cross-project collisions are refused, but the *worker's* re-execution of a `running` job relies on the engine being idempotent for the same application ref; a crash between `deploy` and `getDeployment` leaves a job `running` until reap, then re-deploys. Reconcile (`reconcile`) is never called by the worker. | `apps/worker/src/processor.ts:110-160`; `packages/adapters/src/coolify.ts:430` | Partially implemented |
+| C8 | No dead buttons or fake success found in the wired pages. The unwired Database sub-pages render `NotYetBuilt` prose, not disabled controls. | `apps/web/src/pages/database.tsx:87-105` | Implemented (honest) |
+| C9 | The landing page is honest (no uptime badge, no green dot) and the search box is a clean search UI with a not-configured note. | `apps/web/src/pages/landing.tsx:1-40,120-160` | Implemented |
+| C10 | `projects.update` can change `slug`, which is the Coolify application name used on the *next* create; renaming a slug after the application exists does not rename the engine application — the two can diverge silently. | `apps/api/src/procedures/organizations.ts:updateProject`; `apps/worker/src/deployment-executor.ts` (`name: input.projectSlug`) | Partially implemented |
+
+### Security (the second differentiator)
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| S1 | The policy model, risk levels (`low/medium/high/critical`) and enforcement actions (`allow/log/challenge/block/quarantine`) exist, compile deterministically to Coraza/Envoy, and refuse hostile host/path/origin input rather than escaping it. | `packages/security/src/index.ts`; `packages/adapters/src/security-edge.ts:78-140` | Implemented (compiler) |
+| S2 | Policy never rolls backwards; a stale distribution is refused before the network call and the engine independently rejects it. | `packages/security/src/index.ts:mayDistribute`; `apps/api/src/procedures/security.ts` | Implemented |
+| S3 | The origin must be a **private** address; a public origin is refused, and the generated Envoy config carries no direct-to-origin listener. | `packages/adapters/src/security-edge.ts:55-58,100-110` | Implemented (config) |
+| S4 | Gates 6–9 (deny direct origin, block CRS fixtures, runtime tenant isolation, verified backup restore) are **open** — they need a live edge/engine. Correctly marked open, not passing. | `docs/release-gates.md` | Not-configured (blocks the claim) |
+| S5 | **No allow-list / bot-pass logic exists in the compiler.** The policy can raise a challenge or block for everyone, but there is no compiled rule that *exempts* search-engine crawlers or verified webhook senders — the exact concern the owner raised ("a scraper or a normal user is stopped too"). Vercel solves this with a known-bots directory; Cloud Wai has no equivalent. | absent across `packages/security`, `packages/adapters/src/security-edge.ts` | **Missing** (new finding) |
+| S6 | There is no distinct **"under attack"** posture. A customer can raise the risk level, but there is no scoped, expiring "challenge browsers, pass known bots" mode. | absent | **Missing** (new finding) |
+| S7 | No dashboard surface shows what the edge **blocked** or challenged; incidents exist in `apps/security-control` (`IncidentTracker`) but that app is not wired into the API — no procedure reads it, so the dashboard shows no traffic decisions. | `apps/security-control/src/index.ts:85-160`; no import from `apps/api` | Contract-only |
+| S8 | No per-project firewall rules (rate limiting, IP allow/block, custom rules). The enforcement vocabulary is a single org-level policy. | absent | Missing |
+
+### Deploy flow (the brief's core)
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| D1 | Deploy = create-application-if-needed, then `POST /api/v1/deploy`, then read state back. The row is written before the engine call, and a repeated idempotency key replays. | `apps/api/src/procedures/deployments.ts:requestDeployment`; `apps/worker/src/deployment-executor.ts` | Implemented |
+| D2 | Rollback requires a commit (Coolify refuses otherwise), is recorded as its own deployment row, and reads the engine's state back. | `apps/api/src/procedures/deployments.ts:rollbackDeployment`; `packages/adapters/src/coolify.ts:353` | Implemented |
+| D3 | Build-vs-runtime logs are distinguished by `source`, preferring the engine's *deployment* handle so a failed build is explainable. | `apps/api/src/procedures/deployments.ts:deploymentsLogs` | Implemented |
+| D4 | **Git integration is manual.** There is no webhook endpoint, no deploy-on-push, no PR/preview deployment. A deploy is a button that passes a repo URL + branch. Vercel's defining feature (auto-deploy on push, preview per branch) is absent. | absent; `apps/web/src/pages/pages.tsx:897` (repo URL is a text input) | **Missing** (largest deploy gap) |
+| D5 | No environment variables per environment anywhere (Vercel's most-used project setting). Coolify exposes `/applications/{uuid}/envs`; the adapter does not use it. | `tests/fixtures/coolify-routes.json` (`…/envs` routes exist); no `envs` in `apps/api/src`, `packages/adapters/src/coolify.ts` | **Missing** |
+| D6 | No "promote to production" / staged production deployment. A deploy is production by definition. | absent | Missing |
+| D7 | No deployment protection (auth to view a preview URL), no password/IP gate. | absent | Missing |
+| D8 | No cron jobs, functions, edge config, analytics, speed insights, feature flags or notifications. | absent | Missing |
+
+### Database section (the first differentiator)
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| B1 | Tenant Postgres and buckets are provisioned through the engine; backup and backup-history are real; a bucket backup is correctly refused rather than faked. | `apps/api/src/procedures/data.ts`; `packages/adapters/src/postgres.ts`, `minio.ts` | Implemented |
+| B2 | Seven sub-pages (Table Editor, SQL Editor, Authentication, API, Roles & Extensions, Logs, Settings) are honest placeholders. They are blocked by ADR-0011 ("Cloud Wai never opens a data-plane connection to a tenant database"), which is in direct tension with the brief's "full Supabase surface". | `apps/web/src/pages/database.tsx:70-105,600-646`; `docs/adr/0011-…md` | Missing (blocked on an ADR decision) |
+| B3 | There is no `restore` procedure, though `DatabaseAdapter.restore` exists and is tested. Gate 9 stays open partly because the api path is absent. | `packages/adapters/src/index.ts:restore`; no `data.restore` in `apps/api/src/procedures/index.ts` | Contract-only |
+| B4 | No credential rotation on the request path (`rotateCredentials` exists, unreachable). | `packages/adapters/src/postgres.ts:rotateCredentials` | Contract-only |
+
+### Honesty / test integrity
+
+| # | Finding | Where | Status |
+|---|---|---|---|
+| H1 | `pnpm verify` is green: 442 tests / 29 files. `pnpm verify:rls` runs a real PostgreSQL 17 probe. | reproduced this session | Implemented |
+| H2 | No `TODO`/`FIXME`/`@ts-ignore`/`as any` in `apps`/`packages`. | grep, this session | Implemented |
+| H3 | Fakes are refused in production (`buildEngines` throws when `useFakes` and `NODE_ENV=production`). | `packages/adapters/src/engines.ts:150-170` | Implemented |
+
+## The five things that most hold the product back
+
+Ordered by impact on the brief's goal ("better than Vercel, provably"):
+
+1. **No git integration / preview deployments (D4).** Vercel's defining feature.
+   Without it, "deploy" is a manual button and the product cannot be called
+   Vercel-grade. This needs a webhook receiver that enqueues the existing
+   `deployment.create` job — the durable path already exists, so the work is the
+   receiver + a project↔repo link + a preview deployment kind.
+2. **No allow-list / known-bot pass, and no attack mode (S5, S6).** This is the
+   owner's own question, and it is a real gap: the edge can block, but it cannot
+   yet *distinguish* a crawler from an attacker. This is squarely in the
+   Security differentiator and is the highest-leverage security work.
+3. **Environment variables (D5).** The most-used project setting in the category,
+   and Coolify already exposes the routes.
+4. **The Database sub-pages (B2).** The first differentiator is two-ninths
+   built; the blocker is a genuine ADR decision, recorded and not papered over.
+5. **No cancel, no restore, no edge traffic view (C1, B3, S7).** Smaller, but each
+   is a granted capability or tested adapter operation with no consumer — the
+   exact "built but unreachable" class this product refuses.
+
+## What was *not* found
+
+No fabricated success on the production path; no router importing an engine; no
+client-writable engine-owned column; no secret in a response or audit row; no
+dead button that claims to act. The honesty rule holds across the wired surface.
+
+## Method
+
+Every row was read in the file it cites. `pnpm verify` (442 tests) and
+`pnpm verify:rls` were run in this session and passed. Where a finding is a
+*new* one (S5, S6, S7, C1, C3, D4–D8) it is marked, because the existing
+`docs/audit/dashboard-inventory.md` and ADR-0016 did not record it.

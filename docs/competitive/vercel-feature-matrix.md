@@ -1,0 +1,177 @@
+# Vercel feature matrix — Cloud Wai, row by row, with proof
+
+This is the mechanical comparison the brief asks for: every deployment-related
+feature Vercel ships, and for each one what Cloud Wai actually has — **wired**,
+**partial**, **contract-only**, **mocked**, **honest n/c** (procedure real, engine
+unconfigured), or **missing** — with our own file and line as evidence.
+
+It supersedes nothing: ADR-0016 remains the positioning record and
+`docs/audit/dashboard-inventory.md` the control list. This file is the flat,
+auditable table and it is the one to update as rows close.
+
+Status vocabulary is identical to `docs/audit/source-audit-2026-09.md`.
+
+## Research basis (so the comparison is against the real product)
+
+Two sources, kept separate:
+
+1. **Vercel's product surface** — `vercel.com/docs` and its feature pages, read
+   during this pass: Projects, Deployments, Environments, Environment Variables,
+   Deployment Protection, Instant Rollback, Promoting Deployments, Observability,
+   Firewall/WAF (custom rules, rate limiting, IP blocking, bot management, attack
+   mode, DDoS), CLI, Cron Jobs, Webhooks, Monorepos.
+2. **What users say** — G2, Trustpilot, Vercel Community, Reddit, AWS
+   Marketplace and Gartner reviews read this pass. Used for the *why*, not for
+   the feature list.
+
+### What users love (and why it sets our bar)
+
+| Loved | Why | Source |
+|---|---|---|
+| Git-based deploys, zero config | "Connect a GitHub repo and get a live deployment in under 2 minutes. Zero documentation required." | devtoolsreviewed.com, luckymedia.dev (2026) |
+| Preview URL per branch/PR | "Stakeholder feedback loops that took days now take minutes." | devtoolsreviewed.com, Gartner (2026) |
+| Instant rollback | "The dashboard makes it quick to recover from a bad release." | vercel.com/docs/instant-rollback; G2 |
+| Build/runtime logs in the dashboard | "No CloudWatch tab-switching." | cadence blog, G2 |
+| Observability out of the box | Logs, traces, queryable metrics without a separate tool | vercel.com/docs/observability |
+| Spend Management / hard bill limits | "Hard bill limits prevent surprise invoices." | devtoolsreviewed.com (2026) |
+
+### What users hate (and why we must do it better)
+
+| Hated | Root cause | Cloud Wai's answer, and whether it is built |
+|---|---|---|
+| **Pricing surprises** — "$600 on a $20 plan", "bill jumped from $100 to $800", "$1,900 scraper spike on a dev URL" | Overage rates with no hard cap; alerts that fail silently; a dev/staging URL billed like production | Bill limits must be a *hard* control, not an alert. Our `usage_records` roll-up is the substrate (`apps/api/src/procedures/billing.ts`) but **nothing writes a usage row yet** (C5) and there is no cap/budget object — **missing**. |
+| **Scrapers/AI bots burning bill** on non-production URLs | Edge does not distinguish malicious automation from a normal visitor under attack mode without rules | This is our Security differentiator — but **the allow-list is missing** (S5). Honest: not built. |
+| **Cancellation/opacity** — "can't find the project", "impossible to cancel" | Navigation and account closures buried | We have one URL-driven nav (`apps/web/src/navigation.ts`) with deep links; no dark patterns by construction. |
+| **Env-var changes "take effect on the next deployment"** | UI implies immediacy the artifact does not have | We express a change that needs a redeploy *as a deployment*, never a silent edit — designed, but env vars themselves are **missing** (D5). |
+
+**The lesson taken:** the thing Vercel's own users want is a dashboard whose every
+figure is the truth of the system, and a bill that cannot surprise them. That is
+exactly the honesty rule this repo already enforces (ADR-0010) plus a budget
+object we have not built.
+
+## Workspace / team level
+
+| # | Vercel feature | Cloud Wai surface (file:line) | Status |
+|---|---|---|---|
+| W1 | Teams / account switcher | `organizations.list/create/get` (`apps/api/src/procedures/index.ts:180-215`); workspace switcher in `apps/web/src/components/app-shell.tsx` | **Wired** |
+| W2 | Projects list + create | `projects.list/create` (`index.ts:205-235`); `ProjectsPage` | **Wired** |
+| W3 | Drill-in project navigation | `navigation.ts:40-110` (workspace→project→database) | **Wired** |
+| W4 | Team members / roles | `organizations.members.list` (`index.ts:~220`); `SettingsPage` renders real rows | **Wired (read)** — invite/change/remove absent, page says so (no dead button) |
+| W5 | API tokens | `apiKeys.list/create/revoke` (`index.ts:335-360`); secret shown once, hashed | **Wired** |
+| W6 | Activity / audit log | `audit.list` (`index.ts:255`); `ActivityPage`; append-only in DB | **Wired** |
+| W7 | Billing / usage (read) | `billing.usage` (`apps/api/src/procedures/billing.ts`); org roll-up | **Wired (read)** |
+| W8 | Usage **recording** (the row behind the bill) | no adapter reports a metric; no job writes one | **Missing (C5)** |
+| W9 | Budget / spend cap / hard limit | none | **Missing** |
+| W10 | Webhooks (account-level) | none | **Missing** |
+| W11 | Notifications (email/push/SMS) | none | **Missing** |
+| W12 | 2FA enforcement / SAML SSO | none | **Missing** |
+| W13 | Audit-log export / CSV / drains | none | **Missing** |
+| W14 | Domain registration / claim | landing search box, registrar `not_configured` (`apps/web/src/pages/landing.tsx:120-160`) | **Honest n/c** |
+| W15 | CLI | none | **Missing** |
+
+## Project level
+
+| # | Vercel feature | Cloud Wai surface (file:line) | Status |
+|---|---|---|---|
+| P1 | Project overview + latest production deployment | `projects.get` + `deployments.list` + `audit.list`; `ProjectOverviewPage` | **Wired** |
+| P2 | Deployments history | `deployments.list` (`index.ts:230`); `DeploymentsPage` | **Wired** |
+| P3 | Create deployment | `deployments.create` (`index.ts:237`; `apps/api/src/procedures/deployments.ts:requestDeployment`) | **Wired** |
+| P4 | Durable deploy execution (job + worker) | `apps/worker/src/deployment-executor.ts`; `sql-queue.ts` | **Wired** |
+| P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them | **Wired** |
+| P6 | Instant rollback | `deployments.rollback` (`index.ts:242`); Coolify needs a commit (`coolify.ts:353`) | **Wired** |
+| P7 | Cancel an in-flight deployment | adapter `cancelDeployment` (`coolify.ts:326`) — **no procedure, no button** | **Contract-only (C1)** |
+| P8 | Git integration: auto-deploy on push | none; repo URL is a text input (`apps/web/src/pages/pages.tsx:897`) | **Missing (D4)** |
+| P9 | Preview deployment per branch / PR | none | **Missing (D4)** |
+| P10 | Promote preview → production | none | **Missing (D6)** |
+| P11 | Staged production deployment (`--skip-domain`) | none | **Missing** |
+| P12 | Deployment protection (auth/password/IP) | none | **Missing (D7)** |
+| P13 | Environment variables (per env) | none; Coolify `/envs` routes exist upstream (`tests/fixtures/coolify-routes.json`) | **Missing (D5)** |
+| P14 | Environments (Local/Preview/Production) model | `environments` table exists (`0001_control_plane.sql:133`), unused | **Missing (C3)** |
+| P15 | Project settings: rename | `projects.update` (`index.ts:~240`); `ProjectSettingsPage` | **Wired** |
+| P16 | Project settings: slug↔engine name sync | slug rename does not rename the engine app (C10) | **Partial** |
+| P17 | Domains add / verify / remove | `domains.list/create/verify/remove`; project-scoped | **Wired**; direct-origin denial = gate 6 **open** |
+| P18 | Automatic TLS / SSL | engine-side (Coolify); no control-plane surface | **Honest n/c** |
+| P19 | Observability: metrics, traces, error tracking | `observability.jobs` (`apps/api/src/procedures/observability.ts`) = job roll-up from real rows; time-series + traces panel states its absence | **Partial** (job activity wired; metrics/traces missing) |
+| P20 | Web Analytics / Speed Insights | none | **Missing** |
+| P21 | Runtime logs / log drains | none (deployment logs only, P5) | **Missing** |
+| P22 | Cron Jobs | none | **Missing** |
+| P23 | Functions / serverless | none (our unit is a container via Coolify) | **Missing (out of model)** |
+| P24 | Edge Config | none | **Missing (out of model)** |
+| P25 | Feature flags | none | **Missing** |
+| P26 | Deployment states (Queued→Building→Ready→Error→Canceled) | `EngineStatus` vocabulary + `mapQueueStatus`/`mapDeploymentStatus` (`coolify.ts:67-115`) | **Wired** |
+| P27 | Rollback-images / redeploy same commit | `rollback` with a commit; no "redeploy" of a past deployment row | **Partial** |
+| P28 | Monorepo support (root dir, ignore-step) | none (a project is one Coolify application) | **Missing** |
+| P29 | Framework detection / build pack | `BuildPack` (`adapters/src/index.ts:45-52`) passed through; default nixpacks | **Wired** |
+
+## Security / edge (differentiator two)
+
+| # | Vercel feature | Cloud Wai surface (file:line) | Status |
+|---|---|---|---|
+| X1 | WAF policy model + levels (none/normal/high/ultimate analogue = low/med/high/critical) | `packages/security/src/index.ts`; `apps/api/src/procedures/security.ts` | **Wired (author/save)** |
+| X2 | WAF applies at the edge | `applyPolicy` (`packages/adapters/src/security-edge.ts:240`) — **Honest n/c** until an edge adapter is injected | **Honest n/c** |
+| X3 | Policy version monotonic (never roll back) | `mayDistribute` (`packages/security/src/index.ts`); `security-control` | **Wired** |
+| X4 | Hostile input refused, not escaped | `validateEdgeRoute` (`security-edge.ts:78-100`) | **Wired** |
+| X5 | Hidden origin (private origin required) | `PRIVATE_HOST` grammar (`security-edge.ts:55`) | **Wired (config)** |
+| X6 | Deny direct origin (gate 6) | needs live Envoy | **Open gate** |
+| X7 | Block CRS fixtures (gate 7) | needs live Coraza | **Open gate** |
+| X8 | **Attack mode** (challenge browsers, pass known bots) | none | **Missing (S6)** |
+| X9 | **Known-bots allow-list** / verified bots | none | **Missing (S5)** |
+| X10 | Bot management managed rulesets | none | **Missing** |
+| X11 | Custom firewall rules | none per-project | **Missing (S8)** |
+| X12 | WAF rate limiting | none | **Missing** |
+| X13 | IP blocking / trusted IPs | only the private-origin rule | **Missing** |
+| X14 | DDoS mitigation | engine-side (edge host); no control-plane surface | **Honest n/c** |
+| X15 | Security incidents surfaced | `IncidentTracker` (`apps/security-control/src/index.ts:85-160`) exists, **not wired to the API** | **Contract-only (S7)** |
+| X16 | Edge decided-traffic view (what was blocked) | none | **Missing (S7)** |
+| X17 | Security dashboard (posture across projects) | none | **Missing** |
+
+## Database (differentiator one — Vercel has no equivalent surface)
+
+| # | Capability | Cloud Wai surface (file:line) | Status |
+|---|---|---|---|
+| B1 | Provision tenant Postgres / bucket | `data.provision` (`apps/api/src/procedures/data.ts`) | **Wired** (Honest n/c without creds) |
+| B2 | List resources | `data.list` (`index.ts:~285`) | **Wired** |
+| B3 | Back up a database | `data.backup`; bucket backup refused honestly | **Wired** |
+| B4 | Backup history | `data.backups.list` (`index.ts:302`) | **Wired** |
+| B5 | Restore from a backup (gate 9) | adapter `restore` tested; **no `data.restore` procedure** | **Contract-only (B3)** |
+| B6 | Rotate credentials | adapter `rotateCredentials`; unreachable | **Contract-only (B4)** |
+| B7 | Table editor | route + honest placeholder | **Missing (B2)** — needs table introspection |
+| B8 | SQL editor | route + honest placeholder | **Missing (B2)** |
+| B9 | Authentication (GoTrue surface) | route + honest placeholder | **Missing (B2)** |
+| B10 | Storage buckets | `DatabaseStorage` from `data.list` | **Wired** |
+| B11 | REST/API endpoint list | route + honest placeholder | **Missing (B2)** |
+| B12 | Roles & extensions | route + honest placeholder | **Missing (B2)** |
+| B13 | Database logs | route + honest placeholder | **Missing (B2)** |
+| B14 | Database settings | route + honest placeholder | **Missing (B2)** |
+
+## Where Cloud Wai is ahead (the honest version)
+
+| Guarantee | Evidence | Why Vercel cannot claim it |
+|---|---|---|
+| No fabricated success | `tests/adapters/honesty.test.ts`, `tests/contract/status.test.ts`, ADR-0010 | A closed platform's status is its own word |
+| Tenant isolation at two layers | `tests/isolation/*`, `rls/10_isolation_probe.sql` | RLS is ours to prove, and it is proven |
+| Adapter cannot invent an engine route | `tests/engines/coolify.test.ts`, `tests/fixtures/coolify-routes.json` (gate 14) | No equivalent check exists on a closed platform |
+| Policy never rolls backwards + hidden origin | `packages/security/src/index.ts`, `security-edge.ts` | Structural, not a toggle |
+| Engines are OURS and replaceable | ADR-0001, `packages/adapters/*` | Vercel is not self-hostable behind a customer's engines |
+
+## The honest gap summary (what closing the brief requires)
+
+Ranked against the brief. Each row is a workstream, not a wish:
+
+| Rank | Gap | Rows | Effort | Unblocks |
+|---|---|---|---|---|
+| 1 | Git integration + preview deployments | P8, P9, P10 | Large | "Vercel-grade deploy" claim |
+| 2 | Known-bot allow-list + attack mode | X8, X9 | Medium | The owner's own question; Security differentiator |
+| 3 | Environment variables | P13, P14 | Medium | Day-one usability |
+| 4 | Usage recording + hard spend cap | W8, W9 | Medium | The top user complaint |
+| 5 | Cancel / restore / edge traffic view | P7, B5, X15, X16 | Medium | "Built but unreachable" class |
+| 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
+| 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
+
+## Method and honesty
+
+Vercel rows come from Vercel's own docs pages named above; user rows come from the
+review sources named above. Our rows were read in the file cited, in this
+session. `pnpm verify` (442 tests) and `pnpm verify:rls` were green when this was
+written. A row moves to **Wired** only with a procedure, a page and a test in the
+same commit.

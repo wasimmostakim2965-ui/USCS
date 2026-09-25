@@ -488,12 +488,7 @@ export function AppShell({
       {activeOrganizationId && compactNav ? (
         <nav className="mobilebar" aria-label="Sections (compact)">
           {back ? (
-            <button
-              type="button"
-              className="mobilebar__item"
-              onClick={() => go(back)}
-              title="Back"
-            >
+            <button type="button" className="mobilebar__item" onClick={() => go(back)} title="Back">
               <span className="mobilebar__glyph" aria-hidden="true">
                 <Icon name="back" size={20} />
               </span>

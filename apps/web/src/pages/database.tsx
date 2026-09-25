@@ -180,9 +180,7 @@ function ResourcesPanel({
         )
       : [];
   const visibleResources =
-    resources.section.state.kind === "ready"
-      ? ready(title, visibleItems)
-      : resources.section;
+    resources.section.state.kind === "ready" ? ready(title, visibleItems) : resources.section;
 
   return (
     <>

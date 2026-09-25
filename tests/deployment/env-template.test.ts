@@ -63,9 +63,7 @@ describe("the environment template", () => {
 
   it("never enables the fakes in the template", () => {
     // The template is copied to production hosts; a `true` here would be a trap.
-    const enabled = assignments(source).find(
-      (entry) => entry.key === "CLOUD_WAI_USE_FAKE_ENGINES",
-    );
+    const enabled = assignments(source).find((entry) => entry.key === "CLOUD_WAI_USE_FAKE_ENGINES");
     expect(enabled).toBeDefined();
     const line = source.split("\n")[enabled!.line - 1]!;
     expect(line.trim()).toBe("CLOUD_WAI_USE_FAKE_ENGINES=false");
