@@ -27,6 +27,13 @@ export {
   type BackupExecutionResult,
 } from "./backup-job.js";
 export {
+  buildRestoreJobHandler,
+  buildRestoreApplier,
+  type RestoreJobDeps,
+  type RestoreExecutionWrites,
+  type RestoreExecutionResult,
+} from "./restore-job.js";
+export {
   buildPolicyJobHandler,
   buildPolicyApplier,
   type PolicyJobDeps,
@@ -34,7 +41,7 @@ export {
   type PolicyExecutionResult,
 } from "./policy-job.js";
 export { buildApplier, type JobOutcomeWriter } from "./applier.js";
-export { DEPLOYMENT_JOB_KIND, BACKUP_JOB_KIND, POLICY_JOB_KIND } from "@cloud-wai/contracts";
+export { DEPLOYMENT_JOB_KIND, BACKUP_JOB_KIND, RESTORE_JOB_KIND, POLICY_JOB_KIND } from "@cloud-wai/contracts";
 export { startWorker } from "./runtime.js";
 export type { WorkerStartupOptions, WorkerStartupResult, RunningWorker } from "./runtime.js";
 

@@ -107,7 +107,7 @@ Traced from the code, not from prose:
 |---|---|---|---|
 | B1 | Tenant Postgres and buckets are provisioned through the engine; backup and backup-history are real; a bucket backup is correctly refused rather than faked. | `apps/api/src/procedures/data.ts`; `packages/adapters/src/postgres.ts`, `minio.ts` | Implemented |
 | B2 | Seven sub-pages (Table Editor, SQL Editor, Authentication, API, Roles & Extensions, Logs, Settings) are honest placeholders. They are blocked by ADR-0011 ("Cloud Wai never opens a data-plane connection to a tenant database"), which is in direct tension with the brief's "full Supabase surface". | `apps/web/src/pages/database.tsx:70-105,600-646`; `docs/adr/0011-…md` | Missing (blocked on an ADR decision) |
-| B3 | There is no `restore` procedure, though `DatabaseAdapter.restore` exists and is tested. Gate 9 stays open partly because the api path is absent. | `packages/adapters/src/index.ts:restore`; no `data.restore` in `apps/api/src/procedures/index.ts` | Contract-only |
+| B3 | `restore` is now reachable: `data.restore` / `data.restores.list` (`apps/api/src/procedures/data.ts`), the `data_restores` table with RLS and engine-column guards (`supabase/migrations/0012_data_restores.sql`), the worker's `buildRestoreJobHandler`/`buildRestoreApplier`, and the Dashboard `RestoreResourceModal`. The restore refuses a bucket, a resource with no engine handle, an incomplete backup, a backup of another resource, and a name mismatch — and records the engine's own status. Gate 9 stays open only because a *verified* restore against a real PostgreSQL/MinIO pair is not configured here. | `apps/api/src/procedures/index.ts`; `apps/worker/src/restore-job.ts`; `apps/web/src/pages/database.tsx` | Implemented (gate 9 still needs a live engine) |
 | B4 | No credential rotation on the request path (`rotateCredentials` exists, unreachable). | `packages/adapters/src/postgres.ts:rotateCredentials` | Contract-only |
 
 ### Honesty / test integrity
@@ -135,9 +135,10 @@ Ordered by impact on the brief's goal ("better than Vercel, provably"):
    and Coolify already exposes the routes.
 4. **The Database sub-pages (B2).** The first differentiator is two-ninths
    built; the blocker is a genuine ADR decision, recorded and not papered over.
-5. **No cancel, no restore, no edge traffic view (C1, B3, S7).** Smaller, but each
-   is a granted capability or tested adapter operation with no consumer — the
-   exact "built but unreachable" class this product refuses.
+5. **No cancel, no edge traffic view (C1 ✅, B3 ✅, S7).** The "built but
+   unreachable" class is shrinking: cancel and restore are now wired end to end
+   with tests. The edge traffic view (what was blocked) remains, and it needs the
+   live edge.
 
 ## What was *not* found
 

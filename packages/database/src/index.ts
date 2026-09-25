@@ -293,6 +293,16 @@ export interface ControlPlaneWrites {
   setDataResourceState(input: DataResourceStateInput): Promise<DataResource | null>;
   /** Record the outcome of a backup. Written only from the adapter's answer. */
   updateDataBackupStatus(input: DataBackupStatusInput): Promise<DataBackup | null>;
+  /** A backup by id, scoped by organization only. */
+  getDataBackupForService(
+    organizationId: OrganizationId,
+    backupId: string,
+  ): Promise<DataBackup | null>;
+  /** Record a restore attempt. The worker performs it; status starts `pending`. */
+  createDataRestore(input: DataRestoreCreateInput): Promise<DataRestore>;
+  /** Record the outcome of a restore. Written only from the adapter's answer. */
+  updateDataRestoreStatus(input: DataRestoreStatusInput): Promise<DataRestore | null>;
+  listDataRestores(userId: UserId, resourceId: DataResourceId): Promise<readonly DataRestore[]>;
 
   /**
    * Link a repository to a project.
@@ -691,6 +701,42 @@ export interface DataBackupStatusInput {
   readonly status: EngineStatus;
   readonly providerResourceId?: string | null;
   readonly sizeBytes?: number | null;
+  readonly finishedAt?: string | null;
+}
+
+/**
+ * A restore attempt.
+ *
+ * It names both the backup it read and the resource it wrote into, so the two
+ * halves of a destructive operation are visible together in the history.
+ */
+export interface DataRestore {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly backupId: string;
+  readonly dataResourceId: DataResourceId;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  readonly status: EngineStatus;
+  readonly createdAt: string;
+  readonly finishedAt: string | null;
+}
+
+export interface DataRestoreCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly backupId: string;
+  readonly dataResourceId: DataResourceId;
+  readonly provider: string | null;
+  readonly status: EngineStatus;
+}
+
+/** A restore outcome. Only the adapter's answer may set `status`. */
+export interface DataRestoreStatusInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly status: EngineStatus;
+  readonly providerResourceId?: string | null;
   readonly finishedAt?: string | null;
 }
 

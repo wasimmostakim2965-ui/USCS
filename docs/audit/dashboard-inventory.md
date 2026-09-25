@@ -70,20 +70,21 @@ placeholder that names the missing engine operation and no controls.
 
 | Sub-page | Body | Controls | State |
 |---|---|---|---|
-| Overview | resources list | Provision resource, Back up | Working |
+| Overview | resources list | Provision resource, Back up, Restore | Working |
 | Overview → Connection | text | none (prose only) | Working (prose) |
 | Table Editor | honest placeholder | none | **Missing** — needs table introspection |
 | SQL Editor | honest placeholder | none | **Missing** — needs query execution |
 | Authentication | honest placeholder | none | **Missing** — needs auth-user listing |
-| Storage | bucket view from `data.list` | Provision resource, Back up (database only) | Working |
+| Storage | bucket view from `data.list` | Provision resource, Back up, Restore (database only) | Working |
 | API | honest placeholder | none | **Missing** — needs schema introspection |
 | Roles & Extensions | honest placeholder | none | **Missing** — needs role introspection |
 | Logs | honest placeholder | none | **Missing** — needs a log stream |
 | Settings | honest placeholder | none | **Missing** — needs engine configuration |
 
 Backend reality for these: `data.list`, `data.provision`, `data.backup`,
-`data.backups.list` exist. There is **no** procedure for reading tables, running
-SQL, listing auth users, or listing roles/extensions. The `postgres` database
+`data.backups.list`, `data.restore`, `data.restores.list` exist. There is **no**
+procedure for reading tables, running SQL, listing auth users, or listing
+roles/extensions. The `postgres` database
 adapter exposes health and provisioning; the deeper Supabase-shaped surface is
 **contract-only or missing**, not merely unconfigured.
 

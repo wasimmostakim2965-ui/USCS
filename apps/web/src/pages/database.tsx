@@ -31,10 +31,13 @@ import type { DatabaseSection } from "../routes.js";
 import {
   loadDataBackups,
   loadDataResources,
+  loadDataRestores,
   type BackupDataSummary,
   type DataBackupSummary,
   type DataResourceSummary,
+  type DataRestoreSummary,
   type ProvisionDataSummary,
+  type RestoreDataSummary,
 } from "../view-model.js";
 import { DataStateBadge, Timestamp } from "../components/page-parts.js";
 
@@ -166,6 +169,7 @@ function ResourcesPanel({
   );
   const [provisioning, setProvisioning] = useState(false);
   const [backingUp, setBackingUp] = useState<DataResourceSummary | null>(null);
+  const [restoring, setRestoring] = useState<DataResourceSummary | null>(null);
 
   const reload = resources.reload;
   // This page is project-scoped. Show this project's resources plus any
@@ -222,7 +226,7 @@ function ResourcesPanel({
                 key: "actions",
                 header: "",
                 render: (item) => (
-                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
                     <Button
                       size="sm"
                       // A resource that is not ready has no engine handle, and a
@@ -239,6 +243,20 @@ function ResourcesPanel({
                       onClick={() => setBackingUp(item)}
                     >
                       Back up
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={item.state !== "ready" || item.kind !== "postgres"}
+                      title={
+                        item.kind !== "postgres"
+                          ? "Restoring an object-storage bucket is not available yet."
+                          : item.state === "ready"
+                            ? "Restore from a backup"
+                            : "A resource must be ready before it can be restored."
+                      }
+                      onClick={() => setRestoring(item)}
+                    >
+                      Restore
                     </Button>
                   </div>
                 ),
@@ -269,6 +287,16 @@ function ResourcesPanel({
         onClose={() => setBackingUp(null)}
         onDone={() => {
           setBackingUp(null);
+          reload();
+        }}
+      />
+
+      <RestoreResourceModal
+        organizationId={organizationId}
+        resource={restoring}
+        onClose={() => setRestoring(null)}
+        onDone={() => {
+          setRestoring(null);
           reload();
         }}
       />
@@ -577,6 +605,229 @@ function BackupResourceModal({
             section={history.section}
             onRetry={history.reload}
             emptyMessage="No backups recorded for this resource yet."
+            columns={[
+              {
+                key: "status",
+                header: "Status",
+                render: (item) => <DataStateBadge state={item.status} />,
+              },
+              {
+                key: "createdAt",
+                header: "Started",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+              {
+                key: "finishedAt",
+                header: "Finished",
+                render: (item) =>
+                  item.finishedAt ? (
+                    <Timestamp value={item.finishedAt} />
+                  ) : (
+                    <span className="faint">—</span>
+                  ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Restore a database from one of its own backups.
+ *
+ * A restore overwrites the target's current contents, so it is deliberately not
+ * one click: the operator must type the database's own name to confirm, and the
+ * server refuses without it. Only a `succeeded` backup with an engine handle is
+ * offered, because that is the only one the engine can restore from. The result
+ * is the adapter's own status — a `not_configured` engine is reported as such,
+ * never as a completed restore.
+ */
+function RestoreResourceModal({
+  organizationId,
+  resource,
+  onClose,
+  onDone,
+}: {
+  readonly organizationId: string;
+  readonly resource: DataResourceSummary | null;
+  readonly onClose: () => void;
+  readonly onDone: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [backupId, setBackupId] = useState("");
+  const [confirmName, setConfirmName] = useState("");
+  const [result, setResult] = useState<RestoreDataSummary | null>(null);
+  const [historyNonce, setHistoryNonce] = useState(0);
+
+  const resourceId = resource?.id ?? "";
+  const backups = useSection(
+    () =>
+      resourceId
+        ? loadDataBackups(client, organizationId, resourceId)
+        : Promise.resolve(ready<DataBackupSummary>("Backups", [])),
+    [client, organizationId, resourceId],
+    "Backups",
+  );
+  const history = useSection(
+    () =>
+      resourceId
+        ? loadDataRestores(client, organizationId, resourceId)
+        : Promise.resolve(ready<DataRestoreSummary>("Restores", [])),
+    [client, organizationId, resourceId, historyNonce],
+    "Restores",
+  );
+
+  if (!resource) return null;
+
+  const restoreable =
+    backups.section.state.kind === "ready"
+      ? backups.section.state.items.filter(
+          (item) => item.status === "succeeded" && item.providerResourceId,
+        )
+      : [];
+  const selected = restoreable.find((item) => item.id === backupId) ?? null;
+
+  const close = () => {
+    setError(null);
+    setResult(null);
+    setBackupId("");
+    setConfirmName("");
+    onClose();
+  };
+
+  const submit = async () => {
+    if (!selected) {
+      setError("Choose a completed backup to restore from.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await client.call<RestoreDataSummary>("data.restore", {
+      organizationId,
+      resourceId: resource.id,
+      backupId: selected.id,
+      confirmName,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The restore could not be started.");
+      return;
+    }
+    setResult(response.data);
+    setHistoryNonce((value) => value + 1);
+  };
+
+  return (
+    <Modal
+      title="Restore from backup"
+      open={resource !== null}
+      onClose={close}
+      footer={
+        result ? (
+          <Button variant="primary" onClick={onDone}>
+            Done
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close}>Cancel</Button>
+            <Button
+              variant="danger"
+              onClick={() => void submit()}
+              busy={busy}
+              disabled={!selected || confirmName.trim() !== resource.name}
+              title={
+                selected
+                  ? confirmName.trim() === resource.name
+                    ? "Restore this database"
+                    : `Type ${resource.name} to confirm`
+                  : "Choose a completed backup first"
+              }
+            >
+              Restore
+            </Button>
+          </>
+        )
+      }
+    >
+      <div className="stack">
+        <p>
+          Restore <span className="mono">{resource.name}</span> from a backup.
+        </p>
+        {result ? (
+          <>
+            <span>
+              <DataStateBadge state={result.restore.status} />
+            </span>
+            {result.engineReason ? (
+              <p className="muted small">
+                The engine did not complete the restore: {result.engineReason}
+              </p>
+            ) : result.restore.status === "pending" || result.restore.status === "running" ? (
+              <p className="muted small">
+                The restore is queued. The engine reports its own result here when it finishes.
+              </p>
+            ) : (
+              <p className="small">The engine accepted the restore.</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="muted small">
+              This overwrites the database's current contents with the backup's. Pick a completed
+              backup and type the database name to confirm.
+            </p>
+            <Field label="Backup">
+              {(id) => (
+                <select
+                  id={id}
+                  className="select"
+                  value={backupId}
+                  onChange={(event) => setBackupId(event.target.value)}
+                >
+                  <option value="">Select a completed backup…</option>
+                  {restoreable.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {new Date(item.createdAt).toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            {backups.section.state.kind === "ready" && restoreable.length === 0 ? (
+              <p className="muted small">
+                No completed backup with an engine handle yet — take one first.
+              </p>
+            ) : null}
+            <Field label={`Type "${resource.name}" to confirm`}>
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={confirmName}
+                  placeholder={resource.name}
+                  onChange={setConfirmName}
+                />
+              )}
+            </Field>
+          </>
+        )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div>
+          <h2 className="small" style={{ marginBottom: "var(--space-2)" }}>
+            Restore history
+          </h2>
+          <SectionView<DataRestoreSummary>
+            section={history.section}
+            onRetry={history.reload}
+            emptyMessage="No restores recorded for this resource yet."
             columns={[
               {
                 key: "status",

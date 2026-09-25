@@ -2024,6 +2024,102 @@ describe("the Database drill-in", () => {
     const sent = calls.find((call) => call.procedure === "data.backup");
     expect(sent?.input).toMatchObject({ organizationId: "org-1", resourceId: "r-ready" });
   });
+
+  it("restores only from a completed backup, and only after the name is typed", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [{ id: "r-ready", kind: "postgres", name: "ready-db", state: "ready" }],
+        };
+      }
+      if (procedure === "data.backups.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "b-good",
+              dataResourceId: "r-ready",
+              status: "succeeded",
+              providerResourceId: "engine-1",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              finishedAt: "2026-01-01T00:01:00.000Z",
+            },
+            {
+              id: "b-pending",
+              dataResourceId: "r-ready",
+              status: "pending",
+              providerResourceId: null,
+              createdAt: "2026-01-02T00:00:00.000Z",
+              finishedAt: null,
+            },
+          ],
+        };
+      }
+      if (procedure === "data.restore") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            restore: {
+              id: "rs-1",
+              backupId: "b-good",
+              dataResourceId: "r-ready",
+              status: "pending",
+              providerResourceId: null,
+              createdAt: new Date().toISOString(),
+              finishedAt: null,
+            },
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database");
+    const user = userEvent.setup();
+
+    const rows = await screen.findAllByRole("row");
+    const readyRow = rows.find((row) => within(row).queryByText("ready-db"));
+    await user.click(within(readyRow!).getByRole("button", { name: "Restore" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
+    // Only the completed backup is offered: the pending one has no handle to
+    // restore from, so it is not in the options.
+    const options = within(dialog).getAllByRole("option").map((o) => o.textContent ?? "");
+    expect(options.some((label) => label.includes("b-good"))).toBe(false); // labels are timestamps
+    expect(within(dialog).queryAllByRole("option").length).toBe(2); // placeholder + b-good
+
+    // The confirm button stays disabled until the database's own name is typed.
+    const confirm = within(dialog).getByRole("button", { name: "Restore" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+
+    await user.selectOptions(
+      within(dialog).getByRole("combobox"),
+      within(dialog).getAllByRole("option")[1]!,
+    );
+    await user.type(within(dialog).getByRole("textbox"), "ready-db");
+    expect(confirm.disabled).toBe(false);
+
+    await user.click(confirm);
+    expect(await screen.findByText(/The restore is queued/)).toBeTruthy();
+    const sent = calls.find((call) => call.procedure === "data.restore");
+    expect(sent?.input).toMatchObject({
+      organizationId: "org-1",
+      resourceId: "r-ready",
+      backupId: "b-good",
+      confirmName: "ready-db",
+    });
+  });
 });
 
 describe("filtering a loaded table", () => {

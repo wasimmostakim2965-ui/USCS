@@ -400,6 +400,22 @@ export interface BackupDataSummary {
   readonly engineReason: string | null;
 }
 
+export interface RestoreDataSummary {
+  readonly restore: DataRestoreSummary;
+  readonly engineReason: string | null;
+}
+
+/** One restore attempt, naming both the backup it read and the resource it wrote. */
+export interface DataRestoreSummary {
+  readonly id: string;
+  readonly backupId: string;
+  readonly dataResourceId: string;
+  readonly status: "pending" | "running" | "succeeded" | "failed" | "not_configured";
+  readonly providerResourceId: string | null;
+  readonly createdAt: string;
+  readonly finishedAt: string | null;
+}
+
 /** One backup attempt, with the engine's own status. */
 export interface DataBackupSummary {
   readonly id: string;
@@ -548,6 +564,26 @@ export async function loadDataBackups(
     resourceId,
   });
   return sectionFrom("Backups", response);
+}
+
+/**
+ * Load a resource's restores.
+ *
+ * A restore is destructive and its history is what makes it auditable: the
+ * server records every attempt with the engine's own status, and reading them
+ * back keeps a `failed` or `not_configured` restore visible rather than lost
+ * once the dialog closes.
+ */
+export async function loadDataRestores(
+  client: ApiClient,
+  organizationId: string,
+  resourceId: string,
+): Promise<Section<DataRestoreSummary>> {
+  const response = await client.call<readonly DataRestoreSummary[]>("data.restores.list", {
+    organizationId,
+    resourceId,
+  });
+  return sectionFrom("Restores", response);
 }
 
 /** Load an organization's API keys. The secret is never in this list. */

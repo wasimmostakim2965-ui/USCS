@@ -33,6 +33,9 @@ import type {
   DataBackup,
   DataBackupCreateInput,
   DataBackupStatusInput,
+  DataRestore,
+  DataRestoreCreateInput,
+  DataRestoreStatusInput,
   DataResource,
   DataResourceCreateInput,
   DataResourceStateInput,
@@ -267,6 +270,20 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           ? null
           : num(row, "size_bytes"),
       status: str(row, "status") as DataBackup["status"],
+      createdAt: str(row, "created_at"),
+      finishedAt: nullableStr(row, "finished_at"),
+    };
+  }
+
+  function toDataRestore(row: Row): DataRestore {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      backupId: str(row, "backup_id"),
+      dataResourceId: str(row, "data_resource_id") as DataResourceId,
+      provider: nullableStr(row, "provider"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
+      status: str(row, "status") as DataRestore["status"],
       createdAt: str(row, "created_at"),
       finishedAt: nullableStr(row, "finished_at"),
     };
@@ -1047,6 +1064,64 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       });
       const row = updated[0];
       return row ? toDataBackup(row) : null;
+    },
+
+    async getDataBackupForService(
+      organizationId: OrganizationId,
+      backupId: string,
+    ): Promise<DataBackup | null> {
+      const found = await rows("getDataBackupForService", {
+        method: "GET",
+        path: `/data_backups?select=*&id=eq.${q(backupId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDataBackup(row) : null;
+    },
+
+    async createDataRestore(input: DataRestoreCreateInput): Promise<DataRestore> {
+      const created = await must<Row[]>("createDataRestore", {
+        method: "POST",
+        path: "/data_restores?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          backup_id: input.backupId,
+          data_resource_id: input.dataResourceId,
+          provider: input.provider,
+          status: input.status,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createDataRestore", "no row returned");
+      return toDataRestore(row);
+    },
+
+    async updateDataRestoreStatus(input: DataRestoreStatusInput): Promise<DataRestore | null> {
+      const body: Record<string, unknown> = { status: input.status };
+      if (input.providerResourceId !== undefined) {
+        body["provider_resource_id"] = input.providerResourceId;
+      }
+      if (input.finishedAt !== undefined) body["finished_at"] = input.finishedAt;
+      const updated = await rows("updateDataRestoreStatus", {
+        method: "PATCH",
+        path: `/data_restores?select=*&id=eq.${q(input.id)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body,
+      });
+      const row = updated[0];
+      return row ? toDataRestore(row) : null;
+    },
+
+    async listDataRestores(
+      userId: UserId,
+      resourceId: DataResourceId,
+    ): Promise<readonly DataRestore[]> {
+      const found = await rows("listDataRestores", {
+        method: "GET",
+        path: `/data_restores?select=*&data_resource_id=eq.${q(resourceId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=50`,
+      });
+      return found.map(toDataRestore);
     },
 
     async createApiKey(input: ApiKeyCreateInput): Promise<ApiKeySummary> {

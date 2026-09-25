@@ -26,9 +26,12 @@ import {
   buildDeploymentJobHandler,
   buildPolicyApplier,
   buildPolicyJobHandler,
+  buildRestoreApplier,
+  buildRestoreJobHandler,
   BACKUP_JOB_KIND,
   DEPLOYMENT_JOB_KIND,
   POLICY_JOB_KIND,
+  RESTORE_JOB_KIND,
   type JobHandler,
   type JobOutcomeWriter,
 } from "./index.js";
@@ -98,6 +101,16 @@ export function buildWorkerWiring(
     recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
       store.recordAuditEvent(input),
   };
+  const restoreWrites = {
+    getDataResourceForService: (organizationId: string, resourceId: string) =>
+      store.getDataResourceForService(organizationId, resourceId),
+    getDataBackupForService: (organizationId: string, backupId: string) =>
+      store.getDataBackupForService(organizationId, backupId),
+    updateDataRestoreStatus: (input: Parameters<typeof store.updateDataRestoreStatus>[0]) =>
+      store.updateDataRestoreStatus(input),
+    recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
+      store.recordAuditEvent(input),
+  };
   const policyWrites = {
     getSecurityPolicyForService: (organizationId: string) =>
       store.getSecurityPolicyForService(organizationId),
@@ -121,6 +134,11 @@ export function buildWorkerWiring(
       writes: backupWrites,
       now,
     }),
+    [RESTORE_JOB_KIND]: buildRestoreJobHandler({
+      database: engines.database,
+      writes: restoreWrites,
+      now,
+    }),
     [POLICY_JOB_KIND]: buildPolicyJobHandler({
       securityEdge: engines.securityEdge,
       writes: policyWrites,
@@ -137,6 +155,7 @@ export function buildWorkerWiring(
       now,
     }),
     buildBackupApplier({ database: engines.database, writes: backupWrites, now }),
+    buildRestoreApplier({ database: engines.database, writes: restoreWrites, now }),
     buildPolicyApplier({ securityEdge: engines.securityEdge, writes: policyWrites, newId, now }),
   );
 

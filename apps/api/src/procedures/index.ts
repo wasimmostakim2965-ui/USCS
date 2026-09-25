@@ -65,11 +65,15 @@ import {
 import {
   backupDataResource,
   listDataBackups,
+  listDataRestores,
   provisionDataResource,
+  restoreDataResource,
   type BackupDataInput,
   type DataDeps,
   type ListBackupsInput,
+  type ListRestoresInput,
   type ProvisionDataInput,
+  type RestoreDataInput,
 } from "./data.js";
 import {
   addSecurityRule,
@@ -356,6 +360,16 @@ export function buildProcedures(
         listDataBackups(ctx, dataDeps, inputOf<ListBackupsInput>(input)),
     },
     {
+      name: "data.restore",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        restoreDataResource(ctx, dataDeps, inputOf<RestoreDataInput>(input)),
+    },
+    {
+      name: "data.restores.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listDataRestores(ctx, dataDeps, inputOf<ListRestoresInput>(input)),
+    },
+    {
       name: "security.policy.get",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         readSecurityPolicy(
@@ -523,6 +537,13 @@ export const ROUTE_SHAPES = {
   },
   "data.backup": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
   "data.backups.list": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
+  "data.restore": {
+    organizationId: "OrganizationId",
+    resourceId: "DataResourceId",
+    backupId: "string",
+    confirmName: "string",
+  },
+  "data.restores.list": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
   "security.policy.get": { organizationId: "OrganizationId" },
   "security.policy.save": {
     organizationId: "OrganizationId",

@@ -18,9 +18,20 @@
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { Engines, JobQueue } from "@cloud-wai/adapters";
-import type { ControlPlaneWrites, DataBackup, DataResource, DataStore } from "@cloud-wai/database";
+import type {
+  ControlPlaneWrites,
+  DataBackup,
+  DataResource,
+  DataRestore,
+  DataStore,
+} from "@cloud-wai/database";
 import type { DataResourceId, OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
-import { BACKUP_JOB_KIND, type BackupJobPayload } from "@cloud-wai/contracts";
+import {
+  BACKUP_JOB_KIND,
+  RESTORE_JOB_KIND,
+  type BackupJobPayload,
+  type RestoreJobPayload,
+} from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
 type DataWrites = Pick<
@@ -31,6 +42,10 @@ type DataWrites = Pick<
   | "createDataBackup"
   | "updateDataBackupStatus"
   | "listDataBackups"
+  | "getDataBackupForService"
+  | "createDataRestore"
+  | "updateDataRestoreStatus"
+  | "listDataRestores"
 >;
 
 const REQUIRED_WRITES = [
@@ -40,6 +55,20 @@ const REQUIRED_WRITES = [
   "createDataBackup",
   "updateDataBackupStatus",
   "listDataBackups",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+/**
+ * The writes a restore additionally needs.
+ *
+ * Kept separate from `REQUIRED_WRITES` so a deployment (or a test double) that
+ * can back up but has no restore record does not have the whole data module
+ * refuse — only the restore path reports its own honest `engine_unavailable`.
+ */
+const REQUIRED_RESTORE_WRITES = [
+  "getDataBackupForService",
+  "createDataRestore",
+  "updateDataRestoreStatus",
+  "listDataRestores",
 ] as const satisfies readonly (keyof ControlPlaneWrites)[];
 
 export interface DataDeps {
@@ -65,6 +94,25 @@ function writesFor(deps: DataDeps): DataWrites {
     throw new ApiError(
       "engine_unavailable",
       `This deployment cannot record ${missing.join(", ")} yet.`,
+    );
+  }
+  return store as unknown as DataWrites;
+}
+
+/**
+ * The write half a restore additionally needs.
+ *
+ * A restore is destructive, so a deployment that can back up but not *record* a
+ * restore must refuse the restore rather than perform it silently: the history
+ * row is what makes the operation auditable.
+ */
+function restoreWritesFor(deps: DataDeps): DataWrites {
+  const store = deps.store;
+  const missing = REQUIRED_RESTORE_WRITES.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot record a restore (${missing.join(", ")}) yet.`,
     );
   }
   return store as unknown as DataWrites;
@@ -343,4 +391,197 @@ export async function listDataBackups(
     throw new ApiError("not_found", "Data resource not found.");
   }
   return writes.listDataBackups(ctx.principal.userId, input.resourceId);
+}
+
+export interface RestoreDataInput {
+  readonly organizationId: OrganizationId;
+  readonly resourceId: DataResourceId;
+  readonly backupId: string;
+  /**
+   * The resource's own name, echoed back by the operator.
+   *
+   * A restore overwrites the target's current contents, so it must not be one
+   * click away from a list. Requiring the name — computed by the server and
+   * typed by the caller — is what makes the confirmation a deliberate act rather
+   * than a mis-tap on the row below the one intended.
+   */
+  readonly confirmName: string;
+}
+
+export interface RestoreDataResult {
+  readonly restore: DataRestore;
+  readonly engineReason: string | null;
+}
+
+/**
+ * Restore a database from one of its own backups.
+ *
+ * The write path mirrors `backupDataResource` exactly: the restore row exists
+ * `pending` before the engine is called, and only the adapter's answer moves it
+ * off that state. A restore is destructive, so three refusals come first:
+ *
+ *   * the resource and the backup must both belong to the named organization —
+ *     a backup of another tenant's database is not a restore source;
+ *   * the backup must name a real engine artifact, or the restore would run
+ *     against nothing;
+ *   * the operator must echo the resource's name, or the refusal is explicit.
+ */
+export async function restoreDataResource(
+  ctx: RequestContext,
+  deps: DataDeps,
+  input: RestoreDataInput,
+): Promise<RestoreDataResult> {
+  requireCapability(ctx, input.organizationId, "data:restore");
+
+  const writes = restoreWritesFor(deps);
+  const resource = await writes.getDataResource(ctx.principal.userId, input.resourceId);
+  if (!resource || resource.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Data resource not found.");
+  }
+  // A bucket has no restore path in this build, for the same reason it has no
+  // backup path: routing it here would send a bucket name to the database engine.
+  if (resource.kind !== "postgres") {
+    throw new ApiError(
+      "engine_unavailable",
+      "Restoring an object-storage bucket is not available in this build yet.",
+    );
+  }
+  if (!resource.providerResourceId) {
+    throw new ApiError(
+      "conflict",
+      "This resource has no engine handle yet, so it cannot be restored.",
+    );
+  }
+
+  if (input.confirmName.trim() !== resource.name) {
+    throw new ApiError(
+      "invalid_input",
+      `Type the database name (${resource.name}) to confirm the restore.`,
+    );
+  }
+
+  // The backup must be this organization's, and it must name an engine artifact.
+  const backup = await writes.getDataBackupForService(input.organizationId, input.backupId);
+  if (!backup || backup.dataResourceId !== resource.id) {
+    throw new ApiError("not_found", "Backup not found for this resource.");
+  }
+  if (backup.status !== "succeeded" || !backup.providerResourceId) {
+    throw new ApiError(
+      "conflict",
+      "That backup did not complete, so there is nothing to restore from it.",
+    );
+  }
+
+  const id = deps.newId();
+  const targetRef: ProviderRef = {
+    organizationId: resource.organizationId,
+    provider: (resource.provider ?? "postgres") as ProviderRef["provider"],
+    resourceType: "database",
+    resourceId: resource.providerResourceId,
+  };
+  const backupRef: ProviderRef = {
+    organizationId: resource.organizationId,
+    provider: (backup.provider ?? "postgres") as ProviderRef["provider"],
+    resourceType: "backup",
+    resourceId: backup.providerResourceId,
+  };
+
+  // Created before the engine call, so a requested restore is visible even if
+  // the request dies mid-flight.
+  let restore = await writes.createDataRestore({
+    id,
+    organizationId: resource.organizationId,
+    backupId: backup.id,
+    dataResourceId: resource.id,
+    provider: targetRef.provider,
+    status: "pending",
+  });
+
+  // Durable path: record the command as a job and let the worker run it. The row
+  // stays `pending` — its honest state until the engine answers.
+  if (deps.queue) {
+    const payload: RestoreJobPayload = {
+      restoreId: id,
+      organizationId: resource.organizationId,
+      backupId: backup.id,
+      dataResourceId: resource.id,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+    };
+    await deps.queue.enqueue({
+      organizationId: resource.organizationId,
+      kind: RESTORE_JOB_KIND,
+      payload,
+      // The restore id is the idempotency key, so a retried request replays the
+      // row above and never enqueues a second restore of the same attempt.
+      idempotencyKey: `restore-${id}`,
+    });
+    await deps.store.recordAuditEvent({
+      organizationId: resource.organizationId,
+      actorId: ctx.principal.userId,
+      actorEmail: ctx.principal.email,
+      event: "data.restore_enqueued",
+      targetType: "data_restore",
+      targetId: id,
+      metadata: { dataResourceId: resource.id, backupId: backup.id },
+    });
+    return { restore, engineReason: null };
+  }
+
+  const adapterCtx = {
+    organizationId: resource.organizationId,
+    idempotencyKey: `restore-${id}`,
+    timeoutMs: ADAPTER_TIMEOUT_MS,
+  };
+
+  const performed = await deps.engines.database.restore(adapterCtx, {
+    backupRef,
+    targetRef,
+  });
+
+  let engineReason: string | null = null;
+  const status: DataRestore["status"] = performed.ok ? "succeeded" : performed.status;
+
+  if (!performed.ok) engineReason = performed.reason;
+
+  const updated = await writes.updateDataRestoreStatus({
+    id,
+    organizationId: resource.organizationId,
+    status,
+    providerResourceId: performed.ok ? performed.value.jobId : null,
+    finishedAt: (deps.now?.() ?? new Date()).toISOString(),
+  });
+  if (updated) restore = updated;
+
+  await deps.store.recordAuditEvent({
+    organizationId: resource.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: status === "succeeded" ? "data.restore_completed" : "data.restore_failed",
+    targetType: "data_restore",
+    targetId: id,
+    metadata: { dataResourceId: resource.id, backupId: backup.id, status },
+  });
+
+  return { restore, engineReason };
+}
+
+export interface ListRestoresInput {
+  readonly organizationId: OrganizationId;
+  readonly resourceId: DataResourceId;
+}
+
+/** List a resource's restores, membership-scoped. */
+export async function listDataRestores(
+  ctx: RequestContext,
+  deps: DataDeps,
+  input: ListRestoresInput,
+): Promise<readonly DataRestore[]> {
+  requireCapability(ctx, input.organizationId, "data:read");
+  const writes = restoreWritesFor(deps);
+  const resource = await writes.getDataResource(ctx.principal.userId, input.resourceId);
+  if (!resource || resource.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Data resource not found.");
+  }
+  return writes.listDataRestores(ctx.principal.userId, input.resourceId);
 }

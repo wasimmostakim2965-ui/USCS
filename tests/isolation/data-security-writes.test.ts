@@ -32,6 +32,9 @@ import type {
   DataBackup,
   DataBackupCreateInput,
   DataBackupStatusInput,
+  DataRestore,
+  DataRestoreCreateInput,
+  DataRestoreStatusInput,
   DataResource,
   DataResourceCreateInput,
   DataResourceStateInput,
@@ -73,8 +76,11 @@ import {
   buildBackupJobHandler,
   buildPolicyApplier,
   buildPolicyJobHandler,
+  buildRestoreApplier,
+  buildRestoreJobHandler,
   BACKUP_JOB_KIND,
   POLICY_JOB_KIND,
+  RESTORE_JOB_KIND,
 } from "@cloud-wai/worker";
 
 const ALICE = "u-alice";
@@ -150,6 +156,7 @@ function makeStore() {
   ];
   const resources: DataResource[] = [];
   const backups: DataBackup[] = [];
+  const restores: DataRestore[] = [];
   const policies: SecurityPolicy[] = [];
   const policyEvents: SecurityPolicyEvent[] = [];
   const securityRules: SecurityRule[] = [];
@@ -334,6 +341,47 @@ function makeStore() {
       backups[backups.indexOf(b)] = next;
       return next;
     },
+    async getDataBackupForService(organizationId: OrganizationId, backupId: string) {
+      return (
+        backups.find((b) => b.id === backupId && b.organizationId === organizationId) ?? null
+      );
+    },
+    async createDataRestore(input: DataRestoreCreateInput) {
+      const restore: DataRestore = {
+        id: input.id,
+        organizationId: input.organizationId,
+        backupId: input.backupId,
+        dataResourceId: input.dataResourceId,
+        provider: input.provider,
+        providerResourceId: null,
+        status: input.status,
+        createdAt: nextTime(),
+        finishedAt: null,
+      };
+      restores.push(restore);
+      return restore;
+    },
+    async updateDataRestoreStatus(
+      input: DataRestoreStatusInput,
+    ) {
+      const r = restores.find(
+        (x) => x.id === input.id && x.organizationId === input.organizationId,
+      );
+      if (!r) return null;
+      const next: DataRestore = {
+        ...r,
+        status: input.status,
+        providerResourceId: input.providerResourceId ?? r.providerResourceId,
+        finishedAt: input.finishedAt ?? r.finishedAt,
+      };
+      restores[restores.indexOf(r)] = next;
+      return next;
+    },
+    async listDataRestores(userId: UserId, resourceId: DataResourceId) {
+      const r = resources.find((x) => x.id === resourceId);
+      if (!r || !isMember(userId, r.organizationId)) return [];
+      return restores.filter((x) => x.dataResourceId === resourceId);
+    },
 
     async getSecurityPolicy(userId: UserId, org: OrganizationId) {
       if (!isMember(userId, org)) return null;
@@ -409,7 +457,7 @@ function makeStore() {
     },
   } satisfies DataStoreLike;
 
-  return { store, resources, backups, policies, policyEvents, securityRules, audit };
+  return { store, resources, backups, restores, policies, policyEvents, securityRules, audit };
 }
 
 type DataStoreLike = import("@cloud-wai/database").DataStore & Partial<ControlPlaneWrites>;
@@ -1112,6 +1160,15 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
         store.updateDataBackupStatus!(input),
       recordAuditEvent: (input: AuditEventInput) => store.recordAuditEvent(input),
     };
+    const restoreWrites = {
+      getDataResourceForService: (org: OrganizationId, resourceId: DataResourceId) =>
+        store.getDataResourceForService!(org, resourceId),
+      getDataBackupForService: (org: OrganizationId, backupId: string) =>
+        store.getDataBackupForService!(org, backupId),
+      updateDataRestoreStatus: (input: DataRestoreStatusInput) =>
+        store.updateDataRestoreStatus!(input),
+      recordAuditEvent: (input: AuditEventInput) => store.recordAuditEvent(input),
+    };
     const policyWrites = {
       getSecurityPolicyForService: (org: OrganizationId) => store.getSecurityPolicyForService!(org),
       saveSecurityPolicy: (input: SecurityPolicyInput) => store.saveSecurityPolicy!(input),
@@ -1125,6 +1182,10 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
           database: engines.database,
           writes: backupWrites,
         }),
+        [RESTORE_JOB_KIND]: buildRestoreJobHandler({
+          database: engines.database,
+          writes: restoreWrites,
+        }),
         [POLICY_JOB_KIND]: buildPolicyJobHandler({
           securityEdge: engines.securityEdge,
           writes: policyWrites,
@@ -1135,6 +1196,7 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
       workerId: "worker-1",
       apply: buildApplier(
         buildBackupApplier({ database: engines.database, writes: backupWrites }),
+        buildRestoreApplier({ database: engines.database, writes: restoreWrites }),
         buildPolicyApplier({ securityEdge: engines.securityEdge, writes: policyWrites, newId }),
       ),
     });
@@ -1307,5 +1369,213 @@ describe("the durable writer: backup and policy as orchestration jobs", () => {
     // drop the attack mode the customer turned on.
     expect(policies[0]?.state).toBe("active");
     expect(policies[0]?.protectionMode).toBe("attack");
+  });
+
+  /**
+   * `data.restore` — matrix B5 / gate 9. The adapter's `restore` existed and was
+   * tested in isolation, but no procedure reached it. These tests prove the
+   * procedure exists, is a durable job, and refuses every dishonest path: a
+   * backup of another tenant, a backup that never completed, and a confirmation
+   * that does not echo the database name.
+   */
+  async function provisionAndBackup(
+    router: ReturnType<typeof routerWith>,
+    queue: InMemoryJobQueue,
+    store: DataStoreLike,
+    engines: Engines,
+  ) {
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+    await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    // Drain so the backup reaches `succeeded` and gets an engine handle: a
+    // restore only accepts a completed backup. The same engine instance takes
+    // the backup and the restore, so the restore can find the artifact.
+    await workerOver(store, engines, queue, () => "evt").drain();
+    return resource;
+  }
+
+  it("restores from a completed backup and mirrors the engine's handle", async () => {
+    const { store, backups, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    const resource = await provisionAndBackup(router, queue, store, engines);
+    const backup = backups[0]!;
+    expect(backup.status).toBe("succeeded");
+
+    const res = await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        backupId: backup.id,
+        confirmName: "tenant-db",
+      },
+    });
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    expect((res.data as { restore: DataRestore }).restore.status).toBe("pending");
+    expect(restores[0]?.status).toBe("pending");
+
+    const job = await queue.get("job-2");
+    expect(job?.kind).toBe(RESTORE_JOB_KIND);
+    expect((job?.payload as { restoreId?: string }).restoreId).toBe(restores[0]?.id);
+
+    const outcomes = await workerOver(store, engines, queue, () => "evt").drain();
+    expect(outcomes[0]?.status).toBe("succeeded");
+    expect(restores[0]?.status).toBe("succeeded");
+    expect(restores[0]?.providerResourceId).toBeTruthy();
+  });
+
+  it("refuses a restore unless the operator echoes the database name", async () => {
+    const { store, backups, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+    const resource = await provisionAndBackup(router, queue, store, engines);
+
+    const res = await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        backupId: backups[0]!.id,
+        confirmName: "not-the-name",
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(restores).toHaveLength(0);
+    expect(await queue.get("job-2")).toBeNull();
+  });
+
+  it("refuses a restore from a backup that never completed", async () => {
+    const { store, backups, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    // Provision, then back up WITHOUT draining: the row stays `pending` and has
+    // no engine handle, so there is nothing to restore from.
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+    await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    expect(backups[0]?.status).toBe("pending");
+
+    const res = await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        backupId: backups[0]!.id,
+        confirmName: "tenant-db",
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(restores).toHaveLength(0);
+  });
+
+  it("refuses a restore from a backup that names no artifact", async () => {
+    const { store, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+
+    const provisioned = await router.route({
+      procedure: "data.provision",
+      accessToken: TOKEN_ALICE,
+      input: provisionInput(),
+    });
+    const resource = (provisioned.data as { resource: DataResource }).resource;
+
+    const res = await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        // A backup id that belongs to no resource in ORG_A.
+        backupId: "b-does-not-exist",
+        confirmName: "tenant-db",
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+    expect(restores).toHaveLength(0);
+  });
+
+  it("refuses a non-member's restore before anything is enqueued", async () => {
+    const { store, backups, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+    const resource = await provisionAndBackup(router, queue, store, engines);
+
+    const res = await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_CAROL,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        backupId: backups[0]!.id,
+        confirmName: "tenant-db",
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect([403, 404]).toContain(res.status);
+    expect(restores).toHaveLength(0);
+  });
+
+  it("lists a resource's restores, scoped to a member", async () => {
+    const { store, backups, restores } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const engines = workingEngines();
+    const router = routerWith(store, engines, { queue, newId: () => "gen" });
+    const resource = await provisionAndBackup(router, queue, store, engines);
+    await router.route({
+      procedure: "data.restore",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        resourceId: resource.id,
+        backupId: backups[0]!.id,
+        confirmName: "tenant-db",
+      },
+    });
+
+    const listed = await router.route({
+      procedure: "data.restores.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    expect(listed.ok).toBe(true);
+    expect((listed.data as DataRestore[]).length).toBe(restores.length);
+
+    const asOutsider = await router.route({
+      procedure: "data.restores.list",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+    expect(asOutsider.ok).toBe(false);
   });
 });

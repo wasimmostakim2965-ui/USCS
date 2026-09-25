@@ -133,7 +133,7 @@ object we have not built.
 | B2 | List resources | `data.list` (`index.ts:~285`) | **Wired** |
 | B3 | Back up a database | `data.backup`; bucket backup refused honestly | **Wired** |
 | B4 | Backup history | `data.backups.list` (`index.ts:302`) | **Wired** |
-| B5 | Restore from a backup (gate 9) | adapter `restore` tested; **no `data.restore` procedure** | **Contract-only (B3)** |
+| B5 | Restore from a backup (gate 9) | `data.restore` / `data.restores.list` (`apps/api/src/procedures/data.ts`), `data_restores` + RLS (`supabase/migrations/0012_data_restores.sql`), worker `buildRestoreJobHandler`/`buildRestoreApplier` (`apps/worker/src/restore-job.ts`), Dashboard `RestoreResourceModal` (`apps/web/src/pages/database.tsx`); name-confirmation + completed-backup-only refusals | **Wired** (Honest n/c without creds) |
 | B6 | Rotate credentials | adapter `rotateCredentials`; unreachable | **Contract-only (B4)** |
 | B7 | Table editor | route + honest placeholder | **Missing (B2)** — needs table introspection |
 | B8 | SQL editor | route + honest placeholder | **Missing (B2)** |
@@ -164,7 +164,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅ | Medium | **Partly closed** — the compile and control-plane surface are wired; the live edge application stays an open gate |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
 | 4 | Usage recording + hard spend cap | W8, W9 | Medium | The top user complaint |
-| 5 | Cancel / restore / edge traffic view | P7 ✅, B5, X15, X16 | Medium | "Built but unreachable" class — cancel is wired; restore + traffic view remain |
+| 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X15, X16 | Medium | "Built but unreachable" class — cancel and restore are wired; traffic view remains |
 | 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
 | 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
 
