@@ -60,7 +60,7 @@ decide whether the deployment is real:
 | `CLOUD_WAI_USE_FAKE_ENGINES=false` | `true` is refused when `NODE_ENV=production`. Never enable it on a host. |
 | `COOLIFY_URL`, `COOLIFY_TOKEN__<orgId>`, … | Per-organization Coolify credentials. One team per tenant. |
 | `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY__<orgId>`, … | MinIO/S3 credentials. |
-| `SECURITY_EDGE_URL`, `EDGE_HOSTNAME` | The edge. Without a built edge adapter wired to `buildEngines`, the edge stays `not_configured`. |
+| `SECURITY_EDGE_URL`, `SECURITY_EDGE_ORIGIN`, `SECURITY_EDGE_TOKEN__<orgId>`, `EDGE_HOSTNAME` | The edge. The API and worker build the real adapter when the URL, a **private** origin and a per-org token are set; `EDGE_HOSTNAME` is what a domain CNAMEs to. Without the URL/origin/token the edge stays honestly `not_configured`. |
 
 An engine left unset is not an error: its adapter reports `not_configured` and
 the dashboard shows that honestly. That is the intended state until the engine

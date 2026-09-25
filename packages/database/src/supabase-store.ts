@@ -816,6 +816,47 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toPolicy(row) : null;
     },
 
+    async listSecurityRulesForService(
+      organizationId: OrganizationId,
+    ): Promise<readonly SecurityRule[]> {
+      const found = await rows("listSecurityRulesForService", {
+        method: "GET",
+        path: `/security_rules?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toSecurityRule);
+    },
+
+    async listTrustedSourcesForService(
+      organizationId: OrganizationId,
+    ): Promise<readonly TrustedSource[]> {
+      const found = await rows("listTrustedSourcesForService", {
+        method: "GET",
+        path: `/security_trusted_sources?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toTrustedSource);
+    },
+
+    async findDomainByHostnameForService(
+      organizationId: OrganizationId,
+      hostname: string,
+    ): Promise<Domain | null> {
+      const found = await rows("findDomainByHostnameForService", {
+        method: "GET",
+        path: `/domains?select=*&organization_id=eq.${q(organizationId)}&hostname=eq.${q(hostname)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDomain(row) : null;
+    },
+
+    async getRoutableDomainForService(organizationId: OrganizationId): Promise<Domain | null> {
+      const found = await rows("getRoutableDomainForService", {
+        method: "GET",
+        path: `/domains?select=*&organization_id=eq.${q(organizationId)}&verified=is.true&order=verified_at.asc&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDomain(row) : null;
+    },
+
     async listPolicyEvents(
       userId: UserId,
       organizationId: OrganizationId,

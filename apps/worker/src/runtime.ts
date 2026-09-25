@@ -10,12 +10,12 @@
  * looping over nothing and looking healthy.
  */
 import {
+  buildDeploymentEngines,
   controlPlaneConfig,
   createPostgrestClient,
   createSupabaseControlPlaneStore,
   SqlJobQueue,
 } from "@cloud-wai/database";
-import { buildEngines, engineConfigFromEnv } from "@cloud-wai/adapters";
 import { secretCipherFromEnv, type SecretCipher } from "@cloud-wai/auth";
 import { randomUUID } from "node:crypto";
 import {
@@ -55,7 +55,7 @@ export interface RunningWorker {
 export type WorkerStartupResult = RunningWorker | { readonly reason: string };
 
 type Store = ReturnType<typeof createSupabaseControlPlaneStore>;
-type Engines = ReturnType<typeof buildEngines>;
+type Engines = ReturnType<typeof buildDeploymentEngines>;
 
 interface WorkerWiring {
   readonly handlers: Record<string, JobHandler>;
@@ -202,7 +202,7 @@ export async function startWorker(
   });
   const newId = options.newId ?? (() => randomUUID());
   const store = createSupabaseControlPlaneStore({ client, newId });
-  const engines = buildEngines(engineConfigFromEnv(env));
+  const engines = buildDeploymentEngines(env, store);
   const queue = new SqlJobQueue(client);
   const { handlers, apply } = buildWorkerWiring(store, engines, newId, () => new Date(), secretCipherFromEnv(env));
 

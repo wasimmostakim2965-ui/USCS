@@ -243,6 +243,43 @@ export interface ControlPlaneWrites {
    * read path can reach it.
    */
   getSecurityPolicyForService(organizationId: OrganizationId): Promise<SecurityPolicy | null>;
+  /**
+   * The organization's deny-list rules, scoped by organization only.
+   *
+   * The edge adapter compiles the stored policy into engine syntax for a caller
+   * with no session (the worker draining a distribution job), so it reads the
+   * deny list on the service role: `organization_id` is the tenant boundary.
+   */
+  listSecurityRulesForService(organizationId: OrganizationId): Promise<readonly SecurityRule[]>;
+  /**
+   * The organization's trusted sources, scoped by organization only.
+   *
+   * Read alongside the deny list when the edge adapter assembles a `CompileInput`
+   * for a sessionless caller. `organization_id` in the where clause is the tenant
+   * boundary.
+   */
+  listTrustedSourcesForService(organizationId: OrganizationId): Promise<readonly TrustedSource[]>;
+  /**
+   * A domain by hostname, scoped by organization only.
+   *
+   * The edge's route loader resolves a hostname to the private origin behind it
+   * for a sessionless caller, so this read is service-scoped: `organization_id`
+   * is the tenant boundary and a hostname owned by another tenant is null.
+   */
+  findDomainByHostnameForService(
+    organizationId: OrganizationId,
+    hostname: string,
+  ): Promise<Domain | null>;
+  /**
+   * The organization's oldest verified domain, or null when it has none.
+   *
+   * The edge compiles one artifact per policy, and that artifact carries a route
+   * fragment, so a policy distribution needs *a* verified route to target. This
+   * is the deterministic choice (oldest first) rather than an arbitrary one; an
+   * organization with no verified route gets null, and the distribution is
+   * refused honestly instead of naming a host that does not serve it.
+   */
+  getRoutableDomainForService(organizationId: OrganizationId): Promise<Domain | null>;
   /** Insert or advance the policy. Version increases monotonically. */
   saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
   /** Record a policy state transition. Append-only. */
@@ -759,17 +796,10 @@ export interface SecurityPolicy {
 /**
  * Whether the stored protection is currently in effect.
  *
- * A single place for the expiry rule, so the API, the worker and the view-model
- * cannot disagree about whether attack mode is on.
+ * Re-exported from `protection.ts` so callers keep importing it from here while
+ * the edge loaders can import the module directly without a package cycle.
  */
-export function protectionIsActive(
-  policy: Pick<SecurityPolicy, "protectionMode" | "protectionExpiresAt">,
-  now: Date = new Date(),
-): boolean {
-  if (policy.protectionMode !== "attack") return false;
-  if (policy.protectionExpiresAt === null) return true;
-  return new Date(policy.protectionExpiresAt).getTime() > now.getTime();
-}
+export { protectionIsActive } from "./protection.js";
 
 export interface SecurityPolicyInput {
   readonly id: string;
@@ -1268,3 +1298,4 @@ export interface OrganizationMember {
 export * from "./postgrest.js";
 export * from "./supabase-store.js";
 export * from "./sql-queue.js";
+export * from "./edge-loaders.js";

@@ -114,12 +114,12 @@ object we have not built.
 | X5 | Hidden origin (private origin required) | `PRIVATE_HOST` grammar (`security-edge.ts:55`) | **Wired (config)** |
 | X6 | Deny direct origin (gate 6) | needs live Envoy | **Open gate** |
 | X7 | Block CRS fixtures (gate 7) | needs live Coraza | **Open gate** |
-| X8 | **Attack mode** (challenge browsers, pass known bots) | `protectionMode` on `security_policies` (`supabase/migrations/0010_security_protection_and_events.sql`), saved via `security.policy.save` (`apps/api/src/procedures/security.ts`), compiled to the ladder's `challenge` step (`packages/adapters/src/security-edge.ts:318`) | **Wired (compile)**; edge application = **Honest n/c** |
+| X8 | **Attack mode** (challenge browsers, pass known bots) | `protectionMode` on `security_policies` (`supabase/migrations/0010_security_protection_and_events.sql`), saved via `security.policy.save` (`apps/api/src/procedures/security.ts`), carried into the compiled `challenge` step (`packages/adapters/src/security-edge.ts:318`), and distributed to a **reachable** edge via `buildDeploymentEngines` (`packages/database/src/edge-loaders.ts`) | **Wired** — the edge is reachable when configured; live-edge application stays an open release gate (6/7) |
 | X9 | **Known-bots allow-list** / verified bots | `VERIFIED_BOTS` → `security.bots.list` (`apps/api/src/procedures/security.ts:538`); compiled first in the ladder, UA + forward-confirmed rDNS (`security-edge.ts:288`) | **Wired** |
 | X10 | Bot management managed rulesets | curated verified-bot directory only | **Partial** |
 | X11 | Custom firewall rules | deny list: `security.rules.list/add/remove` (`security.ts:443-520`), `security_rules` table, org-scoped RLS; compiled as `block-deny-list` steps | **Wired** |
 | X12 | WAF rate limiting | `per-route rate limits` named in the High level copy only; no rate object | **Missing** |
-| X13 | IP blocking / trusted IPs | deny list supports `ip`/`cidr`/`asn`/`user-agent` kinds (`packages/security`) | **Wired (deny)**; trusted-IP allow-list **Missing** |
+| X13 | IP blocking / trusted IPs | deny list supports `ip`/`cidr`/`asn`/`user-agent` kinds (`packages/security`); trusted-IP allow-list via `security.trustedSources.*` (`apps/api/src/procedures/security.ts`), `security_trusted_sources` + org RLS (`supabase/migrations/0016_security_trusted_sources.sql`), compiled as `allow-trusted-ip` steps **before** the deny list (`security-edge.ts`) | **Wired** |
 | X14 | DDoS mitigation | engine-side (edge host); no control-plane surface | **Honest n/c** |
 | X15 | Security incidents surfaced | `IncidentTracker` (`apps/security-control/src/index.ts:85-160`) exists, **not wired to the API** | **Contract-only (S7)** |
 | X16 | Edge decided-traffic view (what was blocked) | `security_events` table + org-scoped RLS (`supabase/migrations/0010_security_protection_and_events.sql`); read via `security.events.list` (`apps/api/src/procedures/security.ts`), store `listSecurityEvents` (`packages/database/src/supabase-store.ts`), Dashboard "Edge decisions" table (`apps/web/src/pages/pages.tsx`) | **Wired (read)** — the edge writes rows; **Honest n/c** until a live edge populates them |
@@ -161,7 +161,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | Rank | Gap | Rows | Effort | Unblocks |
 |---|---|---|---|---|
 | 1 | Git integration + preview deployments | P8, P9, P10 | Large | "Vercel-grade deploy" claim |
-| 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅ | Medium | **Partly closed** — the compile and control-plane surface are wired; the live edge application stays an open gate |
+| 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅, X13 ✅ | Medium | **Closed** — the compile, the control-plane surface and the production edge wiring are done (`buildDeploymentEngines`); the live-edge application stays an open release gate (6/7) |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
 | 4 | Usage recording + hard spend cap | W8 ✅, W9 ✅ | Medium | **Closed** — the top user complaint |
 | 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X16 ✅ | Medium | **Closed for read** — cancel, restore and the edge decided-traffic view are wired; the incident surface (X15) remains |

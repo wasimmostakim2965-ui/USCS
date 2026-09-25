@@ -12,6 +12,7 @@
  */
 import type { ControlPlaneStore } from "@cloud-wai/database";
 import {
+  buildDeploymentEngines,
   controlPlaneConfig,
   createPostgrestClient,
   createSupabaseControlPlaneStore,
@@ -24,12 +25,7 @@ import {
   type SecretCipher,
   type SessionVerifier,
 } from "@cloud-wai/auth";
-import {
-  buildEngines,
-  engineConfigFromEnv,
-  type Engines,
-  type JobQueue,
-} from "@cloud-wai/adapters";
+import type { Engines, JobQueue } from "@cloud-wai/adapters";
 import { randomUUID } from "node:crypto";
 import { buildProcedures } from "./procedures/index.js";
 import { buildRouter } from "./router.js";
@@ -147,7 +143,10 @@ export async function start(
   });
   const store = createSupabaseControlPlaneStore({ client, newId });
   const verifier = createSupabaseSessionVerifier(auth);
-  const engines = buildEngines(engineConfigFromEnv(env));
+  // A reachable security edge is built here when the environment configures one;
+  // otherwise the honest `not_configured` edge is built. The same helper is used
+  // by the worker, so the two processes cannot disagree about the edge.
+  const engines = buildDeploymentEngines(env, store);
 
   // The durable queue is the production writer: deploy and rollback become jobs
   // the worker executes. Its claim/reap functions are service-role only, so this
