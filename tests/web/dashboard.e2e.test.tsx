@@ -2012,6 +2012,8 @@ describe("the Security policy write path", () => {
     riskLevel: "high" as const,
     action: "challenge" as const,
     state: "draft" as const,
+    protectionMode: "normal" as const,
+    protectionExpiresAt: null,
     version: 2,
     updatedAt: new Date().toISOString(),
   };
@@ -2229,5 +2231,119 @@ describe("the Security policy write path", () => {
     expect(
       await screen.findByText(/The security edge is not configured in this deployment/),
     ).toBeTruthy();
+  });
+
+  it("shows a live attack posture from the stored policy, not local state", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.policy.get") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            policy: {
+              ...draftPolicy,
+              protectionMode: "attack",
+              protectionExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            },
+            events: [],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("Attack (timed)")).toBeTruthy();
+  });
+
+  it("adds a deny-list rule through the API and reads it back", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.rules.add") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            id: "rule-1",
+            kind: "ip",
+            value: "203.0.113.9",
+            note: null,
+            createdAt: new Date().toISOString(),
+          },
+        };
+      }
+      if (procedure === "security.rules.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add rule" }));
+    await user.type(await screen.findByLabelText("Value"), "203.0.113.9");
+    // The section header and the modal footer both say "Add rule"; the modal's
+    // is the last one rendered.
+    const addButtons = screen.getAllByRole("button", { name: "Add rule" });
+    await user.click(addButtons[addButtons.length - 1]!);
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.procedure === "security.rules.add")).toBe(true),
+    );
+  });
+
+  it("shows the verified-bot directory so attack mode does not look like it breaks SEO", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.bots.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            bots: [
+              { name: "googlebot", userAgent: "Googlebot", confirmSuffix: ".googlebot.com" },
+              { name: "bingbot", userAgent: "bingbot", confirmSuffix: ".search.msn.com" },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("googlebot")).toBeTruthy();
+    expect(await screen.findByText(".googlebot.com")).toBeTruthy();
+  });
+
+  it("reports a deny list the deployment does not support as degraded, not empty", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.rules.list") {
+        return {
+          ok: false,
+          status: 503,
+          error: { code: "engine_unavailable", message: "This deployment cannot record rules yet." },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/cannot record rules yet/)).toBeTruthy();
   });
 });

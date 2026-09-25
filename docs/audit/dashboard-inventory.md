@@ -53,9 +53,11 @@ them in this order: route/page → procedure → adapter call → live engine.
 | Remove domain | `DomainsPage` | `domains.remove` | Working |
 | Rename project | `ProjectSettingsPage` | `projects.update` | Working |
 | Security policy read | `SecurityPage` | `security.policy.get` | Working |
-| Save policy draft | `SecurityPage` | `security.policy.save` | Working |
+| Save policy draft (incl. normal/attack posture) | `SecurityPage` | `security.policy.save` | Working |
 | Distribute to edge | `SecurityPage` | `security.policy.distribute` | Not configured |
 | Security edge banner | `SecurityPage` | `providers.health` | Working |
+| Deny list (add / list / remove) | `SecurityPage` | `security.rules.list`, `security.rules.add`, `security.rules.remove` | Working |
+| Verified-bot directory | `SecurityPage` | `security.bots.list` | Working |
 | Project engine status | `SettingsPage` | `providers.health` | Working |
 
 ## Database section (the first differentiator)

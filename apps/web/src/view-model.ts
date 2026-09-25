@@ -416,8 +416,32 @@ export interface SecurityPolicySummary {
   readonly riskLevel: "low" | "medium" | "high" | "critical";
   readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
   readonly state: "draft" | "compiled" | "distributed" | "active" | "rejected" | "degraded";
+  /**
+   * The protection posture. `normal` inspects and logs; `attack` challenges
+   * browsers. It is stored and compiled, so it survives a page reload — the UI
+   * never keeps it in local state.
+   */
+  readonly protectionMode: "normal" | "attack";
+  /** When an attack posture lapses, or null when it does not. */
+  readonly protectionExpiresAt: string | null;
   readonly version: number;
   readonly updatedAt: string;
+}
+
+/** One row of a customer's deny list, as the server stores it. */
+export interface SecurityRuleSummary {
+  readonly id: string;
+  readonly kind: "ip" | "cidr" | "asn" | "user-agent";
+  readonly value: string;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
+/** A crawler that keeps working when attack mode is on, with its proof. */
+export interface VerifiedBotSummary {
+  readonly name: string;
+  readonly userAgent: string;
+  readonly confirmSuffix: string;
 }
 
 export interface SecurityPolicyReadSummary {
@@ -609,6 +633,57 @@ export async function loadAudit(
 ): Promise<Section<AuditSummary>> {
   const response = await client.call<readonly AuditSummary[]>("audit.list", { organizationId });
   return sectionFrom("Recent activity", response);
+}
+
+/**
+ * Load the customer's deny list.
+ *
+ * Unlike the engine-backed sections, a deployment that predates the deny list
+ * answers with the honest `engine_unavailable`; that is surfaced as degraded
+ * with the server's own reason rather than an empty list, so "none yet" and
+ * "not supported here" stay distinguishable.
+ */
+export async function loadSecurityRules(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<SecurityRuleSummary>> {
+  const response = await client.call<readonly SecurityRuleSummary[]>("security.rules.list", {
+    organizationId,
+  });
+  if (response.notConfigured) {
+    return {
+      title: "Deny list",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  return sectionFrom("Deny list", response);
+}
+
+/**
+ * Load the verified-bot directory.
+ *
+ * This is the answer to "will attack mode break my search ranking": the crawlers
+ * whose requests carry a verifiable reverse-DNS confirmation, and therefore keep
+ * working even while browsers are challenged.
+ */
+export async function loadVerifiedBots(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<VerifiedBotSummary>> {
+  const response = await client.call<{ bots: readonly VerifiedBotSummary[] }>(
+    "security.bots.list",
+    { organizationId },
+  );
+  if (response.notConfigured) {
+    return {
+      title: "Verified bots",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Verified bots", response.error?.message ?? "Request failed.");
+  }
+  return ready("Verified bots", response.data?.bots ?? []);
 }
 
 export interface DashboardModel {

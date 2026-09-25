@@ -45,6 +45,8 @@ import {
   loadProjects,
   updateProject,
   loadProviderHealth,
+  loadSecurityRules,
+  loadVerifiedBots,
   loadUsage,
   loadSecurityPolicy,
   loadSecurityPolicyEvents,
@@ -64,10 +66,12 @@ import {
   type ProjectSummary,
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
+  type SecurityRuleSummary,
   type ObservabilityReportSummary,
   type OrchestrationJobSummary,
   type SecurityPolicySummary,
   type UsageTotalSummary,
+  type VerifiedBotSummary,
 } from "../view-model.js";
 import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
 
@@ -1416,8 +1420,20 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Policy history",
   );
+  const rules = useSection(
+    () => loadSecurityRules(client, organizationId),
+    [client, organizationId],
+    "Deny list",
+  );
+  const bots = useSection(
+    () => loadVerifiedBots(client, organizationId),
+    [client, organizationId],
+    "Verified bots",
+  );
   const [saving, setSaving] = useState(false);
   const [distributing, setDistributing] = useState(false);
+  const [addingRule, setAddingRule] = useState(false);
+  const [removingRule, setRemovingRule] = useState<SecurityRuleSummary | null>(null);
   // A level card preselects the risk and action the form opens with; it is a
   // convenience over the same save, never a separate write. Null means "open
   // with the policy's own values".
@@ -1559,6 +1575,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 render: (item) => <PolicyStateBadge state={item.state} />,
               },
               {
+                key: "protection",
+                header: "Protection",
+                render: (item) => <ProtectionBadge policy={item} />,
+              },
+              {
                 key: "version",
                 header: "Version",
                 render: (item) => <span className="mono small">{item.version}</span>,
@@ -1599,6 +1620,95 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
             </Card>
           ))}
         </div>
+      </SectionShell>
+
+      <SectionShell
+        title="Deny list"
+        hint="Your own rules, compiled alongside the managed set. A rule is validated before it is stored, so a hostile value never becomes edge syntax."
+        actions={
+          <Button size="sm" variant="primary" onClick={() => setAddingRule(true)}>
+            Add rule
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<SecurityRuleSummary>
+            section={rules.section}
+            onRetry={rules.reload}
+            emptyMessage="No rules yet. Add an IP, CIDR, ASN or user-agent to block it at the edge."
+            columns={[
+              {
+                key: "kind",
+                header: "Kind",
+                render: (item) => <span className="mono small">{item.kind}</span>,
+              },
+              {
+                key: "value",
+                header: "Value",
+                render: (item) => (
+                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 360 }}>
+                    {item.value}
+                  </span>
+                ),
+              },
+              {
+                key: "note",
+                header: "Note",
+                render: (item) => <span className="small">{item.note ?? "—"}</span>,
+              },
+              {
+                key: "createdAt",
+                header: "Added",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+              {
+                key: "actions",
+                header: "",
+                render: (item) => (
+                  <Button size="sm" onClick={() => setRemovingRule(item)}>
+                    Remove
+                  </Button>
+                ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell
+        title="Verified bots"
+        hint="Crawlers whose identity is confirmed by reverse DNS. They keep working even while attack mode challenges browsers."
+      >
+        <Card flush>
+          <SectionView<VerifiedBotSummary>
+            section={bots.section}
+            onRetry={bots.reload}
+            emptyMessage="No verified bots reported."
+            columns={[
+              {
+                key: "name",
+                header: "Crawler",
+                render: (item) => <span className="small">{item.name}</span>,
+              },
+              {
+                key: "userAgent",
+                header: "User-Agent",
+                render: (item) => (
+                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 280 }}>
+                    {item.userAgent}
+                  </span>
+                ),
+              },
+              {
+                key: "confirmSuffix",
+                header: "Verified by",
+                render: (item) => <span className="mono small">{item.confirmSuffix}</span>,
+              },
+            ]}
+            rowKey={(item) => item.name}
+          />
+        </Card>
       </SectionShell>
 
       <SectionShell title="Engine status" hint="Read from the adapters, not assumed">
@@ -1711,6 +1821,27 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
           events.reload();
         }}
       />
+
+      <AddSecurityRuleModal
+        organizationId={organizationId}
+        open={addingRule}
+        onClose={() => setAddingRule(false)}
+        onAdded={() => {
+          setAddingRule(false);
+          rules.reload();
+        }}
+      />
+
+      <RemoveSecurityRuleModal
+        organizationId={organizationId}
+        rule={removingRule}
+        open={removingRule !== null}
+        onClose={() => setRemovingRule(null)}
+        onRemoved={() => {
+          setRemovingRule(null);
+          rules.reload();
+        }}
+      />
     </PageShell>
   );
 }
@@ -1722,11 +1853,31 @@ function PolicyStateBadge({ state }: { readonly state: string }) {
 }
 
 /**
+ * The protection posture.
+ *
+ * An attack posture that has already lapsed is shown as "Normal" — the compile
+ * step treats a past expiry as normal, so the badge says what the edge will
+ * actually do rather than what was once asked for.
+ */
+function ProtectionBadge({ policy }: { readonly policy: SecurityPolicySummary }) {
+  const active =
+    policy.protectionMode === "attack" &&
+    (policy.protectionExpiresAt === null || Date.parse(policy.protectionExpiresAt) > Date.now());
+  if (!active) return <StatusBadge label="Normal" tone="neutral" />;
+  return (
+    <StatusBadge
+      label={policy.protectionExpiresAt ? "Attack (timed)" : "Attack"}
+      tone="danger"
+    />
+  );
+}
+
+/**
  * Save a policy as a draft.
  *
- * The form changes the name, risk level and action only. It cannot set the
- * state: the server always writes `draft`, and the badge afterwards is read back
- * from the server rather than assumed here.
+ * The form changes the name, risk level, action and the protection posture. It
+ * cannot set the state: the server always writes `draft`, and the badge
+ * afterwards is read back from the server rather than assumed here.
  */
 function SavePolicyModal({
   organizationId,
@@ -1754,6 +1905,14 @@ function SavePolicyModal({
   const [action, setAction] = useState<SecurityPolicySummary["action"]>(
     prefill?.action ?? policy?.action ?? "log",
   );
+  // The posture defaults to what is stored, so opening the form never quietly
+  // drops a live attack mode.
+  const [protectionMode, setProtectionMode] = useState<"normal" | "attack">(
+    policy?.protectionMode ?? "normal",
+  );
+  const [protectionExpiresAt, setProtectionExpiresAt] = useState(
+    policy?.protectionExpiresAt ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1770,6 +1929,12 @@ function SavePolicyModal({
       name,
       riskLevel,
       action,
+      protectionMode,
+      // An empty expiry means "until turned off"; the server keeps it as null.
+      protectionExpiresAt:
+        protectionMode === "attack" && protectionExpiresAt !== ""
+          ? new Date(protectionExpiresAt).toISOString()
+          : null,
     });
     setBusy(false);
     if (!response.ok) {
@@ -1839,6 +2004,44 @@ function SavePolicyModal({
             </select>
           )}
         </Field>
+        <Field
+          label="Protection posture"
+          hint="Normal inspects and logs. Attack challenges browsers — search engines and verified bots keep working."
+        >
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={protectionMode}
+              onChange={(event) => setProtectionMode(event.target.value as "normal" | "attack")}
+            >
+              <option value="normal">Normal</option>
+              <option value="attack">Attack (challenge browsers)</option>
+            </select>
+          )}
+        </Field>
+        {protectionMode === "attack" ? (
+          <Field
+            label="Attack window ends (optional)"
+            hint="Leave empty to keep it on until you switch back. At most 24 hours ahead."
+          >
+            {(id) => (
+              <input
+                id={id}
+                type="datetime-local"
+                className="input"
+                value={protectionExpiresAt === "" ? "" : toLocalInputValue(protectionExpiresAt)}
+                onChange={(event) =>
+                  setProtectionExpiresAt(
+                    event.target.value === ""
+                      ? ""
+                      : new Date(event.target.value).toISOString(),
+                  )
+                }
+              />
+            )}
+          </Field>
+        ) : null}
         <p className="muted small">
           Saving writes a draft with a version one higher than the current one. The edge is what
           activates it.
@@ -1846,6 +2049,14 @@ function SavePolicyModal({
       </div>
     </Modal>
   );
+}
+
+/** Format an ISO timestamp for a `datetime-local` input, in the viewer's zone. */
+function toLocalInputValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 /**
@@ -1936,6 +2147,232 @@ function DistributePolicyModal({
             The edge confirms its own version; a lower version is refused before the call.
           </p>
         )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The rule kinds, with the shape each value must have.
+ *
+ * The hint is the same description the server's validator enforces, so the form
+ * and the refusal speak the same language and a reject is never a surprise.
+ */
+const RULE_KIND_OPTIONS: readonly {
+  readonly kind: SecurityRuleSummary["kind"];
+  readonly label: string;
+  readonly hint: string;
+  readonly placeholder: string;
+}[] = [
+  {
+    kind: "ip",
+    label: "IP address",
+    hint: "A single address, e.g. 203.0.113.9.",
+    placeholder: "203.0.113.9",
+  },
+  {
+    kind: "cidr",
+    label: "CIDR range",
+    hint: "A network in CIDR form, e.g. 203.0.113.0/24.",
+    placeholder: "203.0.113.0/24",
+  },
+  {
+    kind: "asn",
+    label: "ASN",
+    hint: "An autonomous system number, e.g. AS64500 or 64500.",
+    placeholder: "AS64500",
+  },
+  {
+    kind: "user-agent",
+    label: "User-Agent",
+    hint: "A substring of the User-Agent header, up to 200 characters.",
+    placeholder: "BadBot/1.0",
+  },
+];
+
+/** Add one rule to the customer's deny list. */
+function AddSecurityRuleModal({
+  organizationId,
+  open,
+  onClose,
+  onAdded,
+}: {
+  readonly organizationId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onAdded: () => void;
+}) {
+  const { client } = useApp();
+  const [kind, setKind] = useState<SecurityRuleSummary["kind"]>("ip");
+  const [value, setValue] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const selected = RULE_KIND_OPTIONS.find((option) => option.kind === kind) ?? RULE_KIND_OPTIONS[0]!;
+
+  const close = () => {
+    setError(null);
+    setValue("");
+    setNote("");
+    onClose();
+  };
+
+  const submit = async () => {
+    if (value.trim() === "") {
+      setError("Enter a value to block.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await client.call<SecurityRuleSummary>("security.rules.add", {
+      organizationId,
+      kind,
+      value: value.trim(),
+      ...(note.trim() === "" ? {} : { note: note.trim() }),
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The rule could not be added.");
+      return;
+    }
+    setValue("");
+    setNote("");
+    onAdded();
+  };
+
+  return (
+    <Modal
+      title="Add a deny-list rule"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Add rule
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Kind">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value as SecurityRuleSummary["kind"]);
+                setError(null);
+              }}
+            >
+              {RULE_KIND_OPTIONS.map((option) => (
+                <option key={option.kind} value={option.kind}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Value" hint={selected.hint} {...(error ? { error } : {})}>
+          {(id) => (
+            <TextInput
+              id={id}
+              value={value}
+              onChange={setValue}
+              placeholder={selected.placeholder}
+              error={Boolean(error)}
+              autoFocus
+            />
+          )}
+        </Field>
+        <Field label="Note (optional)" hint="Why this rule exists, for the next operator.">
+          {(id) => (
+            <TextInput
+              id={id}
+              value={note}
+              onChange={setNote}
+              placeholder="Abuse report 2026-09-24"
+            />
+          )}
+        </Field>
+        <p className="muted small">
+          The value is validated before it is stored. A value that could break out of a directive is
+          refused here, so it can never reach the edge as syntax.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/** Remove one rule from the deny list. */
+function RemoveSecurityRuleModal({
+  organizationId,
+  rule,
+  open,
+  onClose,
+  onRemoved,
+}: {
+  readonly organizationId: string;
+  readonly rule: SecurityRuleSummary | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!rule) return null;
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ removed: boolean }>("security.rules.remove", {
+      organizationId,
+      ruleId: rule.id,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The rule could not be removed.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title="Remove rule"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Remove <span className="mono">{rule.value}</span> ({rule.kind}) from the deny list?
+        </p>
+        <p className="muted small">
+          The edge stops blocking it on the next compile. Provisioned traffic is not affected
+          retroactively.
+        </p>
         {error ? (
           <p className="field__error" role="alert">
             {error}
