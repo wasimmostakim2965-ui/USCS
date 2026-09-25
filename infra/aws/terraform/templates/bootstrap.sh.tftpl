@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# Cloud Wai host bootstrap (Amazon Linux 2023).
+#
+# Runs once at first boot (and again when user_data changes). It installs
+# Docker, fetches the container environment from SSM, clones the repository at
+# the pinned ref and brings up the same compose file the single-host runbook
+# documents. It is deliberately idempotent: a re-run rebuilds and restarts
+# rather than erroring, because user_data_replace_on_change re-runs it on an
+# environment change.
+#
+# It fails closed at the point that matters: if the environment parameter is
+# missing or still unconfigured, it stops before starting containers, so the
+# load balancer never sees a "healthy" host that is running nothing.
+set -euo pipefail
+
+exec > >(tee -a /var/log/cloud-wai-bootstrap.log) 2>&1
+echo "[bootstrap] start $(date -u +%FT%TZ)"
+
+PROJECT='${project}'
+ENVIRONMENT='${environment}'
+ENV_PARAMETER='${env_parameter}'
+LOG_GROUP='${log_group}'
+REPO_URL='${repo_url}'
+REPO_REF='${repo_ref}'
+CONFIG_BUCKET='${config_bucket}'
+APP_DIR=/opt/cloud-wai
+
+# --- 1. Docker ---------------------------------------------------------------
+if ! command -v docker >/dev/null 2>&1; then
+  dnf install -y docker
+  systemctl enable --now docker
+fi
+# The compose plugin ships as its own package on AL2023.
+if ! docker compose version >/dev/null 2>&1; then
+  dnf install -y docker-compose-plugin || {
+    mkdir -p /usr/libexec/docker/cli-plugins
+    curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-compose \
+      "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64"
+    chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+  }
+fi
+dnf install -y git awscli amazon-cloudwatch-agent || true
+
+# --- 2. Container environment from SSM ---------------------------------------
+# SecureString, decrypted on the instance through its instance profile. Never
+# written to the repository, never printed.
+mkdir -p "$APP_DIR"
+umask 077
+aws ssm get-parameter \
+  --name "$ENV_PARAMETER" \
+  --with-decryption \
+  --region "$AWS_REGION" \
+  --query 'Parameter.Value' --output text > "$APP_DIR/.env"
+
+if [ ! -s "$APP_DIR/.env" ] || ! grep -q '^SUPABASE_URL=..*' "$APP_DIR/.env"; then
+  echo "[bootstrap] FATAL: $ENV_PARAMETER is missing or has no SUPABASE_URL." >&2
+  echo "[bootstrap] Refusing to start containers that cannot verify a session." >&2
+  exit 1
+fi
+
+# --- 3. Source ---------------------------------------------------------------
+if [ ! -d "$APP_DIR/repo/.git" ]; then
+  git clone "$REPO_URL" "$APP_DIR/repo"
+fi
+git -C "$APP_DIR/repo" fetch --all --tags
+git -C "$APP_DIR/repo" checkout --force "$REPO_REF"
+
+# Build-time values for the dashboard bundle. The anon key is public by design;
+# the service-role key is not passed here.
+set -a
+# shellcheck disable=SC1090
+. "$APP_DIR/.env"
+set +a
+export VITE_SUPABASE_URL="$SUPABASE_URL"
+export VITE_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+
+# --- 4. Build and start ------------------------------------------------------
+cd "$APP_DIR/repo"
+docker compose -f infra/deployment/docker-compose.yml up -d --build
+
+# --- 5. Ship container logs to CloudWatch ------------------------------------
+# The host's own docker logs remain; this is the durable copy.
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<JSON
+{
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/lib/docker/containers/*/*-json.log",
+            "log_group_name": "$LOG_GROUP",
+            "log_stream_name": "{instance_id}",
+            "timezone": "UTC"
+          }
+        ]
+      }
+    }
+  }
+}
+JSON
+systemctl enable --now amazon-cloudwatch-agent || true
+
+echo "[bootstrap] done $(date -u +%FT%TZ)"
+echo "[bootstrap] artifacts bucket: $CONFIG_BUCKET"

@@ -6,6 +6,14 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Terraform state and its secrets — the environment file holds engine
+# credentials, so the state file is as sensitive as `.env` itself.
+infra/aws/terraform/.terraform/
+infra/aws/terraform/*.tfstate
+infra/aws/terraform/*.tfstate.*
+infra/aws/terraform/*.tfvars
+infra/aws/terraform/crash.log
+
 # Engine reference clones — read-only inspection workspaces, never committed.
 # Each engine stays an independent, version-pinned service behind an adapter.
 /engines-src/

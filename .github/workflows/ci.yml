@@ -80,3 +80,27 @@ jobs:
         env:
           CLOUDWAI_RLS_DSN: postgresql://postgres:postgres@localhost:5432/cloudwai
         run: bash scripts/verify-rls.sh
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws/terraform
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      # `fmt -check` catches the class of change a human reviewer misses and a
+      # `validate` would still accept: inconsistent formatting that would make a
+      # real plan diff noisy.
+      - run: terraform fmt -check -recursive
+
+      # No backend and no credentials: this proves the configuration is
+      # internally coherent (references resolve, no cycle, no invalid
+      # attribute), not that an AWS account accepts it. `terraform apply` is the
+      # operator's step and stays out of CI.
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate

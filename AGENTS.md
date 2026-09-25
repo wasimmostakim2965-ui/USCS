@@ -158,11 +158,20 @@ not when a commit message says so.
 
 ## Deploying the software
 
-- `docs/runbooks/deploy.md` is the operator runbook; `infra/deployment/` holds the
-  `api` / `worker` / `web` images and a compose file for a single host. The
-  dashboard image serves the bundle and reverse-proxies `/rpc` and `/healthz` to
-  the API, so the browser has one origin and the API's
-  `CLOUD_WAI_ALLOWED_ORIGINS` stays empty.
+- `docs/runbooks/deploy.md` is the operator runbook for a single host;
+  `docs/runbooks/deploy-aws.md` is the AWS form of it, and
+  `infra/aws/terraform/` is the environment as code (VPC, private host, ALB +
+  ACM, Route 53, SSM config, CloudWatch). Both shapes run the same
+  `infra/deployment/docker-compose.yml`, so they cannot drift into two products.
+  Read ADR-0015 before changing the AWS shape.
+- `infra/deployment/` holds the `api` / `worker` / `web` images and the compose
+  file for a single host. The dashboard image serves the bundle and
+  reverse-proxies `/rpc` and `/healthz` to the API, so the browser has one origin
+  and the API's `CLOUD_WAI_ALLOWED_ORIGINS` stays empty.
+- `.env.example` must stay loadable by a dotenv parser. A placeholder written as
+  a key (`COOLIFY_TOKEN__<organizationId>=…`) makes `docker compose` refuse the
+  file outright; per-organization placeholders belong in comments.
+  `tests/deployment/env-template.test.ts` enforces this.
 - The API reads `HOST` / `PORT` / `CLOUD_WAI_ALLOWED_ORIGINS` from the
   environment (`allowedOriginsFromEnv`). An allow-list, never `*`: a
   control-plane response is per-user.

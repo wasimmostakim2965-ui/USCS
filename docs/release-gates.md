@@ -23,6 +23,11 @@ pnpm verify:all      # build + typecheck + unit/contract/isolation suite + RLS p
 `pnpm verify:all` needs a local PostgreSQL for the RLS half. CI provides one;
 locally, start the cluster and run `scripts/verify-rls.sh`.
 
+The AWS hosting environment is validated by a third CI job, `terraform`
+(`infra/aws/terraform`): `terraform fmt -check` and `terraform validate`. That
+job proves the configuration is coherent; `terraform apply` is the operator's
+step and stays out of CI. See `docs/runbooks/deploy-aws.md`.
+
 ## The gates
 
 | # | Gate | Kind | Evidence |
