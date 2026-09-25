@@ -80,9 +80,9 @@ object we have not built.
 | P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them | **Wired** |
 | P6 | Instant rollback | `deployments.rollback` (`index.ts:242`); Coolify needs a commit (`coolify.ts:353`) | **Wired** |
 | P7 | Cancel an in-flight deployment | `deployments.cancel` (`index.ts:257`; `apps/api/src/procedures/deployments.ts:cancelDeployment`); adapter `cancelDeployment` (`coolify.ts:326`); Cancel action on pending/running rows | **Wired** |
-| P8 | Git integration: auto-deploy on push | `git.connect` + HMAC-verified `/hooks/git` receiver enqueues the deploy job (`apps/api/src/git-hook.ts`) | Implemented (UI pending) |
-| P9 | Preview deployment per branch / PR | non-production branch/PR -> preview kind + `preview_targets`; `PreviewTarget` resolved by the worker | Implemented (UI pending) |
-| P10 | Promote preview → production | none | **Missing (D6)** |
+| P8 | Git integration: auto-deploy on push | `git.connect` + HMAC-verified `/hooks/git` receiver enqueues the deploy job (`apps/api/src/git-hook.ts`); Project Settings → Git page connects a repo and shows the webhook URL (`apps/web/src/pages/pages.tsx`) | **Wired** (engine execution is honest n/c without Coolify) |
+| P9 | Preview deployment per branch / PR | non-production branch/PR -> preview kind + `preview_targets`; `PreviewTarget` resolved by the worker; Deployments list labels a preview row `Preview · PR #n` and the Git page carries the previews toggle | **Wired** |
+| P10 | Promote preview → production | `deployments.promote` (`apps/api/src/procedures/deployments.ts:promoteDeployment`), store `promoteDeployment` (`packages/database/src/index.ts`), single production pointer (`supabase/migrations/0014_deployment_production_pointer.sql`), Promote + Instant rollback share it (`PromoteDeploymentModal`, `apps/web/src/pages/pages.tsx`); a preview or un-succeeded build is refused | **Wired** |
 | P11 | Staged production deployment (`--skip-domain`) | none | **Missing** |
 | P12 | Deployment protection (auth/password/IP) | none | **Missing (D7)** |
 | P13 | Environment variables (per env) | `project_env_vars` table + RLS + guarded engine columns (`supabase/migrations/0015_project_env_vars.sql`); `env.list/set/remove` (`apps/api/src/procedures/env-vars.ts`); Coolify `/envs` through the adapter (`packages/adapters/src/coolify.ts`); worker reconciliation before each build (`apps/worker/src/env-sync.ts`); `EnvVarsPage` (`apps/web/src/pages/pages.tsx`); probe `21_env_var_probe.sql` | **Wired** (values encrypted, never returned) |

@@ -34,55 +34,95 @@ const ctx = (
 describe("Postgres adapter", () => {
   let server: Server;
   let baseUrl = "";
-  const seen: { method: string; path: string; auth?: string }[] = [];
+  const seen: { method: string; path: string; auth?: string; body?: unknown }[] = [];
+
+  /** The engine logic, run once the body has been buffered. */
+  const handle = (
+    req: import("node:http").IncomingMessage,
+    res: import("node:http").ServerResponse,
+    url: URL,
+  ) => {
+    const json = (code: number, body: unknown) => {
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    const team =
+      req.headers.authorization === `Bearer ${TOKEN_A}`
+        ? "a"
+        : req.headers.authorization === `Bearer ${TOKEN_B}`
+          ? "b"
+          : null;
+    if (!team) return json(401, { message: "unauthenticated" });
+
+    if (req.method === "POST" && url.pathname === "/api/v1/databases/postgresql") {
+      return json(201, { uuid: `db-${team}-1` });
+    }
+    const backup = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)\/backups$/);
+    if (backup && req.method === "POST") {
+      const uuid = backup[1]!;
+      // A database of another team is not visible to this token.
+      if (!uuid.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
+      return json(201, { uuid: "backup-1" });
+    }
+    // The engine lists a backup config's executions; only one carrying a
+    // filename is restorable, which is what the adapter reads before importing.
+    const executions = url.pathname.match(
+      /^\/api\/v1\/databases\/([^/]+)\/backups\/([^/]+)\/executions$/,
+    );
+    if (executions && req.method === "GET") {
+      const db = executions[1]!;
+      if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
+      return json(200, {
+        executions: [
+          { uuid: "exec-0", filename: null, status: "running", created_at: "2026-01-01T00:00:00Z" },
+          {
+            uuid: "exec-1",
+            filename: "/backups/databases/team-a/db-a-1/pg-dump-all-1.gz",
+            status: "successful",
+            created_at: "2026-01-01T00:01:00Z",
+          },
+        ],
+      });
+    }
+    // Coolify restores by importing a backup file, not by re-running an execution.
+    const imports = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)\/imports$/);
+    if (imports && req.method === "POST") {
+      const db = imports[1]!;
+      if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
+      return json(202, { message: "Import queued" });
+    }
+    // Credential rotation is a PATCH that writes a new password; the engine
+    // must never return it.
+    const patch = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)$/);
+    if (patch && req.method === "PATCH") {
+      const db = patch[1]!;
+      if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
+      return json(200, { message: "updated" });
+    }
+    const one = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)$/);
+    if (one && req.method === "DELETE") {
+      const db = one[1]!;
+      if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
+      return json(200, { message: "deleted" });
+    }
+    return json(404, { message: "unknown" });
+  };
 
   beforeAll(async () => {
     server = createServer((req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
-      seen.push({ method: req.method ?? "", path: url.pathname, auth: req.headers.authorization });
-      const json = (code: number, body: unknown) => {
-        res.writeHead(code, { "content-type": "application/json" });
-        res.end(JSON.stringify(body));
-      };
-      const team =
-        req.headers.authorization === `Bearer ${TOKEN_A}`
-          ? "a"
-          : req.headers.authorization === `Bearer ${TOKEN_B}`
-            ? "b"
-            : null;
-      if (!team) return json(401, { message: "unauthenticated" });
-
-      if (req.method === "POST" && url.pathname === "/api/v1/databases/postgresql") {
-        return json(201, { uuid: `db-${team}-1` });
-      }
-      const backup = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)\/backups$/);
-      if (backup && req.method === "POST") {
-        const uuid = backup[1]!;
-        // A database of another team is not visible to this token.
-        if (!uuid.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
-        return json(201, { uuid: "backup-1" });
-      }
-      const execution = url.pathname.match(
-        /^\/api\/v1\/databases\/([^/]+)\/backups\/([^/]+)\/executions$/,
-      );
-      if (execution && req.method === "POST") {
-        const db = execution[1]!;
-        if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
-        return json(201, { message: "restore queued" });
-      }
-      const rotate = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)\/rotate-credentials$/);
-      if (rotate && req.method === "POST") {
-        const db = rotate[1]!;
-        if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
-        return json(200, { password: "super-secret-new-password" });
-      }
-      const one = url.pathname.match(/^\/api\/v1\/databases\/([^/]+)$/);
-      if (one && req.method === "DELETE") {
-        const db = one[1]!;
-        if (!db.startsWith(`db-${team}-`)) return json(404, { message: "Not found" });
-        return json(200, { message: "deleted" });
-      }
-      json(404, { message: "unknown" });
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        seen.push({
+          method: req.method ?? "",
+          path: url.pathname,
+          auth: req.headers.authorization,
+          ...(raw ? { body: JSON.parse(raw) as unknown } : {}),
+        });
+        handle(req, res, url);
+      });
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -92,14 +132,18 @@ describe("Postgres adapter", () => {
     await new Promise<void>((r) => server.close(() => r()));
   });
 
+  const placement = { projectUuid: "proj-1", serverUuid: "srv-1", environmentName: "production" };
+
   const adapter = () =>
     createPostgresDatabase({
       credentials: (org) =>
         org === ORG_A
-          ? { baseUrl, token: TOKEN_A }
+          ? { baseUrl, token: TOKEN_A, ...placement }
           : org === ORG_B
-            ? { baseUrl, token: TOKEN_B }
+            ? { baseUrl, token: TOKEN_B, ...placement }
             : null,
+      // Pinned so the test can assert the password never leaves the adapter.
+      newPassword: () => "super-secret-new-password",
     });
 
   it("reports not_configured without credentials", async () => {
@@ -108,11 +152,33 @@ describe("Postgres adapter", () => {
     if (!result.ok) expect(result.status).toBe("not_configured");
   });
 
-  it("provisions a database with the organization's own token", async () => {
+  it("reports not_configured when the credential lacks a placement", async () => {
+    const bare = createPostgresDatabase({
+      credentials: () => ({ baseUrl, token: TOKEN_A }),
+    });
+    const result = await bare.provision(ctx(ORG_A, "no-placement"), { name: "x" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe("not_configured");
+      expect(result.reason).toContain("COOLIFY_PROJECT_UUID");
+    }
+  });
+
+  it("provisions a database with the organization's own token and placement", async () => {
+    seen.length = 0;
     const result = await adapter().provision(ctx(ORG_A, "p1"), { name: "alpha" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.resourceId).toBe("db-a-1");
-    expect(seen.at(-1)?.auth).toBe(`Bearer ${TOKEN_A}`);
+    const call = seen.at(-1)!;
+    expect(call.auth).toBe(`Bearer ${TOKEN_A}`);
+    expect(call.method).toBe("POST");
+    expect(call.path).toBe("/api/v1/databases/postgresql");
+    // The engine's own field names, not the credential record's.
+    expect(call.body).toMatchObject({
+      project_uuid: "proj-1",
+      server_uuid: "srv-1",
+      environment_name: "production",
+    });
   });
 
   it("cannot back up another organization's database", async () => {
@@ -143,15 +209,78 @@ describe("Postgres adapter", () => {
     expect(restored.ok).toBe(true);
   });
 
-  it("does not return the rotated password to the caller", async () => {
+  it("rotates credentials through the PATCH route and never returns the password", async () => {
+    seen.length = 0;
     const db = adapter();
     const provisioned = await db.provision(ctx(ORG_A, "r1"), { name: "alpha" });
     if (!provisioned.ok) throw new Error("setup failed");
 
     const rotated = await db.rotateCredentials(ctx(ORG_A, "r1"), provisioned.value);
     expect(rotated.ok).toBe(true);
-    // The engine sent a password; it must not appear in the adapter's result.
+    // The engine has no rotate route; the password is written by PATCH.
+    const call = seen.at(-1)!;
+    expect(call.method).toBe("PATCH");
+    expect(call.path).toBe("/api/v1/databases/db-a-1");
+    expect(call.body).toMatchObject({ postgres_password: "super-secret-new-password" });
+    // The password the control plane minted must not appear in the adapter's result.
     expect(JSON.stringify(rotated)).not.toContain("super-secret-new-password");
+  });
+
+  it("restores by importing the filename the engine recorded", async () => {
+    seen.length = 0;
+    const db = adapter();
+    const provisioned = await db.provision(ctx(ORG_A, "i1"), { name: "alpha" });
+    if (!provisioned.ok) throw new Error("setup failed");
+    const backup = await db.backup(ctx(ORG_A, "i1"), provisioned.value);
+    if (!backup.ok) throw new Error("backup failed");
+
+    const restored = await db.restore(ctx(ORG_A, "i1"), {
+      backupRef: backup.value,
+      targetRef: provisioned.value,
+    });
+    expect(restored.ok).toBe(true);
+
+    // It reads the executions, then imports the file the engine named.
+    const read = seen.find((r) => r.method === "GET" && r.path.endsWith("/executions"));
+    expect(read?.path).toBe("/api/v1/databases/db-a-1/backups/backup-1/executions");
+    const importCall = seen.at(-1)!;
+    expect(importCall.method).toBe("POST");
+    expect(importCall.path).toBe("/api/v1/databases/db-a-1/imports");
+    expect(importCall.body).toMatchObject({
+      source: "server",
+      path: "/backups/databases/team-a/db-a-1/pg-dump-all-1.gz",
+    });
+  });
+
+  it("refuses to restore when the engine has no restorable backup file", async () => {
+    const bare = createPostgresDatabase({
+      credentials: () => ({ baseUrl, token: TOKEN_A, ...placement }),
+      fetchImpl: (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes("/executions")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ executions: [] }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        }
+        return fetch(input as string, init);
+      },
+    });
+    const provisioned = await bare.provision(ctx(ORG_A, "no-file"), { name: "alpha" });
+    if (!provisioned.ok) throw new Error("setup failed");
+    const result = await bare.restore(ctx(ORG_A, "no-file"), {
+      backupRef: {
+        organizationId: ORG_A,
+        provider: "postgres",
+        resourceType: "backup",
+        resourceId: "db-a-1/backup-1",
+      },
+      targetRef: provisioned.value,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe("degraded");
   });
 
   it("refuses a malformed backup reference", async () => {

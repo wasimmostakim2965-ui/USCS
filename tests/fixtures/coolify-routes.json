@@ -1,7 +1,7 @@
 {
   "_source": "coollabsio/coolify routes/api.php",
   "_commit": "7c86e53422ad7c4f19c5821621c71403b9173f62",
-  "_note": "Verbatim route table (filtered to applications/deployments). Any path the Cloud Wai adapter calls must appear here. Regenerate from engines-src/coolify at the pinned commit.",
+  "_note": "Verbatim route table from the pinned commit (routes/api.php, `prefix: 'v1'` applied). Any path the Cloud Wai adapters call must appear here. Regenerate from engines-src/coolify at the pinned commit.",
   "routes": [
     {
       "method": "GET",
@@ -201,6 +201,238 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/audit-events"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cloud-init-scripts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cloud-init-scripts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cloud-init-scripts/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cloud-init-scripts/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/cloud-init-scripts/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cloud-tokens"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cloud-tokens"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/cloud-tokens/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/cloud-tokens/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/cloud-tokens/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/cloud-tokens/{uuid}/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/clickhouse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/dragonfly"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/keydb"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/mariadb"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/mongodb"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/mysql"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/postgresql"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/redis"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/databases/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/backups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/backups"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/backups/{scheduled_backup_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/databases/{uuid}/backups/{scheduled_backup_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/backups/{scheduled_backup_uuid}/executions"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/backups/{scheduled_backup_uuid}/executions/{execution_uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/clone"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/databases/{uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/databases/{uuid}/envs/bulk"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/envs/{env_uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/imports"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/imports/uploads"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/imports/{activity_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/migrate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/move"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/restart"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/start"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/stop"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/storages"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/databases/{uuid}/storages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/storages"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/storages/{storage_uuid}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/databases/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/storages/{storage_uuid}/backups/run"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/databases/{uuid}/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/databases/{uuid}/tags"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/databases/{uuid}/tags/{tag_uuid}"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/deploy"
     },
     {
@@ -222,6 +454,490 @@
     {
       "method": "POST",
       "path": "/api/v1/deployments/{uuid}/cancel"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/destinations"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/destinations/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/destinations/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/destinations/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/digitalocean/images"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/digitalocean/regions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/digitalocean/sizes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/digitalocean/ssh-keys"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/disable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/disable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/enable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/enable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/feedback"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/github-apps"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/github-apps"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/github-apps/{github_app_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/github-apps/{github_app_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/github-apps/{github_app_id}/repositories"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/github-apps/{github_app_id}/repositories/{owner}/{repo}/branches"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/gitlab-apps"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/gitlab-apps"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/gitlab-apps/{gitlab_app_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/gitlab-apps/{gitlab_app_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/firewalls"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/images"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/locations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/networks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/server-types"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/hetzner/ssh-keys"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/disable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp/enable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/discord"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/discord"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/email"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/email"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/pushover"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/pushover"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/slack"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/slack"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/telegram"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/telegram"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications/webhook"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/notifications/webhook"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{uuid}/environments"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{uuid}/environments"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}/envs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}/envs/{env_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/{uuid}/environments/{environment_name_or_uuid}/envs/{env_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/{uuid}/envs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/{uuid}/envs/{env_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/{uuid}/envs/{env_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/{uuid}/{environment_name_or_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/resources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/s3-storages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/s3-storages"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/s3-storages/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/s3-storages/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/s3-storages/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/s3-storages/{uuid}/validate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/security/integration-tokens"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/security/keys"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/security/keys"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/security/keys/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/security/keys/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/security/keys/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/sentinel/push"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/digitalocean"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/hetzner"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/import"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/vultr"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{server_uuid}/destinations"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{server_uuid}/destinations"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/servers/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/claim"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/cloudflare-tunnel"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/cloudflare-tunnel"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/cloudflare-tunnel/disable"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/cloudflare-tunnel/enable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/docker-cleanup"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/docker-cleanup"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/docker-cleanup/executions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/docker-cleanup/run"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/domains"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/envs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/servers/{uuid}/envs/{env_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/envs/{env_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/export"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/export/mailbox"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/log-drains"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/log-drains"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/migrate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/proxy"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/proxy"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/servers/{uuid}/proxy/configuration"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/proxy/restart"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/resources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/sentinel"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/servers/{uuid}/sentinel"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/transfer/complete"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/servers/{uuid}/validate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/servers/{uuid}/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}"
     },
     {
       "method": "GET",
@@ -258,6 +974,262 @@
     {
       "method": "POST",
       "path": "/api/v1/services/{uuid}/applications/{app_uuid}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/clone"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/imports"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/imports/uploads"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/imports/{activity_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/databases/{database_uuid}/stop"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/envs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/envs/bulk"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}/envs/{env_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/migrate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/move"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/restart"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/restart"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks/{task_uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks/{task_uuid}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks/{task_uuid}/execute"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/scheduled-tasks/{task_uuid}/executions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/start"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/start"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/stop"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/storages"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/services/{uuid}/storages"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/storages"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}/storages/{storage_uuid}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/services/{uuid}/storages/{storage_uuid}/backups"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/storages/{storage_uuid}/backups/run"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{uuid}/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{uuid}/tags"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/services/{uuid}/tags/{tag_uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/settings/email"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/settings/email"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tags"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/tags/{uuid}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/tags/{uuid}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/team"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/team"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/team/envs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/team/envs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/team/envs/{env_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/team/envs/{env_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/team/members"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/teams"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/teams/current"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/teams/current/members"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/teams/{id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/teams/{id}/members"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/version"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vultr/os"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vultr/plans"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vultr/regions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/vultr/ssh-keys"
     }
   ]
 }
