@@ -60,27 +60,35 @@ them in this order: route/page → procedure → adapter call → live engine.
 
 ## Database section (the first differentiator)
 
-The section has nine sub-pages. Only Overview has a body; the other eight are
-routes with an honest placeholder and no controls.
+The section has nine sub-pages. Two are real: Overview (resources list,
+provision/backup controls) and Storage (a project-scoped bucket view backed by
+the same `data.list` rows). The other seven are routes with an honest
+placeholder that names the missing engine operation and no controls.
 
 | Sub-page | Body | Controls | State |
 |---|---|---|---|
 | Overview | resources list | Provision resource, Back up | Working |
-| Overview → Connection | text | none (prose only) | **Missing** |
-| Table Editor | none | none | **Missing** |
-| SQL Editor | none | none | **Missing** |
-| Authentication | none | none | **Missing** |
-| Storage | none | none | **Missing** |
-| API | none | none | **Missing** |
-| Roles & Extensions | none | none | **Missing** |
-| Logs | none | none | **Missing** |
-| Settings | none | none | **Missing** |
+| Overview → Connection | text | none (prose only) | Working (prose) |
+| Table Editor | honest placeholder | none | **Missing** — needs table introspection |
+| SQL Editor | honest placeholder | none | **Missing** — needs query execution |
+| Authentication | honest placeholder | none | **Missing** — needs auth-user listing |
+| Storage | bucket view from `data.list` | Provision resource, Back up (database only) | Working |
+| API | honest placeholder | none | **Missing** — needs schema introspection |
+| Roles & Extensions | honest placeholder | none | **Missing** — needs role introspection |
+| Logs | honest placeholder | none | **Missing** — needs a log stream |
+| Settings | honest placeholder | none | **Missing** — needs engine configuration |
 
 Backend reality for these: `data.list`, `data.provision`, `data.backup`,
 `data.backups.list` exist. There is **no** procedure for reading tables, running
-SQL, listing buckets/objects, reading auth users, or listing roles/extensions.
-The `postgres` database adapter exposes health and provisioning; the deeper
-Supabase-shaped surface is **contract-only or missing**, not merely unconfigured.
+SQL, listing auth users, or listing roles/extensions. The `postgres` database
+adapter exposes health and provisioning; the deeper Supabase-shaped surface is
+**contract-only or missing**, not merely unconfigured.
+
+The dispatch used to be a boolean flag plus one hard-coded component, so any
+section flipped to "implemented" rendered the Storage view under another
+section's title. It is now a `SECTION_COMPONENT` map (section → component), and
+the Authentication placeholder test asserts the Storage view's controls are
+absent. See ADR-0016.
 
 ## An architectural tension the Database upgrade must resolve first
 
@@ -127,16 +135,22 @@ and this fork, so the choice is explicit.
 
 ## Gaps found, ordered by severity
 
-1. **No Billing section at all.** `usage_records` (organization-scoped, RLS
-   `usage_records_select`) exists in the schema, and the sidebar brief asks for
-   Billing, but there is no route, no page, no procedure and no store method.
-   Nothing reads a usage row. This is the largest single missing section.
-2. **No landing page.** `index.html` boots straight into the app. There is no
-   public marketing/landing route, so the "landing page → dashboard" journey the
-   brief describes does not exist yet.
-3. **Database sub-pages are placeholders.** Eight of nine are honest but empty.
-   Filling them needs new adapter surface (tables, SQL, buckets, auth users) and
-   new procedures, which is the largest body of work.
+Items 1–3 below were open when this inventory was first written and are now
+closed; they are kept, struck through, so the record of what was missing is not
+quietly erased. Items 4–7 were fixed in the same period. Items 8–9 are later
+findings from the same audit line.
+
+1. **No Billing section at all.** ~~`usage_records` ... nothing reads a usage
+   row.~~ **Fixed**: `billing.usage` procedure, `BillingPage`, and
+   `listUsageRecords` on the store read real organization-scoped rows. Invoicing
+   remains an honest not-configured (no payment provider), stated on the page.
+2. **No landing page.** ~~`index.html` boots straight into the app.~~ **Fixed**:
+   `LandingPage` at the root for a signed-out visitor, with the honesty
+   constraints in ADR-0010, and now a registrar search box that states lookup is
+   not configured.
+3. **Database sub-pages are placeholders.** Partly fixed: Overview and Storage
+   are real. **Seven remain missing** (Table Editor, SQL Editor, Authentication,
+   API, Roles & Extensions, Logs, Settings), blocked by the ADR-0011 fork above.
 4. **Domains are organization-scoped, not project-scoped.** ~~`domains.list` takes
    only `organizationId`~~ **Fixed**: `domains.list` accepts an optional
    `projectId`, the web loader and `DomainsPage` pass project scope, and a
@@ -151,6 +165,16 @@ and this fork, so the choice is explicit.
 7. **`ComingSoon` in the Database Connection card** ~~is two disabled buttons
    with no procedure behind them~~ **Fixed**: the two dead buttons are gone; the
    card is prose only, and the e2e test asserts no button is invented there.
+8. **A Database sub-page could render another sub-page's body.** The dispatch was
+   a boolean `implemented` flag plus one hard-coded component, so the first
+   section enabled after Storage would render the Storage view under its own
+   title. **Fixed**: a `SECTION_COMPONENT` map from section to component, with a
+   test that the Authentication placeholder carries none of Storage's controls.
+9. **The "brand-new tenant sees zero rows" check covered two tables.**
+   `tests/isolation/rls/10_isolation_probe.sql` created the member-of-nobody
+   fixture but asserted only organizations and projects. **Fixed**: probe 7 now
+   sweeps all eleven tenant tables with a count guard, verified against a real
+   PostgreSQL and by mutation.
 
 ## What is honest today and must stay honest
 
@@ -163,8 +187,17 @@ and this fork, so the choice is explicit.
 
 ## Build order for the upgrade
 
-1. **Database sub-pages** — the differentiator; needs adapter + procedures.
-2. **Billing** — new section; `usage_records` is already there.
-3. **Landing page** — public route, then the app.
-4. **Correctness gaps** — project-scoped domains, project Settings, dead prop.
-5. **Polish** — the Vercel comparison pass.
+Done: Billing (2), Landing page (3), the correctness gaps (4), and the Storage
+half of (1). Remaining, in order:
+
+1. **The seven Database sub-pages** — still the differentiator, still blocked on
+   the ADR-0011 fork: they need a `TenantDataPlane` adapter contract (table
+   introspection, query execution, auth-user listing, role introspection) that
+   the hard rules say must not be added without an ADR. Decide the fork first.
+2. **Observability** — build the page on engine-owned data (job pickup and
+   completion latency, provider health over time, redacted logs) so the numbers
+   come from `orchestration_jobs` and the adapters, never a fabricated metric.
+   This is the largest surface gap against Vercel (ADR-0013).
+3. **Environment variables** — configuration as data, with a change that needs a
+   redeploy expressed as a deployment, never a silent in-place edit.
+4. **Polish** — the Vercel comparison pass; ADR-0016 is the current output.
