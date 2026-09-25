@@ -256,46 +256,92 @@ export interface TableProps<T> {
   readonly items: readonly T[];
   readonly rowKey: (item: T) => string;
   readonly onRowClick?: (item: T) => void;
+  /**
+   * Turns on a live filter box above the table. `filterText` maps a row to the
+   * string the box matches against, so the caller decides what is searchable —
+   * the table never guesses at the shape of T.
+   */
+  readonly filterText?: (item: T) => string;
+  /** Placeholder for the filter box, e.g. "Filter deployments". */
+  readonly filterLabel?: string;
 }
 
-export function Table<T>({ caption, columns, items, rowKey, onRowClick }: TableProps<T>) {
+export function Table<T>({
+  caption,
+  columns,
+  items,
+  rowKey,
+  onRowClick,
+  filterText,
+  filterLabel,
+}: TableProps<T>) {
+  const [query, setQuery] = useState("");
+  const term = query.trim().toLowerCase();
+  // A filter over rows the caller already loaded: no request, no new state to
+  // be dishonest about, and an empty result is labelled "no matches", not the
+  // "nothing recorded" state an empty section uses.
+  const visible =
+    filterText && term !== ""
+      ? items.filter((item) => filterText(item).toLowerCase().includes(term))
+      : items;
+
   return (
-    <div className="table-wrap">
-      <table className="table">
-        {caption ? <caption>{caption}</caption> : null}
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th
-                key={column.key}
-                scope="col"
-                style={column.align === "right" ? { textAlign: "right" } : undefined}
-              >
-                {column.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr
-              key={rowKey(item)}
-              onClick={onRowClick ? () => onRowClick(item) : undefined}
-              style={onRowClick ? { cursor: "pointer" } : undefined}
-            >
+    <>
+      {filterText ? (
+        <div className="table__filter">
+          <TextInput
+            value={query}
+            onChange={setQuery}
+            placeholder={filterLabel ?? "Filter"}
+            ariaLabel={filterLabel ?? "Filter rows"}
+          />
+          {term !== "" ? (
+            <span className="table__filter-count" role="status">
+              {visible.length} of {items.length}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="table-wrap">
+        <table className="table">
+          {caption ? <caption>{caption}</caption> : null}
+          <thead>
+            <tr>
               {columns.map((column) => (
-                <td
+                <th
                   key={column.key}
-                  className={column.align === "right" ? "table__num" : undefined}
+                  scope="col"
+                  style={column.align === "right" ? { textAlign: "right" } : undefined}
                 >
-                  {column.render(item)}
-                </td>
+                  {column.header}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {visible.map((item) => (
+              <tr
+                key={rowKey(item)}
+                onClick={onRowClick ? () => onRowClick(item) : undefined}
+                style={onRowClick ? { cursor: "pointer" } : undefined}
+              >
+                {columns.map((column) => (
+                  <td
+                    key={column.key}
+                    className={column.align === "right" ? "table__num" : undefined}
+                  >
+                    {column.render(item)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filterText && term !== "" && visible.length === 0 ? (
+          <p className="table__filter-empty">No rows match “{query}”.</p>
+        ) : null}
+      </div>
+    </>
   );
 }
 
@@ -457,6 +503,8 @@ export function SectionView<T>({
   onRetry,
   onRowClick,
   renderReady,
+  filterText,
+  filterLabel,
 }: {
   readonly section: Section<T>;
   readonly columns?: readonly Column<T>[];
@@ -465,6 +513,9 @@ export function SectionView<T>({
   readonly onRetry?: () => void;
   readonly onRowClick?: (item: T) => void;
   readonly renderReady?: (items: readonly T[]) => ReactNode;
+  /** Passed to `Table`: turns on a live filter box over the loaded rows. */
+  readonly filterText?: (item: T) => string;
+  readonly filterLabel?: string;
 }) {
   const state: SectionState<T> = section.state;
 
@@ -492,6 +543,8 @@ export function SectionView<T>({
             items={state.items}
             rowKey={rowKey}
             {...(onRowClick ? { onRowClick } : {})}
+            {...(filterText ? { filterText } : {})}
+            {...(filterLabel ? { filterLabel } : {})}
           />
         );
       }
@@ -708,6 +761,7 @@ export function TextInput({
   error,
   autoFocus,
   onEnter,
+  ariaLabel,
 }: {
   readonly id?: string;
   readonly value: string;
@@ -717,6 +771,8 @@ export function TextInput({
   readonly error?: boolean;
   readonly autoFocus?: boolean;
   readonly onEnter?: () => void;
+  /** An accessible name for an input that has no visible label. */
+  readonly ariaLabel?: string;
 }) {
   return (
     <input
@@ -726,6 +782,7 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       autoFocus={autoFocus}
+      aria-label={ariaLabel}
       aria-invalid={error ? true : undefined}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={

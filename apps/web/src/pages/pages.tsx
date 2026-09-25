@@ -641,6 +641,8 @@ export function DeploymentsPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="Nothing has been deployed yet."
+          filterText={(item) => `${item.status} ${item.url ?? ""} ${item.id}`}
+          filterLabel="Filter deployments"
         />
       </Card>
 
@@ -1065,6 +1067,8 @@ export function DomainsPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No domains registered. A domain is created unverified and the edge confirms it."
+          filterText={(item) => `${item.hostname} ${item.verified ? "verified" : "unverified"}`}
+          filterLabel="Filter domains"
         />
       </Card>
 
@@ -1958,6 +1962,8 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
             <Table
               items={items}
               rowKey={(item) => item.id}
+              filterText={(item) => `${item.event} ${item.actorEmail ?? ""}`}
+              filterLabel="Filter activity"
               columns={[
                 {
                   key: "event",

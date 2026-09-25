@@ -587,6 +587,32 @@ kbd,
   overflow-x: auto;
 }
 
+/* A filterable table: the box sits above the scroll container so it stays put
+   while wide rows scroll sideways. */
+.table__filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.table__filter .input {
+  max-width: 320px;
+}
+
+.table__filter-count {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+.table__filter-empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--ink-3);
+  font-size: var(--step-0);
+}
+
 table.table {
   width: 100%;
   border-collapse: collapse;

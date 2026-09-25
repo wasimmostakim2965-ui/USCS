@@ -1809,6 +1809,83 @@ describe("the Database drill-in", () => {
   });
 });
 
+describe("filtering a loaded table", () => {
+  it("narrows the deployments list to what was typed, without a new request", async () => {
+    const calls: string[] = [];
+    const responder: Responder = (procedure) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "deployments.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "d-1",
+              projectId: "p-1",
+              status: "succeeded",
+              url: "https://alpha.example.test",
+              failureReason: null,
+            },
+            {
+              id: "d-2",
+              projectId: "p-1",
+              status: "failed",
+              url: "https://beta.example.test",
+              failureReason: "build failed",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+    const user = userEvent.setup();
+
+    // Both rows are visible before the filter is used.
+    expect(await screen.findByText("https://alpha.example.test")).toBeTruthy();
+    expect(screen.getByText("https://beta.example.test")).toBeTruthy();
+
+    const before = calls.filter((name) => name === "deployments.list").length;
+    await user.type(await screen.findByLabelText("Filter deployments"), "beta");
+
+    // The beta row remains, the alpha row is gone; no second round-trip happened.
+    expect(screen.getByText("https://beta.example.test")).toBeTruthy();
+    expect(screen.queryByText("https://alpha.example.test")).toBeNull();
+    expect(screen.getByText("1 of 2")).toBeTruthy();
+    expect(calls.filter((name) => name === "deployments.list").length).toBe(before);
+  });
+
+  it("says no rows match rather than showing an empty table", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "domains.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "dm-1", hostname: "app.example.test", verified: true, verifiedAt: null },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("Filter domains"), "nothing-matches");
+
+    expect(await screen.findByText(/No rows match/)).toBeTruthy();
+    expect(screen.queryByText("app.example.test")).toBeNull();
+  });
+});
+
 describe("the Security policy write path", () => {
   const draftPolicy = {
     id: "pol-1",
