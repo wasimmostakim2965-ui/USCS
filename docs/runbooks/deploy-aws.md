@@ -145,7 +145,6 @@ COOLIFY_SERVER_UUID__f1a2b3c4=<server uuid>
 STORAGE_ENDPOINT=https://minio.example.com
 STORAGE_ACCESS_KEY__f1a2b3c4=<access key>
 STORAGE_SECRET_KEY__f1a2b3c4=<secret key>
-SECURITY_EDGE_ORIGIN=http://10.0.1.20:8080
 SECURITY_EDGE_TOKEN__f1a2b3c4=<edge admin token for this tenant>
 ENV
 aws ssm put-parameter --name /cloud-wai/prod/env --type SecureString \
