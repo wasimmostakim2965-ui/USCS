@@ -14,12 +14,15 @@ import {
   fakeDatabase,
   fakeDomainVerifier,
   fakeHosting,
+  fakeServerless,
   hostingNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   storageNotConfigured,
   createCoolifyHosting,
   createDnsDomainVerifier,
   createEnvoySecurityEdge,
+  createLambdaServerless,
   createPostgresDatabase,
   createMinioStorage,
   type CompileInput,
@@ -28,7 +31,9 @@ import {
   type DomainVerifier,
   type EdgeRoute,
   type HostingAdapter,
+  type LambdaCredentials,
   type SecurityEdgeAdapter,
+  type ServerlessAdapter,
   type NotConfiguredBrand,
   type StorageAdapter,
   type StorageCredentials,
@@ -61,6 +66,13 @@ export interface EngineConfig {
     | undefined;
   /** S3-compatible endpoint for tenant object storage. */
   readonly storageEndpoint?: string | undefined;
+  /**
+   * Per-organization AWS credentials for serverless execution, keyed by
+   * organization id. Absent means the `not_configured` serverless engine is
+   * wired, so a project whose provider is `lambda` reports an honest
+   * not-configured state instead of falling through to the container engine.
+   */
+  readonly serverlessCredentials?: Readonly<Record<string, LambdaCredentials>> | undefined;
   /** Per-organization storage credentials, keyed by organization id. */
   readonly storageCredentials?:
     Readonly<Record<string, { accessKey: string; secretKey: string }>> | undefined;
@@ -94,6 +106,14 @@ export interface EngineConfig {
 
 export interface Engines {
   readonly hosting: HostingAdapter;
+  /**
+   * The serverless execution engine, when this deployment has AWS credentials.
+   *
+   * Its own slot rather than a fallback of `hosting`: a project chooses its
+   * execution model, and a serverless project must never be handed to the
+   * container engine (or the reverse) by an unconfigured credential.
+   */
+  readonly serverless: ServerlessAdapter;
   readonly database: DatabaseAdapter;
   readonly storage: StorageAdapter;
   readonly securityEdge: SecurityEdgeAdapter;
@@ -157,12 +177,44 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     if (secretKey) credentials[org] = { accessKey: accessKeys[org]!, secretKey };
   }
 
+  // Per-organization AWS credentials for the serverless engine. The region is
+  // required: it is part of the SigV4 scope, so a key without one cannot sign.
+  const awsAccessKeys: Record<string, string> = {};
+  const awsSecretKeys: Record<string, string> = {};
+  const awsRegions: Record<string, string> = {};
+  const awsRoles: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!value || value.trim() === "") continue;
+    const access = key.match(/^AWS_ACCESS_KEY_ID__(.+)$/);
+    if (access) awsAccessKeys[access[1]!] = value;
+    const secret = key.match(/^AWS_SECRET_ACCESS_KEY__(.+)$/);
+    if (secret) awsSecretKeys[secret[1]!] = value;
+    const region = key.match(/^AWS_REGION__(.+)$/);
+    if (region) awsRegions[region[1]!] = value;
+    const role = key.match(/^AWS_LAMBDA_ROLE_ARN__(.+)$/);
+    if (role) awsRoles[role[1]!] = value;
+  }
+  const serverlessCredentials: Record<string, LambdaCredentials> = {};
+  for (const org of Object.keys(awsAccessKeys)) {
+    const secretAccessKey = awsSecretKeys[org];
+    const region = awsRegions[org];
+    if (secretAccessKey && region) {
+      serverlessCredentials[org] = {
+        accessKeyId: awsAccessKeys[org]!,
+        secretAccessKey,
+        region,
+        ...(awsRoles[org] ? { executionRoleArn: awsRoles[org]! } : {}),
+      };
+    }
+  }
+
   return {
     coolifyUrl: env.COOLIFY_URL,
     coolifyTokens: tokens,
     coolifyInfra: infra,
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
+    serverlessCredentials,
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
     edgeHostname: env.EDGE_HOSTNAME,
     useFakes: env.CLOUD_WAI_USE_FAKE_ENGINES === "true",
@@ -190,6 +242,7 @@ export function buildEngines(config: EngineConfig): Engines {
     }
     return {
       hosting: fakeHosting(),
+      serverless: fakeServerless(),
       database: fakeDatabase(),
       storage: storageNotConfigured("minio"),
       securityEdge: securityNotConfigured("envoy"),
@@ -227,6 +280,22 @@ export function buildEngines(config: EngineConfig): Engines {
         "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
       );
 
+  // The serverless engine is configured independently of Coolify: a deployment
+  // can offer serverless execution without a container engine, or the reverse.
+  // Absent AWS credentials, the honest `not_configured` engine is wired so a
+  // `lambda` project reports that state rather than silently containerising.
+  const awsCredentials = config.serverlessCredentials ?? {};
+  const serverless: ServerlessAdapter =
+    Object.keys(awsCredentials).length > 0
+      ? createLambdaServerless({
+          credentials: (organizationId: OrganizationId) =>
+            awsCredentials[organizationId] ?? null,
+        })
+      : serverlessNotConfigured(
+          "lambda",
+          "Set AWS_ACCESS_KEY_ID__<organizationId>, AWS_SECRET_ACCESS_KEY__<organizationId> and AWS_REGION__<organizationId>.",
+        );
+
   // Tenant databases run *inside* Coolify, so they share its credentials: there
   // is no separate database engine to configure.
   const database: DatabaseAdapter = anyCredential
@@ -253,6 +322,7 @@ export function buildEngines(config: EngineConfig): Engines {
 
   return {
     hosting,
+    serverless,
     database,
     storage,
     // A caller that built a real edge adapter supplies it; otherwise the honest
@@ -322,6 +392,7 @@ export function engineReport(engines: Engines): readonly {
   const isConfigured = (adapter: NotConfiguredBrand) => adapter.__notConfigured !== true;
   return [
     { engine: "coolify", configured: isConfigured(engines.hosting) },
+    { engine: "lambda", configured: isConfigured(engines.serverless) },
     { engine: "postgres", configured: isConfigured(engines.database) },
     { engine: "minio", configured: isConfigured(engines.storage) },
     { engine: "envoy", configured: isConfigured(engines.securityEdge) },

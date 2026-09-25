@@ -44,6 +44,7 @@ import {
   databaseNotConfigured,
   storageNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   type DnsResolver,
   type Engines,
   type SecurityEdgeAdapter,
@@ -262,6 +263,7 @@ type StoreLike = DataStore & Partial<ControlPlaneWrites>;
 function enginesWith(resolver: DnsResolver, edgeHostname?: string): Engines {
   return {
     hosting: hostingNotConfigured("coolify"),
+    serverless: serverlessNotConfigured("lambda"),
     database: databaseNotConfigured("postgres"),
     storage: storageNotConfigured("minio"),
     securityEdge: securityNotConfigured("envoy"),
@@ -499,6 +501,7 @@ describe("domains.verify through the registered procedures", () => {
     const { store, domains } = makeStore();
     const engines: Engines = {
       hosting: hostingNotConfigured("coolify"),
+      serverless: serverlessNotConfigured("lambda"),
       database: databaseNotConfigured("postgres"),
       storage: storageNotConfigured("minio"),
       securityEdge: securityNotConfigured("envoy"),

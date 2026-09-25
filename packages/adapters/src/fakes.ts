@@ -25,6 +25,7 @@ import type {
   HostingAdapter,
   LogPage,
   SecurityEdgeAdapter,
+  ServerlessAdapter,
   StorageAdapter,
 } from "./index.js";
 
@@ -125,6 +126,31 @@ export function storageNotConfigured(engine: string, hint?: string): StorageAdap
   return { __notConfigured: true as const, createBucket: miss, deleteBucket: miss };
 }
 
+/**
+ * The honest serverless engine for a deployment with no AWS credentials.
+ *
+ * It exists so that a project whose provider is `lambda` reports
+ * `not_configured` rather than falling through to the container engine, which
+ * would deploy the wrong execution model and call it success.
+ */
+export function serverlessNotConfigured(engine: string, hint?: string): ServerlessAdapter {
+  const miss = <T>(): Promise<AdapterResult<T>> =>
+    Promise.resolve(
+      err(
+        "not_configured",
+        `${engine} is not configured in this deployment.${hint ? ` ${hint}` : ""}`,
+      ),
+    );
+  return {
+    __notConfigured: true as const,
+    createFunction: miss,
+    deploy: miss,
+    getDeployment: miss,
+    deleteFunction: miss,
+    getLogs: miss,
+  };
+}
+
 export function securityNotConfigured(engine: string, hint?: string): SecurityEdgeAdapter {
   const miss = <T>(): Promise<AdapterResult<T>> =>
     Promise.resolve(
@@ -177,6 +203,94 @@ export function fakeDomainVerifier(
           : "The fake verifier does not confirm this hostname.",
       });
     },
+  };
+}
+
+/**
+ * A working in-memory serverless engine, for tests and local development.
+ *
+ * It models the two facts the real adapter enforces: a deploy with no built
+ * artifact is refused (Lambda does not build from git), and a function resolves
+ * by its own `resourceId` so a later deploy meets the function the control plane
+ * stored, not the caller's key.
+ */
+export function fakeServerless(options: FakeEngineOptions = {}): ServerlessAdapter {
+  const engine: ProviderName = "lambda";
+  const label = options.engine ?? "fake-serverless";
+  const behaviour = options.behaviour ?? "succeeded";
+  const delay = options.delayMs ?? 0;
+  const functions = new Map<string, { deployment: DeploymentState; logs: string[] }>();
+
+  const gate = async <T>(compute: () => AdapterResult<T>): Promise<AdapterResult<T>> => {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    if (behaviour === "not_configured") {
+      return err("not_configured", `${label} is not configured in this deployment.`);
+    }
+    if (behaviour === "failed") return err("failed", `${label} refused the operation.`);
+    if (behaviour === "degraded") return err("degraded", `${label} is reachable but unhealthy.`);
+    return compute();
+  };
+
+  return {
+    createFunction: (ctx, input) =>
+      gate(() => {
+        if (!input.artifact) {
+          return err(
+            "failed",
+            "A serverless deploy needs a built artifact; Lambda does not build from git.",
+          );
+        }
+        const created = operationRef(engine, ctx.idempotencyKey, ctx.organizationId, "function");
+        functions.set(created.providerRef.resourceId, {
+          deployment: {
+            ref: created.providerRef,
+            status: "succeeded",
+            url: `https://${input.name}.lambda-url.fake/`,
+          },
+          logs: [`created function ${input.name}`],
+        });
+        return ok("succeeded", created);
+      }),
+
+    deploy: (ctx, input) =>
+      gate(() => {
+        if (!input.artifact) {
+          return err(
+            "failed",
+            "A serverless deploy needs a built artifact; Lambda does not build from git.",
+          );
+        }
+        const existing = functions.get(input.functionRef.resourceId);
+        const ref = existing
+          ? existing.deployment.ref
+          : refFor(engine, input.functionRef.resourceId, ctx.organizationId, "function");
+        functions.set(ref.resourceId, {
+          deployment: { ref, status: "succeeded", url: existing?.deployment.url ?? null },
+          logs: [...(existing?.logs ?? []), `deployed ${ref.resourceId}`],
+        });
+        return ok("succeeded", {
+          jobId: `lambda-function-${ref.resourceId}` as OperationRef["jobId"],
+          providerRef: ref,
+        });
+      }),
+
+    getDeployment: (_ctx, ref) =>
+      gate(() => {
+        const found = functions.get(ref.resourceId);
+        return ok("succeeded", found?.deployment ?? { ref, status: "pending", url: null });
+      }),
+
+    deleteFunction: (_ctx, ref) =>
+      gate(() => {
+        functions.delete(ref.resourceId);
+        return ok("succeeded", undefined);
+      }),
+
+    getLogs: (_ctx, ref) =>
+      gate(() => {
+        const found = functions.get(ref.resourceId);
+        return ok("succeeded", { lines: found?.logs ?? [], cursor: null });
+      }),
   };
 }
 

@@ -1,26 +1,45 @@
 /**
  * The worker's deployment execution step.
  *
- * A deploy is "create the application if the project has none, then deploy, then
- * read the engine's state back". The API's synchronous path implements the same
- * algorithm inline; the two cannot share code because apps may not import each
- * other and the queue is only wired in production, so `tests/isolation` pins the
+ * A deploy is "create the target if the project has none, then deploy, then read
+ * the engine's state back". Which engine runs it is decided by the project's
+ * execution model, through the shared execution router (`deploymentEngineFor`) —
+ * never by the caller and never by a direct adapter import. The API's synchronous
+ * path uses the identical router, so the two paths cannot diverge on which engine
+ * a project's model maps to.
+ *
+ * The queue is only wired in production, so `tests/isolation` pins the
  * synchronous behaviour and `tests/integration/durable-deploy.test.ts` pins this
  * one against the same engine results.
  *
- * It talks only through the injected `HostingAdapter` and write port, and it
- * returns the engine's own answer. It never decides success: a `succeeded` here
- * is one the adapter reported and then confirmed with `getDeployment`.
+ * It talks only through the injected engine port and write port, and it returns
+ * the engine's own answer. It never decides success: a `succeeded` here is one
+ * the adapter reported and then confirmed with `getDeployment`.
  */
 import type {
   AdapterResult,
   EngineStatus,
+  ExecutionModel,
   OrganizationId,
   ProviderRef,
 } from "@cloud-wai/contracts";
-import type { BuildPack, HostingAdapter } from "@cloud-wai/adapters";
+import type { Engines } from "@cloud-wai/adapters";
+import { deploymentEngineFor, type DeploymentEngine } from "@cloud-wai/adapters";
 
 export interface DeploymentTarget {
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
+  readonly executionModel: ExecutionModel;
+}
+
+/**
+ * A preview's engine handle.
+ *
+ * A preview is always a container build, so it carries no execution model: there
+ * is no serverless preview to route to, and pretending there could be one would
+ * be a field that is always `container`.
+ */
+export interface PreviewTarget {
   readonly provider: string | null;
   readonly providerResourceId: string | null;
 }
@@ -61,7 +80,7 @@ export interface DeploymentExecutionWrites {
     organizationId: OrganizationId,
     projectId: string,
     previewKey: string,
-  ): Promise<DeploymentTarget | null>;
+  ): Promise<PreviewTarget | null>;
   setPreviewTargetProvider(input: {
     readonly organizationId: OrganizationId;
     readonly projectId: string;
@@ -105,7 +124,14 @@ export interface DeploymentExecutionResult {
 }
 
 export interface DeploymentExecutorDeps {
-  readonly hosting: HostingAdapter;
+  /**
+   * The engines the router chooses between.
+   *
+   * The executor no longer holds a single hosting adapter: which engine runs a
+   * project is the project's execution model, resolved through the router, so it
+   * needs the whole bag rather than one pre-chosen adapter.
+   */
+  readonly engines: Engines;
   readonly writes: DeploymentExecutionWrites;
   /**
    * Push a project's stored environment variables onto the application before
@@ -153,6 +179,11 @@ export async function executeDeployment(
   );
   const isPreview = input.kind === "preview" && input.previewKey !== null;
 
+  // A preview is a container concept: a branch build of a long-lived
+  // application. It is container even for a serverless project, and a preview
+  // must never be routed to the serverless engine, which has no preview.
+  let executionModel: ExecutionModel = "container";
+
   // A preview resolves its own application; a production deploy resolves the
   // project's. They are separate handles by design, so a branch build can never
   // be written to the production URL.
@@ -172,6 +203,7 @@ export async function executeDeployment(
         }
       : null;
   } else {
+    executionModel = target?.executionModel ?? "container";
     application = target?.providerResourceId
       ? {
           organizationId: input.organizationId,
@@ -182,8 +214,11 @@ export async function executeDeployment(
       : null;
   }
 
+  // The engine is chosen once, by execution model, through the shared router.
+  const engine = deploymentEngineFor(deps.engines, executionModel);
+
   if (input.action === "rollback") {
-    return rollback(deps, input, adapterCtx, application);
+    return rollback(deps, engine, input, adapterCtx, application);
   }
 
   const applicationName = isPreview
@@ -191,11 +226,11 @@ export async function executeDeployment(
     : input.projectSlug;
 
   if (!application) {
-    const created = await deps.hosting.createApplication(adapterCtx, {
+    const created = await engine.ensureTarget(adapterCtx, {
       name: applicationName,
-      ...(input.gitRepository ? { gitRepository: input.gitRepository } : {}),
-      ...(input.gitBranch ? { gitBranch: input.gitBranch } : {}),
-      ...(input.buildPack ? { buildPack: input.buildPack as BuildPack } : {}),
+      gitRepository: input.gitRepository,
+      gitBranch: input.gitBranch,
+      buildPack: input.buildPack,
     });
     if (!created.ok) {
       return {
@@ -231,16 +266,22 @@ export async function executeDeployment(
   // deployment: the same rule the applier uses for a promotion — a build that
   // genuinely built is worth shipping, and an env sync that could not run is
   // reported by the env page's own state, not by discarding a good build.
-  if (deps.envVars) {
+  //
+  // Environment variables are pushed through the container adapter's API, so
+  // this step runs only for a container deploy. A serverless project's env is
+  // configured on the function by its own engine; pushing Coolify variables onto
+  // a Lambda function's ref would be the wrong engine entirely.
+  if (deps.envVars && engine.model === "container") {
     await deps.envVars.sync(adapterCtx, application, input.projectId);
   }
 
-  const deployed = await deps.hosting.deploy(adapterCtx, { applicationRef: application });
-  return confirm(deps, adapterCtx, deployed, application.resourceId);
+  const deployed = await engine.deploy(adapterCtx, application);
+  return confirm(deps, engine, adapterCtx, deployed, application.resourceId);
 }
 
 async function rollback(
   deps: DeploymentExecutorDeps,
+  engine: DeploymentEngine,
   input: ExecuteDeploymentInput,
   adapterCtx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
   application: ProviderRef | null,
@@ -255,11 +296,8 @@ async function rollback(
         "This project has no application on the hosting engine yet, so there is nothing to roll back.",
     };
   }
-  const result = await deps.hosting.rollback(adapterCtx, {
-    applicationRef: application,
-    commit: input.commit,
-  });
-  return confirm(deps, adapterCtx, result, null);
+  const result = await engine.rollback(adapterCtx, { ref: application, commit: input.commit });
+  return confirm(deps, engine, adapterCtx, result, null);
 }
 
 /**
@@ -271,6 +309,7 @@ async function rollback(
  */
 async function confirm(
   deps: DeploymentExecutorDeps,
+  engine: DeploymentEngine,
   adapterCtx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
   action: AdapterResult<{ providerRef: ProviderRef }>,
   providerResourceId: string | null,
@@ -295,7 +334,7 @@ async function confirm(
       : null;
   let status: EngineStatus = action.status;
   let url: string | null = null;
-  const state = await deps.hosting.getDeployment(adapterCtx, action.value.providerRef);
+  const state = await engine.getDeployment(adapterCtx, action.value.providerRef);
   if (state.ok) {
     status = state.value.status;
     url = state.value.url;

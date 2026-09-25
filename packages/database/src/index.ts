@@ -12,6 +12,7 @@ import type {
   DeploymentId,
   DomainId,
   EngineStatus,
+  ExecutionModel,
   JobState,
   OrganizationId,
   ProjectId,
@@ -97,6 +98,8 @@ export interface DataStore {
     name: string;
     slug: string;
     createdBy: UserId;
+    /** Defaults to `container` when omitted, the historical behaviour. */
+    executionModel?: ExecutionModel;
   }): Promise<Project>;
   listDeployments(userId: UserId, projectId: ProjectId): Promise<readonly Deployment[]>;
   listAuditEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly AuditEvent[]>;
@@ -757,6 +760,8 @@ export interface ProjectUpdateInput {
   readonly projectId: ProjectId;
   readonly name?: string | undefined;
   readonly slug?: string | undefined;
+  /** Switch the project's execution model. Customer's own choice, so writable. */
+  readonly executionModel?: ExecutionModel | undefined;
 }
 
 /**
@@ -768,6 +773,12 @@ export interface ProjectUpdateInput {
 export interface ProjectDeploymentTarget {
   readonly provider: string | null;
   readonly providerResourceId: string | null;
+  /**
+   * Which execution model the project runs on. `container` when the column is
+   * absent (a row written before migration 0017), so an old project keeps its
+   * behaviour rather than being routed to a new engine by a null.
+   */
+  readonly executionModel: ExecutionModel;
 }
 
 export interface SecurityPolicy {
@@ -1215,6 +1226,8 @@ export interface Project {
    * from `created_at`.
    */
   readonly productionDeploymentId: string | null;
+  /** Container (Coolify) or serverless (Lambda). Customer-chosen. */
+  readonly executionModel: ExecutionModel;
   readonly createdAt: string;
 }
 

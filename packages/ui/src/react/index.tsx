@@ -805,8 +805,60 @@ export function TextInput({
   );
 }
 
-/* --------------------------------------------------------------- toast */
+/**
+ * A segmented choice for a small, closed set of options.
+ *
+ * It renders radio inputs rather than a `<select>` so the options are visible
+ * and testable without opening a native menu, and so a two-option choice (a
+ * project's execution model) reads as a deliberate pick rather than a dropdown
+ * that hides one side.
+ */
+export function ChoiceGroup<T extends string>({
+  name,
+  value,
+  options,
+  onChange,
+}: {
+  readonly name: string;
+  readonly value: T;
+  readonly options: readonly {
+    readonly value: T;
+    readonly label: string;
+    readonly hint?: string;
+  }[];
+  readonly onChange: (value: T) => void;
+}) {
+  return (
+    <div className="choice-group" role="radiogroup" aria-label={name}>
+      {options.map((option) => {
+        const id = `${name}-${option.value}`;
+        const selected = option.value === value;
+        return (
+          <label
+            key={option.value}
+            htmlFor={id}
+            className={`choice${selected ? " choice--selected" : ""}`}
+          >
+            <input
+              id={id}
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={selected}
+              onChange={() => onChange(option.value)}
+            />
+            <span className="choice__body">
+              <span className="choice__label">{option.label}</span>
+              {option.hint ? <span className="choice__hint">{option.hint}</span> : null}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
 
+/* --------------------------------------------------------------- toast */
 export interface Toast {
   readonly id: string;
   readonly message: string;

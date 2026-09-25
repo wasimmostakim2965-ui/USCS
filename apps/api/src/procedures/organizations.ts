@@ -18,7 +18,7 @@ import type {
   OrganizationMember,
   Project,
 } from "@cloud-wai/database";
-import type { OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { ExecutionModel, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 
 export interface OrgDeps {
@@ -109,7 +109,13 @@ export async function getProject(
 export async function createProject(
   ctx: RequestContext,
   deps: OrgDeps,
-  input: { organizationId: OrganizationId; name: string; slug: string },
+  input: {
+    organizationId: OrganizationId;
+    name: string;
+    slug: string;
+    /** The execution model the customer picks; defaults to `container`. */
+    executionModel?: ExecutionModel | undefined;
+  },
 ): Promise<Project> {
   requireCapability(ctx, input.organizationId, "project:create");
 
@@ -123,12 +129,14 @@ export async function createProject(
       "Project slug must be lowercase alphanumeric with hyphens.",
     );
   }
+  const executionModel = parseExecutionModel(input.executionModel);
 
   const project = await deps.store.createProject({
     organizationId: input.organizationId,
     name,
     slug: input.slug,
     createdBy: ctx.principal.userId,
+    ...(executionModel ? { executionModel } : {}),
   });
 
   await deps.store.recordAuditEvent({
@@ -138,10 +146,24 @@ export async function createProject(
     event: "project.created",
     targetType: "project",
     targetId: project.id,
-    metadata: { slug: project.slug },
+    metadata: { slug: project.slug, executionModel: project.executionModel },
   });
 
   return project;
+}
+
+/**
+ * Validate a customer-supplied execution model.
+ *
+ * An absent value is `undefined` (the store's default applies). A present value
+ * must be one the platform knows: an unknown string is rejected at the boundary
+ * rather than stored and then mis-routed by the worker, which would run the wrong
+ * execution model for the project.
+ */
+function parseExecutionModel(value: ExecutionModel | undefined): ExecutionModel | undefined {
+  if (value === undefined) return undefined;
+  if (value === "container" || value === "serverless") return value;
+  throw new ApiError("invalid_input", "Execution model must be 'container' or 'serverless'.");
 }
 
 /** Non-throwing variant, for callers that want a boolean and no error. */
@@ -179,7 +201,12 @@ export async function listOrganizationMembers(
 export async function updateProject(
   ctx: RequestContext,
   deps: OrgDeps,
-  input: { projectId: ProjectId; name?: string | undefined; slug?: string | undefined },
+  input: {
+    projectId: ProjectId;
+    name?: string | undefined;
+    slug?: string | undefined;
+    executionModel?: ExecutionModel | undefined;
+  },
 ): Promise<Project> {
   const existing = await deps.store.getProject(ctx.principal.userId, input.projectId);
   if (!existing) {
@@ -187,8 +214,15 @@ export async function updateProject(
   }
   requireCapability(ctx, existing.organizationId, "project:update");
 
-  if (input.name === undefined && input.slug === undefined) {
-    throw new ApiError("invalid_input", "Nothing to update: provide a name or a slug.");
+  if (
+    input.name === undefined &&
+    input.slug === undefined &&
+    input.executionModel === undefined
+  ) {
+    throw new ApiError(
+      "invalid_input",
+      "Nothing to update: provide a name, a slug or an execution model.",
+    );
   }
 
   let name: string | undefined;
@@ -210,6 +244,8 @@ export async function updateProject(
     slug = input.slug;
   }
 
+  const executionModel = parseExecutionModel(input.executionModel);
+
   const writes = deps.store as Partial<ControlPlaneWrites>;
   if (typeof writes.updateProject !== "function") {
     throw new ApiError("engine_unavailable", "This deployment cannot rename projects yet.");
@@ -220,6 +256,7 @@ export async function updateProject(
     projectId: input.projectId,
     name,
     slug,
+    executionModel,
   });
   if (!updated) {
     throw new ApiError("not_found", "Project not found.");
@@ -232,7 +269,10 @@ export async function updateProject(
     event: "project.updated",
     targetType: "project",
     targetId: updated.id,
-    metadata: { slug: updated.slug },
+    metadata: {
+      slug: updated.slug,
+      ...(executionModel ? { executionModel } : {}),
+    },
   });
 
   return updated;

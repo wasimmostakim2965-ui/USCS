@@ -89,6 +89,81 @@ export interface EnvVarWrite {
   readonly isBuildTime?: boolean | undefined;
 }
 
+/**
+ * Where a serverless function's code comes from.
+ *
+ * The distinction the shape forces: a serverless engine does not build from a
+ * git repository — it runs an artifact that is already built. Modelling the
+ * artifact explicitly means a deploy with no artifact is refused at the type
+ * level, so nobody can "deploy" a serverless function that has no code.
+ */
+export type ServerlessArtifact =
+  | {
+      readonly kind: "s3";
+      /** The bucket holding the deployment package. */
+      readonly bucket: string;
+      /** The object key of the zip. */
+      readonly key: string;
+    }
+  | {
+      readonly kind: "image";
+      /** An ECR image URI. */
+      readonly uri: string;
+    };
+
+export interface CreateFunctionInput {
+  readonly name: string;
+  /**
+   * The built code. Required: see `ServerlessArtifact`.
+   */
+  readonly artifact?: ServerlessArtifact | undefined;
+  /** Required for a zip artifact; ignored for an image (the image carries it). */
+  readonly runtime?: string | undefined;
+  readonly handler?: string | undefined;
+  /** Overrides the tenant credential's default execution role, when set. */
+  readonly roleArn?: string | undefined;
+  readonly memoryMb?: number | undefined;
+  readonly timeoutSeconds?: number | undefined;
+  /** Non-secret environment the function runs with. Secrets belong in a secret store. */
+  readonly environment?: Record<string, string> | undefined;
+}
+
+/**
+ * A serverless execution engine.
+ *
+ * A different execution model from `HostingAdapter`, so a different contract: a
+ * container engine creates an application and builds a branch, while a
+ * serverless engine publishes an already-built artifact to a function. Merging
+ * the two would force one to lie about what it does.
+ *
+ * The tenant boundary is the same as every other adapter: credentials are
+ * resolved per organization, so one tenant's function is unreachable with
+ * another tenant's credentials.
+ */
+export interface ServerlessAdapter extends NotConfiguredBrand {
+  createFunction(
+    ctx: AdapterContext,
+    input: CreateFunctionInput,
+  ): Promise<AdapterResult<OperationRef>>;
+  /**
+   * Publish new code to an existing function.
+   *
+   * `artifact` is required; a deploy with no artifact is refused, never reported
+   * as a success that changed nothing.
+   */
+  deploy(
+    ctx: AdapterContext,
+    input: {
+      readonly functionRef: ProviderRef;
+      readonly artifact?: ServerlessArtifact | undefined;
+      readonly publish?: boolean | undefined;
+    },
+  ): Promise<AdapterResult<OperationRef>>;
+  getDeployment(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<DeploymentState>>;
+  deleteFunction(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
+  getLogs(ctx: AdapterContext, ref: ProviderRef, cursor?: string): Promise<AdapterResult<LogPage>>;
+}
+
 export interface HostingAdapter extends NotConfiguredBrand {
   createApplication(
     ctx: AdapterContext,
@@ -210,11 +285,24 @@ export interface DomainVerifier extends NotConfiguredBrand {
   ): Promise<AdapterResult<DomainVerification>>;
 }
 
+/**
+ * Whether an adapter is the real engine or its not-configured stand-in.
+ *
+ * A single predicate so "is this engine wired" is answered one way everywhere
+ * rather than re-derived (`__notConfigured !== true`) at each call site.
+ */
+export function isConfigured(adapter: NotConfiguredBrand): boolean {
+  return adapter.__notConfigured !== true;
+}
+
 export * from "./http.js";
+export * from "./aws-signature.js";
 export * from "./coolify.js";
+export * from "./serverless.js";
 export * from "./postgres.js";
 export * from "./minio.js";
 export * from "./security-edge.js";
+export * from "./execution-router.js";
 export * from "./engines.js";
 export * from "./conformance.js";
 export * from "./fakes.js";

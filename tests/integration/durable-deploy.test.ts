@@ -22,6 +22,7 @@ import {
   databaseNotConfigured,
   storageNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   domainVerifierNotConfigured,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
@@ -286,6 +287,7 @@ type StoreLike = DataStore & Partial<ControlPlaneWrites>;
 function enginesWith(hosting: Engines["hosting"]): Engines {
   return {
     hosting,
+    serverless: serverlessNotConfigured("lambda", "x"),
     database: databaseNotConfigured("postgres", "x"),
     storage: storageNotConfigured("minio", "x"),
     securityEdge: securityNotConfigured("envoy", "x"),
@@ -333,7 +335,7 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
       queue,
       handlers: {
         [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({
-          hosting,
+          engines,
           writes: {
             getProjectDeploymentTargetForService: (org, project) =>
               store.getProjectDeploymentTargetForService!(org, project),
@@ -348,7 +350,7 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
       logger: { debug() {}, info() {}, warn() {}, error() {} },
       workerId: "worker-1",
       apply: buildDeploymentApplier({
-        hosting,
+        engines,
         writes: {
           getProjectDeploymentTargetForService: (org, project) =>
             store.getProjectDeploymentTargetForService!(org, project),
@@ -394,7 +396,7 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
       queue,
       handlers: {
         [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({
-          hosting,
+          engines,
           writes: {
             getProjectDeploymentTargetForService: (org, project) =>
               store.getProjectDeploymentTargetForService!(org, project),
@@ -409,7 +411,7 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
       logger: { debug() {}, info() {}, warn() {}, error() {} },
       workerId: "worker-1",
       apply: buildDeploymentApplier({
-        hosting,
+        engines,
         writes: {
           getProjectDeploymentTargetForService: (org, project) =>
             store.getProjectDeploymentTargetForService!(org, project),

@@ -848,6 +848,53 @@ table.table {
   font-size: var(--step--1);
 }
 
+/* --------------------------------------------------------------- choice group */
+
+.choice-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--ground);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.choice--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.choice__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.choice__label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.choice__hint {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  line-height: 1.4;
+}
+
 /* --------------------------------------------------------------- tabs */
 
 .tabs {

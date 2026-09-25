@@ -129,7 +129,7 @@ export function buildWorkerWiring(
 
   const handlers: Record<string, JobHandler> = {
     [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({
-      hosting: engines.hosting,
+      engines,
       writes: deploymentWrites,
       outcome: deploymentOutcome,
       // Push the project's stored environment onto the application before it
@@ -163,7 +163,7 @@ export function buildWorkerWiring(
 
   const apply = buildApplier(
     buildDeploymentApplier({
-      hosting: engines.hosting,
+      engines,
       writes: deploymentWrites,
       outcome: deploymentOutcome,
       now,

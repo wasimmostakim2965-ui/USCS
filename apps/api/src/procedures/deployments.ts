@@ -21,12 +21,14 @@ import type {
   AdapterResult,
   DeploymentId,
   EngineStatus,
+  ExecutionModel,
   OrganizationId,
   ProjectId,
   ProviderRef,
   UserId,
 } from "@cloud-wai/contracts";
 import type { BuildPack, Engines, JobQueue } from "@cloud-wai/adapters";
+import { deploymentEngineFor } from "@cloud-wai/adapters";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
 import type { AuditEvent, ControlPlaneWrites, DataStore, Deployment } from "@cloud-wai/database";
 import type { RequestContext } from "../context.js";
@@ -36,6 +38,9 @@ const ADAPTER_TIMEOUT_MS = 30_000;
 
 /** The hosting engine this build wires (ADR-0002: Coolify behind HostingAdapter). */
 const HOSTING_PROVIDER = "coolify";
+
+/** The serverless engine this build wires (ADR-0017: Lambda behind ServerlessAdapter). */
+const SERVERLESS_PROVIDER = "lambda";
 
 /** A git branch, tag or commit: enough to name a revision, not a shell string. */
 const REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
@@ -358,6 +363,11 @@ export async function cancelDeployment(
 
   let engineReason: string | null = null;
 
+  // Which engine can be asked to cancel is the project's execution model: a
+  // serverless run is not a Coolify deployment, and asking Coolify to cancel it
+  // would report on an engine that never ran it.
+  const engine = deploymentEngineFor(deps.engines, project.executionModel);
+
   if (!deployment.deploymentResourceId) {
     // Nothing was sent to the engine, so there is no build to stop. The row is
     // still closed out honestly: a pending row that never reached the engine
@@ -367,11 +377,13 @@ export async function cancelDeployment(
   } else {
     const ref: ProviderRef = {
       organizationId: project.organizationId,
-      provider: HOSTING_PROVIDER as ProviderRef["provider"],
+      provider: (engine.model === "serverless"
+        ? SERVERLESS_PROVIDER
+        : HOSTING_PROVIDER) as ProviderRef["provider"],
       resourceType: "deployment",
       resourceId: deployment.deploymentResourceId,
     };
-    const result = await deps.engines.hosting.cancelDeployment(adapterCtx, ref);
+    const result = await engine.cancel(adapterCtx, ref);
     if (!result.ok) {
       // The engine refused or is unconfigured: keep the row where it is and
       // report why, rather than claiming a cancellation that did not happen.
@@ -561,10 +573,12 @@ export async function deploymentsLogs(
 
   let ref: ProviderRef | null = null;
   let source: "deployment" | "application" | null = null;
+  const model = applicationTarget?.executionModel ?? project.executionModel;
+  const provider = model === "serverless" ? SERVERLESS_PROVIDER : HOSTING_PROVIDER;
   if (deployment?.deploymentResourceId) {
     ref = {
       organizationId: project.organizationId,
-      provider: HOSTING_PROVIDER as ProviderRef["provider"],
+      provider: provider as ProviderRef["provider"],
       resourceType: "deployment",
       resourceId: deployment.deploymentResourceId,
     };
@@ -572,7 +586,7 @@ export async function deploymentsLogs(
   } else if (applicationTarget?.providerResourceId) {
     ref = {
       organizationId: project.organizationId,
-      provider: (applicationTarget.provider ?? HOSTING_PROVIDER) as ProviderRef["provider"],
+      provider: (applicationTarget.provider ?? provider) as ProviderRef["provider"],
       resourceType: "application",
       resourceId: applicationTarget.providerResourceId,
     };
@@ -588,7 +602,10 @@ export async function deploymentsLogs(
     };
   }
 
-  const result = await deps.engines.hosting.getLogs(
+  // Logs come from the project's own execution model: a serverless function's
+  // logs live on the serverless engine, never on Coolify.
+  const engine = deploymentEngineFor(deps.engines, model);
+  const result = await engine.getLogs(
     {
       organizationId: project.organizationId,
       idempotencyKey: `logs-${input.deploymentId}`,
@@ -764,6 +781,16 @@ export async function requestDeployment(
   const applicationName =
     kind === "preview" && previewKey ? `${project.slug}-${previewKey}` : project.slug;
 
+  /**
+   * The execution model for this deploy.
+   *
+   * A production deploy runs the project's own model. A preview is a container
+   * concept — a branch build of a long-lived application — so it is container
+   * even when the project's production model is serverless, and it is never
+   * routed to the serverless engine that has no notion of a preview.
+   */
+  let executionModel: ExecutionModel = "container";
+
   if (kind === "preview" && previewKey && previewWritesAvailable(deps)) {
     const targetWrites = previewWritesFor(deps);
     const target = await targetWrites.getPreviewTargetForService(
@@ -781,6 +808,7 @@ export async function requestDeployment(
     }
   } else {
     const probe = await store.getProjectDeploymentTarget(ctx.principal.userId, project.id);
+    executionModel = probe?.executionModel ?? project.executionModel;
     application = probe?.providerResourceId
       ? {
           organizationId: project.organizationId,
@@ -791,17 +819,23 @@ export async function requestDeployment(
       : null;
   }
 
+  // Which engine runs this deploy is decided once, from the execution model, and
+  // never by the caller. A serverless project is not handed to the container
+  // engine, and a serverless engine that is not configured reports its own
+  // `not_configured` rather than a container build reported as a success.
+  const engine = deploymentEngineFor(deps.engines, executionModel);
+
   let engineReason: string | null = null;
   let nextStatus: EngineStatus = "pending";
   let url: string | null = null;
   let deploymentResourceId: string | null = null;
 
   if (!application) {
-    const created = await deps.engines.hosting.createApplication(adapterCtx, {
+    const created = await engine.ensureTarget(adapterCtx, {
       name: applicationName,
-      ...(gitRepository ? { gitRepository } : {}),
-      ...(gitBranch ? { gitBranch } : {}),
-      ...(input.buildPack ? { buildPack: input.buildPack } : {}),
+      gitRepository: gitRepository ?? null,
+      gitBranch: gitBranch ?? null,
+      buildPack: input.buildPack ?? null,
     });
     if (!created.ok) {
       engineReason = created.reason;
@@ -828,7 +862,7 @@ export async function requestDeployment(
   }
 
   if (application) {
-    const deployed = await deps.engines.hosting.deploy(adapterCtx, { applicationRef: application });
+    const deployed = await engine.deploy(adapterCtx, application);
     if (!deployed.ok) {
       engineReason = deployed.reason;
       nextStatus = deployed.status;
@@ -840,10 +874,7 @@ export async function requestDeployment(
       // The engine returns a *deployment* ref here; its uuid is what addresses
       // the build/deploy log, so it is recorded for the logs procedure.
       deploymentResourceId = deployed.value.providerRef.resourceId;
-      const state = await deps.engines.hosting.getDeployment(
-        adapterCtx,
-        deployed.value.providerRef,
-      );
+      const state = await engine.getDeployment(adapterCtx, deployed.value.providerRef);
       if (state.ok) {
         nextStatus = state.value.status;
         url = state.value.url;
@@ -999,6 +1030,12 @@ export async function rollbackDeployment(
   let providerResourceId: string | null = target?.providerResourceId ?? null;
   let deploymentResourceId: string | null = null;
 
+  // A rollback goes to the engine that owns the project's execution model. On a
+  // serverless project the router reports `not_configured` (a rollback is a
+  // container operation), never a Coolify rollback of a project that runs on
+  // Lambda.
+  const engine = deploymentEngineFor(deps.engines, target?.executionModel ?? project.executionModel);
+
   if (!target?.providerResourceId) {
     engineReason =
       "This project has no application on the hosting engine yet, so there is nothing to roll back.";
@@ -1010,7 +1047,7 @@ export async function rollbackDeployment(
       resourceType: "application",
       resourceId: target.providerResourceId,
     };
-    const result = await deps.engines.hosting.rollback(adapterCtx, { applicationRef, commit });
+    const result = await engine.rollback(adapterCtx, { ref: applicationRef, commit });
     if (!result.ok) {
       engineReason = result.reason;
       nextStatus = result.status;
@@ -1020,7 +1057,7 @@ export async function rollbackDeployment(
       if (result.value.providerRef.resourceType === "deployment") {
         deploymentResourceId = result.value.providerRef.resourceId;
       }
-      const state = await deps.engines.hosting.getDeployment(adapterCtx, result.value.providerRef);
+      const state = await engine.getDeployment(adapterCtx, result.value.providerRef);
       if (state.ok) {
         nextStatus = state.value.status;
         url = state.value.url;

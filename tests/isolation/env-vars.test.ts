@@ -54,6 +54,7 @@ import {
   fakeHosting,
   hostingNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   storageNotConfigured,
   type Engines,
 } from "@cloud-wai/adapters";
@@ -237,6 +238,7 @@ type StoreLike = DataStore & Partial<ControlPlaneWrites>;
 function enginesWith(hosting: Engines["hosting"]): Engines {
   return {
     hosting,
+    serverless: serverlessNotConfigured("lambda"),
     database: databaseNotConfigured("postgres"),
     storage: storageNotConfigured("minio"),
     securityEdge: securityNotConfigured("envoy"),

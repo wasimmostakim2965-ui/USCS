@@ -9,12 +9,13 @@
  * memberships.
  */
 import type { DataStore, Organization, Project } from "@cloud-wai/database";
-import type { ApiKeyId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { ApiKeyId, ExecutionModel, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import {
   databaseNotConfigured,
   domainVerifierNotConfigured,
   hostingNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   storageNotConfigured,
   type Engines,
   type JobQueue,
@@ -137,6 +138,7 @@ function inputOf<T>(input: unknown): T {
  */
 const missingEngines: Engines = {
   hosting: hostingNotConfigured("coolify"),
+  serverless: serverlessNotConfigured("lambda"),
   database: databaseNotConfigured("postgres"),
   storage: storageNotConfigured("minio"),
   securityEdge: securityNotConfigured("envoy"),
@@ -278,7 +280,12 @@ export function buildProcedures(
         createProject(
           ctx,
           orgDeps,
-          inputOf<{ organizationId: OrganizationId; name: string; slug: string }>(input),
+          inputOf<{
+            organizationId: OrganizationId;
+            name: string;
+            slug: string;
+            executionModel?: ExecutionModel;
+          }>(input),
         ),
     },
     {
@@ -287,7 +294,12 @@ export function buildProcedures(
         updateProject(
           ctx,
           orgDeps,
-          inputOf<{ projectId: ProjectId; name?: string; slug?: string }>(input),
+          inputOf<{
+            projectId: ProjectId;
+            name?: string;
+            slug?: string;
+            executionModel?: ExecutionModel;
+          }>(input),
         ),
     },
     {
@@ -599,8 +611,18 @@ export const ROUTE_SHAPES = {
   "organizations.members.list": { organizationId: "OrganizationId" },
   "projects.list": { organizationId: "OrganizationId" },
   "projects.get": { projectId: "ProjectId" },
-  "projects.create": { organizationId: "OrganizationId", name: "string", slug: "string" },
-  "projects.update": { projectId: "ProjectId", name: "string?", slug: "string?" },
+  "projects.create": {
+    organizationId: "OrganizationId",
+    name: "string",
+    slug: "string",
+    executionModel: "string?",
+  },
+  "projects.update": {
+    projectId: "ProjectId",
+    name: "string?",
+    slug: "string?",
+    executionModel: "string?",
+  },
   "deployments.list": { projectId: "ProjectId" },
   "deployments.create": {
     projectId: "ProjectId",

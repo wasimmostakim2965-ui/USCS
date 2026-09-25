@@ -20,8 +20,9 @@
  *    every object path.
  */
 import { err, ok, type AdapterResult, type ProviderRef } from "@cloud-wai/contracts";
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { AdapterContext, StorageAdapter } from "./index.js";
+import { hmac, sha256Hex, signingKey as deriveSigningKey, uriEncode } from "./aws-signature.js";
 
 const ENGINE: ProviderRef["provider"] = "minio";
 
@@ -60,28 +61,6 @@ export function bucketNameFor(
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
   return `${bucketPrefixFor(organizationId)}${slug || "bucket"}`;
-}
-
-function hmac(key: Buffer | string, data: string): Buffer {
-  return createHmac("sha256", key).update(data, "utf8").digest();
-}
-
-function sha256Hex(data: string): string {
-  return createHash("sha256").update(data, "utf8").digest("hex");
-}
-
-/** RFC 3986 encoding, as SigV4 requires (and stricter than encodeURIComponent). */
-function uriEncode(value: string, encodeSlash = true): string {
-  return value
-    .split("")
-    .map((char) => {
-      if (/[A-Za-z0-9\-._~]/.test(char)) return char;
-      if (char === "/" && !encodeSlash) return char;
-      return Array.from(new TextEncoder().encode(char))
-        .map((b) => `%${b.toString(16).toUpperCase().padStart(2, "0")}`)
-        .join("");
-    })
-    .join("");
 }
 
 export interface SignedRequest {
@@ -134,11 +113,8 @@ export function signRequest(input: {
   const scope = `${dateStamp}/${region}/${service}/aws4_request`;
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, sha256Hex(canonicalRequest)].join("\n");
 
-  const signingKey = hmac(
-    hmac(hmac(hmac(`AWS4${input.credentials.secretKey}`, dateStamp), region), service),
-    "aws4_request",
-  );
-  const signature = createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
+  const signingKey = deriveSigningKey(input.credentials.secretKey, dateStamp, region, service);
+  const signature = hmac(signingKey, stringToSign).toString("hex");
 
   return {
     url: `${input.endpoint.replace(/\/$/, "")}${canonicalUri}`,

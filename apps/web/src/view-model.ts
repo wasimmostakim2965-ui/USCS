@@ -22,6 +22,8 @@ export interface ProjectSummary {
   readonly organizationId: string;
   readonly name: string;
   readonly slug: string;
+  /** Container (Coolify) or serverless (Lambda). A project's own choice. */
+  readonly executionModel: "container" | "serverless";
 }
 
 export interface DeploymentSummary {
@@ -391,7 +393,12 @@ export async function loadProject(
 /** Rename a project. Returns the updated project, or an honest error section. */
 export async function updateProject(
   client: ApiClient,
-  input: { projectId: string; name?: string; slug?: string },
+  input: {
+    projectId: string;
+    name?: string;
+    slug?: string;
+    executionModel?: "container" | "serverless";
+  },
 ): Promise<Section<ProjectSummary>> {
   const response = await client.call<ProjectSummary>("projects.update", input);
   return itemFrom("Project", response, "This project does not exist, or you are not a member.");

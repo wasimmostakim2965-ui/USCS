@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   type Column,
+  ChoiceGroup,
   DegradedState,
   Drawer,
   EmptyState,
@@ -325,6 +326,7 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [executionModel, setExecutionModel] = useState<"container" | "serverless">("container");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -335,6 +337,7 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
       organizationId,
       name,
       slug,
+      executionModel,
     });
     setBusy(false);
     if (!response.ok || !response.data) {
@@ -344,6 +347,7 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
     setCreating(false);
     setName("");
     setSlug("");
+    setExecutionModel("container");
     router.navigate({ name: "project", organizationId, projectId: response.data.id });
   };
 
@@ -425,6 +429,30 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
               />
             )}
           </Field>
+          <Field
+            label="Execution model"
+            hint="How this project's workload runs. Container builds from git and keeps a long-lived server; serverless runs on demand. This can be changed later in project settings."
+          >
+            {() => (
+              <ChoiceGroup<"container" | "serverless">
+                name="execution-model"
+                value={executionModel}
+                onChange={setExecutionModel}
+                options={[
+                  {
+                    value: "container",
+                    label: "Container",
+                    hint: "A long-lived application built from your git repository.",
+                  },
+                  {
+                    value: "serverless",
+                    label: "Serverless",
+                    hint: "Runs on demand from a published build; scales to zero.",
+                  },
+                ]}
+              />
+            )}
+          </Field>
         </div>
       </Modal>
     </PageShell>
@@ -459,11 +487,16 @@ export function ProjectOverviewPage({
     deployments.section.state.kind === "ready" ? deployments.section.state.items : [];
   const live = deploymentItems.filter((item) => item.status === "succeeded").length;
   const unconfigured = deploymentItems.filter((item) => item.status === "not_configured").length;
+  const model = projectItem?.executionModel;
 
   return (
     <PageShell
       title={projectItem?.name ?? "Project"}
-      subtitle={projectItem ? `Slug ${projectItem.slug}` : undefined}
+      subtitle={
+        projectItem
+          ? `Slug ${projectItem.slug} · ${model === "serverless" ? "Serverless" : "Container"} execution`
+          : undefined
+      }
       actions={<Link to={{ name: "deployments", organizationId, projectId }}>Deployments →</Link>}
       breadcrumb={
         <nav className="breadcrumb" aria-label="Breadcrumb">
@@ -560,6 +593,7 @@ export function ProjectSettingsPage({
   const project = section.state.kind === "ready" ? section.state.items[0] : undefined;
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [executionModel, setExecutionModel] = useState<"container" | "serverless">("container");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -572,16 +606,21 @@ export function ProjectSettingsPage({
       seededFor.current = project.id;
       setName(project.name);
       setSlug(project.slug);
+      setExecutionModel(project.executionModel);
     }
   }, [project]);
 
-  const dirty = Boolean(project) && (name !== project!.name || slug !== project!.slug);
+  const dirty =
+    Boolean(project) &&
+    (name !== project!.name ||
+      slug !== project!.slug ||
+      executionModel !== project!.executionModel);
 
   const submit = async () => {
     if (!project) return;
     setBusy(true);
     setError(null);
-    const result = await updateProject(client, { projectId, name, slug });
+    const result = await updateProject(client, { projectId, name, slug, executionModel });
     setBusy(false);
     if (result.state.kind !== "ready" || !result.state.items[0]) {
       setError(
@@ -624,6 +663,33 @@ export function ProjectSettingsPage({
                     setSlug(value.toLowerCase());
                   }}
                   placeholder="web-app"
+                />
+              )}
+            </Field>
+            <Field
+              label="Execution model"
+              hint="Which engine runs this project. Changing it takes effect on the next deployment."
+            >
+              {() => (
+                <ChoiceGroup<"container" | "serverless">
+                  name="project-execution-model"
+                  value={executionModel}
+                  onChange={(value) => {
+                    setSaved(false);
+                    setExecutionModel(value);
+                  }}
+                  options={[
+                    {
+                      value: "container",
+                      label: "Container",
+                      hint: "A long-lived application built from your git repository.",
+                    },
+                    {
+                      value: "serverless",
+                      label: "Serverless",
+                      hint: "Runs on demand from a published build; scales to zero.",
+                    },
+                  ]}
                 />
               )}
             </Field>

@@ -60,6 +60,7 @@ import {
   hostingNotConfigured,
   InMemoryJobQueue,
   securityNotConfigured,
+  serverlessNotConfigured,
   storageNotConfigured,
   domainVerifierNotConfigured,
 } from "@cloud-wai/adapters";
@@ -518,6 +519,7 @@ function deps(store: DataStoreLike): RouterDeps {
 function unconfiguredEngines(): Engines {
   return {
     hosting: hostingNotConfigured("coolify", "Set COOLIFY_URL."),
+    serverless: serverlessNotConfigured("lambda", "Set AWS credentials."),
     database: databaseNotConfigured("postgres", "Set COOLIFY_URL."),
     storage: storageNotConfigured("minio", "Set STORAGE_ENDPOINT."),
     securityEdge: securityNotConfigured("envoy", "Set SECURITY_EDGE_URL."),

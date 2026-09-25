@@ -17,6 +17,7 @@ import type {
   DataResourceId,
   DeploymentId,
   DomainId,
+  ExecutionModel,
   JobState,
   OrganizationId,
   ProjectId,
@@ -100,6 +101,18 @@ function nullableStr(row: Row, key: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
+/**
+ * A row's execution model, defaulting to `container`.
+ *
+ * A row written before migration 0017 has no `execution_model`, and an absent
+ * value must mean the historical behaviour — the container engine — not a new
+ * engine chosen by a null. The column's check constraint admits only the two
+ * known models, so the fallback is reachable only for an absent column.
+ */
+function executionModel(row: Row): "container" | "serverless" {
+  return row["execution_model"] === "serverless" ? "serverless" : "container";
+}
+
 function num(row: Row, key: string): number {
   const value = row[key];
   if (typeof value === "number") return value;
@@ -169,6 +182,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       name: str(row, "name"),
       slug: str(row, "slug"),
       productionDeploymentId: nullableStr(row, "production_deployment_id"),
+      executionModel: executionModel(row),
       createdAt: str(row, "created_at"),
     };
   }
@@ -932,6 +946,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       name: string;
       slug: string;
       createdBy: UserId;
+      executionModel?: ExecutionModel;
     }): Promise<Project> {
       const created = await must<Row[]>("createProject", {
         method: "POST",
@@ -942,6 +957,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           name: input.name,
           slug: input.slug,
           created_by: input.createdBy,
+          ...(input.executionModel ? { execution_model: input.executionModel } : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;
@@ -1115,6 +1131,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const patch: Record<string, unknown> = {};
       if (input.name !== undefined) patch["name"] = input.name;
       if (input.slug !== undefined) patch["slug"] = input.slug;
+      if (input.executionModel !== undefined) patch["execution_model"] = input.executionModel;
       if (Object.keys(patch).length === 0) return null;
 
       const updated = await rows("updateProject", {
@@ -1133,13 +1150,14 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectDeploymentTarget | null> {
       const found = await rows("getProjectDeploymentTarget", {
         method: "GET",
-        path: `/projects?select=provider,provider_resource_id&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/projects?select=provider,provider_resource_id,execution_model&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       if (!row) return null;
       return {
         provider: nullableStr(row, "provider"),
         providerResourceId: nullableStr(row, "provider_resource_id"),
+        executionModel: executionModel(row),
       };
     },
 
@@ -1149,13 +1167,14 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectDeploymentTarget | null> {
       const found = await rows("getProjectDeploymentTargetForService", {
         method: "GET",
-        path: `/projects?select=provider,provider_resource_id&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+        path: `/projects?select=provider,provider_resource_id,execution_model&id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
       });
       const row = found[0];
       if (!row) return null;
       return {
         provider: nullableStr(row, "provider"),
         providerResourceId: nullableStr(row, "provider_resource_id"),
+        executionModel: executionModel(row),
       };
     },
 

@@ -47,6 +47,7 @@ import {
   databaseNotConfigured,
   storageNotConfigured,
   securityNotConfigured,
+  serverlessNotConfigured,
   domainVerifierNotConfigured,
   InMemoryJobQueue,
   type Engines,
@@ -355,6 +356,7 @@ function deps(store: DataStoreLike): RouterDeps {
 function unconfiguredEngines(): Engines {
   return {
     hosting: hostingNotConfigured("coolify", "Set COOLIFY_URL."),
+    serverless: serverlessNotConfigured("lambda", "Set AWS credentials."),
     database: databaseNotConfigured("postgres", "Set COOLIFY_URL."),
     storage: storageNotConfigured("minio", "Set STORAGE_ENDPOINT."),
     securityEdge: securityNotConfigured("envoy", "Set SECURITY_EDGE_URL."),
@@ -749,6 +751,59 @@ describe("deployments.cancel through the registered procedures", () => {
     });
 
     expect(res.status).toBe(404);
+  });
+});
+
+describe("execution-model routing through the registered procedures", () => {
+  it("routes a serverless project to the serverless engine, never to Coolify", async () => {
+    // The store reports the project's execution model as serverless. The
+    // container engine is wired and, given the chance, would report success; the
+    // serverless engine is not configured. The deploy must therefore end
+    // not_configured — proof that the model, not the availability of Coolify,
+    // decides the engine.
+    const { store } = makeStore();
+    const engines: Engines = {
+      ...unconfiguredEngines(),
+      hosting: fakeHosting(),
+    };
+    const serverlessProject = {
+      ...store,
+      async getProjectDeploymentTarget() {
+        return { provider: null, providerResourceId: null, executionModel: "serverless" as const };
+      },
+    } as DataStoreLike;
+    const router = routerWith(serverlessProject, engines);
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "sl-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    const deployment = (res.data as { deployment: Deployment }).deployment;
+    expect(deployment.status).toBe("not_configured");
+    expect(deployment.failureReason ?? "").not.toMatch(/coolify/i);
+  });
+
+  it("routes a container project to the container engine", async () => {
+    const { store } = makeStore();
+    const containerProject = {
+      ...store,
+      async getProjectDeploymentTarget() {
+        return { provider: null, providerResourceId: null, executionModel: "container" as const };
+      },
+    } as DataStoreLike;
+    const router = routerWith(containerProject, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "ct-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect((res.data as { deployment: Deployment }).deployment.status).toBe("succeeded");
   });
 });
 
