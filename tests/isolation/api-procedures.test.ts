@@ -272,6 +272,9 @@ describe("the registered procedure table", () => {
       "security.rules.add",
       "security.rules.list",
       "security.rules.remove",
+      "security.trustedSources.add",
+      "security.trustedSources.list",
+      "security.trustedSources.remove",
     ]);
   });
 

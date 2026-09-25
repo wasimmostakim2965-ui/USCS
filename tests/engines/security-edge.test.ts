@@ -15,6 +15,7 @@ import {
   createEnvoySecurityEdge,
   validateDenyRule,
   validateEdgeRoute,
+  validateTrustedSource,
   type EdgeRoute,
 } from "@cloud-wai/adapters";
 
@@ -281,6 +282,54 @@ describe("the decision ladder", () => {
     expect(validateDenyRule({ kind: "asn", value: "15169" }).ok).toBe(false);
     expect(validateDenyRule({ kind: "user-agent", value: "Bad Bot/1.0" }).ok).toBe(true);
     expect(validateDenyRule({ kind: "user-agent", value: "Bad;Bot" }).ok).toBe(false);
+  });
+
+  it("allows a trusted source address before the deny list and the challenge", () => {
+    const compiled = compileEdge({
+      route: route(),
+      policy,
+      protection: "attack",
+      denyList: [{ kind: "ip", value: "203.0.113.9" }],
+      trustedSources: [
+        { kind: "ip", value: "198.51.100.7" },
+        { kind: "cidr", value: "192.0.2.0/24" },
+      ],
+    });
+    const stages = compiled.ladder.map((step) => step.stage);
+    const trusted = stages.indexOf("allow-trusted-ip");
+    expect(trusted).toBeGreaterThan(-1);
+    // Before the deny list, so a customer's own webhook sender is allowed even
+    // while attack mode is up.
+    expect(trusted).toBeLessThan(stages.indexOf("block-deny-list"));
+    expect(trusted).toBeLessThan(stages.indexOf("challenge"));
+    const steps = compiled.ladder.filter((step) => step.stage === "allow-trusted-ip");
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.directive).toContain("@ipMatch 198.51.100.7");
+    expect(steps[1]!.directive).toContain("@ipMatch 192.0.2.0/24");
+  });
+
+  it("refuses a trusted source that is not an address literal", () => {
+    const compiled = compileEdge({
+      route: route(),
+      trustedSources: [
+        // A name would have to be resolved, and the DNS answer is
+        // attacker-influenced; it must never become a rule.
+        { kind: "ip", value: "hooks.example.com" },
+        { kind: "cidr", value: '" \nSecRuleEngine Off' },
+        { kind: "ip", value: "203.0.113.4" },
+      ],
+    });
+    const steps = compiled.ladder.filter((step) => step.stage === "allow-trusted-ip");
+    expect(steps).toHaveLength(1);
+    expect(steps[0]!.directive).toContain("@ipMatch 203.0.113.4");
+    expect(compiled.corazaDirectives.some((d) => d.includes("SecRuleEngine Off"))).toBe(false);
+  });
+
+  it("validates a trusted source against the same grammar a deny rule uses", () => {
+    expect(validateTrustedSource({ kind: "ip", value: "10.0.0.1" }).ok).toBe(true);
+    expect(validateTrustedSource({ kind: "ip", value: "10.0.0.0/8" }).ok).toBe(false);
+    expect(validateTrustedSource({ kind: "cidr", value: "10.0.0.0/8" }).ok).toBe(true);
+    expect(validateTrustedSource({ kind: "cidr", value: "10.0.0.1" }).ok).toBe(false);
   });
 
   it("stays deterministic with the whole ladder present", () => {

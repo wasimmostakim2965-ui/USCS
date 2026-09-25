@@ -550,6 +550,21 @@ export interface SecurityRuleSummary {
   readonly createdAt: string;
 }
 
+/**
+ * One trusted source address, as the server stores it.
+ *
+ * The allow half of the security policy: an address that is never challenged or
+ * blocked, so a customer's own webhook senders and CI runners keep working while
+ * attack mode is up.
+ */
+export interface TrustedSourceSummary {
+  readonly id: string;
+  readonly kind: "ip" | "cidr";
+  readonly value: string;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
 /** A crawler that keeps working when attack mode is on, with its proof. */
 export interface VerifiedBotSummary {
   readonly name: string;
@@ -799,6 +814,45 @@ export async function loadSecurityRules(
     };
   }
   return sectionFrom("Deny list", response);
+}
+
+/**
+ * Load the customer's trusted source addresses.
+ *
+ * A deployment that predates the table answers with the honest
+ * `engine_unavailable`, surfaced as degraded so "none yet" and "not supported
+ * here" stay distinguishable.
+ */
+export async function loadTrustedSources(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<TrustedSourceSummary>> {
+  const response = await client.call<readonly TrustedSourceSummary[]>(
+    "security.trustedSources.list",
+    { organizationId },
+  );
+  return sectionFrom("Trusted sources", response);
+}
+
+/** Trust an address, so it is allowed through even in attack mode. */
+export async function addTrustedSource(
+  client: ApiClient,
+  input: {
+    organizationId: string;
+    kind: "ip" | "cidr";
+    value: string;
+    note?: string;
+  },
+): Promise<ApiResponse<TrustedSourceSummary>> {
+  return client.call<TrustedSourceSummary>("security.trustedSources.add", input);
+}
+
+/** Stop trusting an address. Idempotent: removing an absent one is not an error. */
+export async function removeTrustedSource(
+  client: ApiClient,
+  input: { organizationId: string; sourceId: string },
+): Promise<ApiResponse<{ removed: boolean }>> {
+  return client.call<{ removed: boolean }>("security.trustedSources.remove", input);
 }
 
 /**

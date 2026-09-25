@@ -3057,6 +3057,100 @@ describe("the Security policy write path", () => {
     );
   });
 
+  it("trusts a source address through the API and reads it back", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.trustedSources.add") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            id: "ts-1",
+            kind: "cidr",
+            value: "192.0.2.0/24",
+            note: null,
+            createdAt: new Date().toISOString(),
+          },
+        };
+      }
+      if (procedure === "security.trustedSources.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Trust an address" }));
+    await user.type(await screen.findByLabelText("Address"), "192.0.2.0/24");
+    // The section opens with kind "IP address"; switch to the CIDR grammar the
+    // value uses, so the form and the server's validator agree.
+    await user.selectOptions(await screen.findByLabelText("Kind"), "cidr");
+    const addButtons = screen.getAllByRole("button", { name: "Trust address" });
+    await user.click(addButtons[addButtons.length - 1]!);
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.procedure === "security.trustedSources.add")).toBe(true),
+    );
+  });
+
+  it("shows a trusted source the deployment stored, so attack mode's allow-list is visible", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.trustedSources.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "ts-1",
+              kind: "ip",
+              value: "198.51.100.7",
+              note: "GitHub webhooks",
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("198.51.100.7")).toBeTruthy();
+    expect(await screen.findByText("GitHub webhooks")).toBeTruthy();
+  });
+
+  it("reports a trusted-source list the deployment does not support as degraded, not empty", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.trustedSources.list") {
+        return {
+          ok: false,
+          status: 503,
+          error: {
+            code: "engine_unavailable",
+            message: "This deployment cannot record trusted sources yet.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/cannot record trusted sources yet/)).toBeTruthy();
+  });
+
   it("shows the verified-bot directory so attack mode does not look like it breaks SEO", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

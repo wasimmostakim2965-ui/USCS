@@ -50,6 +50,9 @@ import {
   loadProviderHealth,
   loadSecurityRules,
   loadSecurityEvents,
+  loadTrustedSources,
+  addTrustedSource,
+  removeTrustedSource,
   loadVerifiedBots,
   loadUsage,
   loadSecurityPolicy,
@@ -79,6 +82,7 @@ import {
   type SecurityPolicyEventSummary,
   type SecurityEventSummary,
   type SecurityRuleSummary,
+  type TrustedSourceSummary,
   type ObservabilityReportSummary,
   type OrchestrationJobSummary,
   type SecurityPolicySummary,
@@ -2406,6 +2410,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Deny list",
   );
+  const trusted = useSection(
+    () => loadTrustedSources(client, organizationId),
+    [client, organizationId],
+    "Trusted sources",
+  );
   const bots = useSection(
     () => loadVerifiedBots(client, organizationId),
     [client, organizationId],
@@ -2420,6 +2429,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
   const [distributing, setDistributing] = useState(false);
   const [addingRule, setAddingRule] = useState(false);
   const [removingRule, setRemovingRule] = useState<SecurityRuleSummary | null>(null);
+  const [addingTrusted, setAddingTrusted] = useState(false);
+  const [removingTrusted, setRemovingTrusted] = useState<TrustedSourceSummary | null>(null);
   // A level card preselects the risk and action the form opens with; it is a
   // convenience over the same save, never a separate write. Null means "open
   // with the policy's own values".
@@ -2666,6 +2677,60 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       </SectionShell>
 
       <SectionShell
+        title="Trusted sources"
+        hint="Your own webhook senders and CI runners, allowed before the deny list and before any challenge — so enabling attack mode never locks out your integrations. Address literals only; a hostname would have to be resolved and could be forged."
+        actions={
+          <Button size="sm" variant="primary" onClick={() => setAddingTrusted(true)}>
+            Trust an address
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<TrustedSourceSummary>
+            section={trusted.section}
+            onRetry={trusted.reload}
+            emptyMessage="No trusted addresses yet. Add one so a known sender keeps working while attack mode is on."
+            columns={[
+              {
+                key: "kind",
+                header: "Kind",
+                render: (item) => <span className="mono small">{item.kind}</span>,
+              },
+              {
+                key: "value",
+                header: "Address",
+                render: (item) => (
+                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 360 }}>
+                    {item.value}
+                  </span>
+                ),
+              },
+              {
+                key: "note",
+                header: "Note",
+                render: (item) => <span className="small">{item.note ?? "—"}</span>,
+              },
+              {
+                key: "createdAt",
+                header: "Added",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+              {
+                key: "actions",
+                header: "",
+                render: (item) => (
+                  <Button size="sm" onClick={() => setRemovingTrusted(item)}>
+                    Remove
+                  </Button>
+                ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell
         title="Verified bots"
         hint="Crawlers whose identity is confirmed by reverse DNS. They keep working even while attack mode challenges browsers."
       >
@@ -2887,6 +2952,27 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
         onRemoved={() => {
           setRemovingRule(null);
           rules.reload();
+        }}
+      />
+
+      <AddTrustedSourceModal
+        organizationId={organizationId}
+        open={addingTrusted}
+        onClose={() => setAddingTrusted(false)}
+        onAdded={() => {
+          setAddingTrusted(false);
+          trusted.reload();
+        }}
+      />
+
+      <RemoveTrustedSourceModal
+        organizationId={organizationId}
+        source={removingTrusted}
+        open={removingTrusted !== null}
+        onClose={() => setRemovingTrusted(null)}
+        onRemoved={() => {
+          setRemovingTrusted(null);
+          trusted.reload();
         }}
       />
     </PageShell>
@@ -3431,6 +3517,222 @@ function RemoveSecurityRuleModal({
         <p className="muted small">
           The edge stops blocking it on the next compile. Provisioned traffic is not affected
           retroactively.
+        </p>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * The trusted-source kinds, with the shape each value must have.
+ *
+ * Deliberately shorter than the deny-list kinds: only address literals can be
+ * trusted. A hostname would have to be resolved, and the DNS answer is
+ * attacker-influenced, so a name could be forged into an allow.
+ */
+const TRUSTED_KIND_OPTIONS: readonly {
+  readonly kind: TrustedSourceSummary["kind"];
+  readonly label: string;
+  readonly hint: string;
+  readonly placeholder: string;
+}[] = [
+  {
+    kind: "ip",
+    label: "IP address",
+    hint: "A single address, e.g. 198.51.100.7 (your webhook sender or CI runner).",
+    placeholder: "198.51.100.7",
+  },
+  {
+    kind: "cidr",
+    label: "CIDR range",
+    hint: "A network in CIDR form, e.g. 192.0.2.0/24.",
+    placeholder: "192.0.2.0/24",
+  },
+];
+
+/** Trust one address, so attack mode never locks out a known sender. */
+function AddTrustedSourceModal({
+  organizationId,
+  open,
+  onClose,
+  onAdded,
+}: {
+  readonly organizationId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onAdded: () => void;
+}) {
+  const { client } = useApp();
+  const [kind, setKind] = useState<TrustedSourceSummary["kind"]>("ip");
+  const [value, setValue] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const selected =
+    TRUSTED_KIND_OPTIONS.find((option) => option.kind === kind) ?? TRUSTED_KIND_OPTIONS[0]!;
+
+  const close = () => {
+    setError(null);
+    setValue("");
+    setNote("");
+    onClose();
+  };
+
+  const submit = async () => {
+    if (value.trim() === "") {
+      setError("Enter an address to trust.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await addTrustedSource(client, {
+      organizationId,
+      kind,
+      value: value.trim(),
+      ...(note.trim() === "" ? {} : { note: note.trim() }),
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The address could not be trusted.");
+      return;
+    }
+    setValue("");
+    setNote("");
+    onAdded();
+  };
+
+  return (
+    <Modal
+      title="Trust a source address"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Trust address
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Kind">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value as TrustedSourceSummary["kind"]);
+                setError(null);
+              }}
+            >
+              {TRUSTED_KIND_OPTIONS.map((option) => (
+                <option key={option.kind} value={option.kind}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Address" hint={selected.hint} {...(error ? { error } : {})}>
+          {(id) => (
+            <TextInput
+              id={id}
+              value={value}
+              onChange={setValue}
+              placeholder={selected.placeholder}
+              error={Boolean(error)}
+              autoFocus
+            />
+          )}
+        </Field>
+        <Field label="Note (optional)" hint="What this address is, for the next operator.">
+          {(id) => (
+            <TextInput
+              id={id}
+              value={note}
+              onChange={setNote}
+              placeholder="GitHub webhooks"
+            />
+          )}
+        </Field>
+        <p className="muted small">
+          A trusted address is allowed through before the deny list and before any browser
+          challenge. It is validated when stored, so a hostile value can never become edge syntax.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/** Stop trusting one address. */
+function RemoveTrustedSourceModal({
+  organizationId,
+  source,
+  open,
+  onClose,
+  onRemoved,
+}: {
+  readonly organizationId: string;
+  readonly source: TrustedSourceSummary | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!source) return null;
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await removeTrustedSource(client, {
+      organizationId,
+      sourceId: source.id,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The address could not be removed.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title="Stop trusting address"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Remove <span className="mono">{source.value}</span> ({source.kind}) from the trusted
+          sources?
+        </p>
+        <p className="muted small">
+          The address will be challenged and denied like any other sender once attack mode is on.
         </p>
         {error ? (
           <p className="field__error" role="alert">

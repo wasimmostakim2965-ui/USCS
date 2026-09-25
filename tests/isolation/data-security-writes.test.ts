@@ -50,6 +50,8 @@ import type {
   SecurityRule,
   SecurityRuleCreateInput,
   SecurityEvent,
+  TrustedSource,
+  TrustedSourceCreateInput,
 } from "@cloud-wai/database";
 import type { AdapterContext, JobQueue, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
 import {
@@ -161,6 +163,7 @@ function makeStore() {
   const policies: SecurityPolicy[] = [];
   const policyEvents: SecurityPolicyEvent[] = [];
   const securityRules: SecurityRule[] = [];
+  const trustedSources: TrustedSource[] = [];
   const securityEvents: SecurityEvent[] = [];
   const audit: AuditEvent[] = [];
   const deployments: Deployment[] = [];
@@ -458,6 +461,32 @@ function makeStore() {
       securityRules.splice(index, 1);
       return true;
     },
+    async listTrustedSources(userId: UserId, org: OrganizationId) {
+      if (!isMember(userId, org)) return [];
+      return trustedSources.filter((s) => s.organizationId === org);
+    },
+    async createTrustedSource(input: TrustedSourceCreateInput) {
+      const source: TrustedSource = {
+        id: input.id,
+        organizationId: input.organizationId,
+        kind: input.kind,
+        value: input.value,
+        note: input.note,
+        createdBy: input.createdBy,
+        createdAt: nextTime(),
+      };
+      trustedSources.push(source);
+      return source;
+    },
+    async deleteTrustedSource(userId: UserId, org: OrganizationId, sourceId: string) {
+      if (!isMember(userId, org)) return false;
+      const index = trustedSources.findIndex(
+        (s) => s.id === sourceId && s.organizationId === org,
+      );
+      if (index < 0) return false;
+      trustedSources.splice(index, 1);
+      return true;
+    },
   } satisfies DataStoreLike;
 
   return {
@@ -468,6 +497,7 @@ function makeStore() {
     policies,
     policyEvents,
     securityRules,
+    trustedSources,
     securityEvents,
     audit,
   };
@@ -1129,6 +1159,124 @@ describe("security.rules through the registered procedures", () => {
     expect(res.ok, JSON.stringify(res.error)).toBe(true);
     const bots = (res.data as { bots: readonly { name: string }[] }).bots;
     expect(bots.some((b) => b.name === "googlebot")).toBe(true);
+  });
+});
+
+describe("security.trustedSources through the registered procedures", () => {
+  it("trusts an address literal the compiler will emit, and reads it back", async () => {
+    const { store, trustedSources, audit } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "cidr", value: "192.0.2.0/24", note: "CI runners" },
+    });
+    expect(added.ok, JSON.stringify(added.error)).toBe(true);
+    expect(trustedSources).toHaveLength(1);
+    expect(audit.some((a) => a.event === "security_trusted_source.added")).toBe(true);
+
+    const listed = await router.route({
+      procedure: "security.trustedSources.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(listed.ok).toBe(true);
+    expect(listed.data as readonly TrustedSource[]).toHaveLength(1);
+  });
+
+  it("refuses a trusted value that is not an address literal", async () => {
+    const { store, trustedSources } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    // A hostname would have to be resolved, and the DNS answer is
+    // attacker-influenced, so it must never become a rule.
+    const hostname = await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "ip", value: "hooks.example.com" },
+    });
+    expect(hostname.ok).toBe(false);
+    expect(hostname.status).toBe(400);
+
+    const injection = await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "cidr", value: '" \nSecRuleEngine Off' },
+    });
+    expect(injection.ok).toBe(false);
+    expect(trustedSources).toHaveLength(0);
+  });
+
+  it("removes a trusted source, and reports an absent one honestly", async () => {
+    const { store, trustedSources } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "ip", value: "198.51.100.7" },
+    });
+    const source = added.data as TrustedSource;
+
+    const removed = await router.route({
+      procedure: "security.trustedSources.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, sourceId: source.id },
+    });
+    expect(removed.ok).toBe(true);
+    expect(trustedSources).toHaveLength(0);
+
+    const again = await router.route({
+      procedure: "security.trustedSources.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, sourceId: source.id },
+    });
+    expect(again.ok).toBe(true);
+    expect((again.data as { removed: boolean }).removed).toBe(false);
+  });
+
+  it("refuses a member who is not an admin", async () => {
+    const { store, trustedSources } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    const res = await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_A, kind: "ip", value: "198.51.100.7" },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(trustedSources).toHaveLength(0);
+  });
+
+  it("keeps one organization's trusted sources out of another's list", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    await router.route({
+      procedure: "security.trustedSources.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, kind: "ip", value: "198.51.100.7" },
+    });
+
+    // Dave legitimately belongs to both tenants, so a per-user check alone
+    // cannot separate them: the organization scope must. ORG_A's source is
+    // visible to him there, and absent from ORG_B's list.
+    const inA = await router.route({
+      procedure: "security.trustedSources.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_A },
+    });
+    expect(inA.ok, JSON.stringify(inA.error)).toBe(true);
+    expect(inA.data as readonly TrustedSource[]).toHaveLength(1);
+
+    const inB = await router.route({
+      procedure: "security.trustedSources.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_B },
+    });
+    expect(inB.ok, JSON.stringify(inB.error)).toBe(true);
+    expect(inB.data as readonly TrustedSource[]).toHaveLength(0);
   });
 });
 

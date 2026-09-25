@@ -69,6 +69,8 @@ import type {
   SecurityEvent,
   SecurityRule,
   SecurityRuleCreateInput,
+  TrustedSource,
+  TrustedSourceCreateInput,
   UsageRecord,
   UsageRecordInput,
 } from "./index.js";
@@ -411,6 +413,18 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       id: str(row, "id"),
       organizationId: str(row, "organization_id") as OrganizationId,
       kind: str(row, "kind") as SecurityRule["kind"],
+      value: str(row, "value"),
+      note: nullableStr(row, "note"),
+      createdBy: str(row, "created_by") as UserId,
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toTrustedSource(row: Row): TrustedSource {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      kind: str(row, "kind") as TrustedSource["kind"],
       value: str(row, "value"),
       note: nullableStr(row, "note"),
       createdBy: str(row, "created_by") as UserId,
@@ -1180,6 +1194,49 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       await must<Row[]>("deleteSecurityRule", {
         method: "DELETE",
         path: `/security_rules?id=eq.${q(ruleId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return true;
+    },
+
+    async listTrustedSources(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly TrustedSource[]> {
+      const found = await rows("listTrustedSources", {
+        method: "GET",
+        path: `/security_trusted_sources?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toTrustedSource);
+    },
+
+    async createTrustedSource(input: TrustedSourceCreateInput): Promise<TrustedSource> {
+      const created = await must<Row[]>("createTrustedSource", {
+        method: "POST",
+        path: "/security_trusted_sources?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          kind: input.kind,
+          value: input.value,
+          note: input.note,
+          created_by: input.createdBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createTrustedSource", "no row returned");
+      return toTrustedSource(row);
+    },
+
+    async deleteTrustedSource(
+      userId: UserId,
+      organizationId: OrganizationId,
+      sourceId: string,
+    ): Promise<boolean> {
+      await must<Row[]>("deleteTrustedSource", {
+        method: "DELETE",
+        path: `/security_trusted_sources?id=eq.${q(sourceId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return true;

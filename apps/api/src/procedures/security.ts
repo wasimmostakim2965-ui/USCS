@@ -25,7 +25,13 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import { VERIFIED_BOTS, validateDenyRule, type Engines, type JobQueue } from "@cloud-wai/adapters";
+import {
+  VERIFIED_BOTS,
+  validateDenyRule,
+  validateTrustedSource,
+  type Engines,
+  type JobQueue,
+} from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
   DataStore,
@@ -33,6 +39,7 @@ import type {
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityRule,
+  TrustedSource,
 } from "@cloud-wai/database";
 import type { SecurityPolicyId, OrganizationId, ProviderRef } from "@cloud-wai/contracts";
 import { POLICY_JOB_KIND, type PolicyJobPayload } from "@cloud-wai/contracts";
@@ -59,6 +66,11 @@ type SecurityRuleWrites = Pick<
 
 type SecurityEventReads = Pick<ControlPlaneWrites, "listSecurityEvents">;
 
+type TrustedSourceWrites = Pick<
+  ControlPlaneWrites,
+  "listTrustedSources" | "createTrustedSource" | "deleteTrustedSource"
+>;
+
 const REQUIRED_WRITES = [
   "getSecurityPolicy",
   "saveSecurityPolicy",
@@ -70,6 +82,12 @@ const REQUIRED_RULE_WRITES = [
   "listSecurityRules",
   "createSecurityRule",
   "deleteSecurityRule",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+const REQUIRED_TRUSTED_WRITES = [
+  "listTrustedSources",
+  "createTrustedSource",
+  "deleteTrustedSource",
 ] as const satisfies readonly (keyof ControlPlaneWrites)[];
 
 export interface SecurityDeps {
@@ -116,6 +134,19 @@ function ruleWritesFor(deps: SecurityDeps): SecurityRuleWrites {
     );
   }
   return store as unknown as SecurityRuleWrites;
+}
+
+/** The trusted-source writes, checked the same way and separately. */
+function trustedWritesFor(deps: SecurityDeps): TrustedSourceWrites {
+  const store = deps.store;
+  const missing = REQUIRED_TRUSTED_WRITES.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot record ${missing.join(", ")} yet.`,
+    );
+  }
+  return store as unknown as TrustedSourceWrites;
 }
 
 /** The current policy and its transition history, membership-scoped. */
@@ -525,6 +556,102 @@ export async function removeSecurityRule(
     event: "security_rule.removed",
     targetType: "security_rule",
     targetId: input.ruleId,
+    metadata: { removed },
+  });
+
+  return { removed };
+}
+
+// ---------------------------------------------------------------------------
+// Trusted sources — the allow half, so attack mode never locks out a webhook
+// ---------------------------------------------------------------------------
+
+/** The trusted-source kinds. Address literals only; a name would be forgeable. */
+const TRUSTED_KINDS = ["ip", "cidr"] as const;
+type TrustedKind = (typeof TRUSTED_KINDS)[number];
+
+export async function listTrustedSources(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<readonly TrustedSource[]> {
+  requireCapability(ctx, organizationId, "security:read");
+  return trustedWritesFor(deps).listTrustedSources(ctx.principal.userId, organizationId);
+}
+
+export interface AddTrustedSourceInput {
+  readonly organizationId: OrganizationId;
+  readonly kind: TrustedKind;
+  readonly value: string;
+  readonly note?: string | null;
+}
+
+export async function addTrustedSource(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: AddTrustedSourceInput,
+): Promise<TrustedSource> {
+  requireCapability(ctx, input.organizationId, "security:update");
+
+  if (!TRUSTED_KINDS.includes(input.kind)) {
+    throw new ApiError("invalid_input", "Unknown trusted-source kind.");
+  }
+  const value = (input.value ?? "").trim();
+  // The same validator the compiler runs, so an API-accepted address is always
+  // an address the compiler will emit — and never directive syntax.
+  const valid = validateTrustedSource({ kind: input.kind, value });
+  if (!valid.ok) throw new ApiError("invalid_input", valid.reason);
+
+  const note = input.note?.trim() ?? "";
+  if (note.length > 200) throw new ApiError("invalid_input", "A note is at most 200 characters.");
+
+  const writes = trustedWritesFor(deps);
+  const created = await writes.createTrustedSource({
+    id: deps.newId(),
+    organizationId: input.organizationId,
+    kind: input.kind,
+    value,
+    note: note === "" ? null : note,
+    createdBy: ctx.principal.userId,
+  });
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_trusted_source.added",
+    targetType: "security_trusted_source",
+    targetId: created.id,
+    metadata: { kind: created.kind, value: created.value },
+  });
+
+  return created;
+}
+
+export interface RemoveTrustedSourceInput {
+  readonly organizationId: OrganizationId;
+  readonly sourceId: string;
+}
+
+export async function removeTrustedSource(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: RemoveTrustedSourceInput,
+): Promise<{ removed: boolean }> {
+  requireCapability(ctx, input.organizationId, "security:update");
+  const removed = await trustedWritesFor(deps).deleteTrustedSource(
+    ctx.principal.userId,
+    input.organizationId,
+    input.sourceId,
+  );
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_trusted_source.removed",
+    targetType: "security_trusted_source",
+    targetId: input.sourceId,
     metadata: { removed },
   });
 

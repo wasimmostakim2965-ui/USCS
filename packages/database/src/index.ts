@@ -280,6 +280,24 @@ export interface ControlPlaneWrites {
     ruleId: string,
   ): Promise<boolean>;
 
+  /**
+   * The organization's trusted source addresses, newest first.
+   * Membership-scoped; these are allowed through even in attack mode.
+   */
+  listTrustedSources(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly TrustedSource[]>;
+
+  /** Trust a source address. The IP/CIDR grammar is enforced by the API and the compiler. */
+  createTrustedSource(input: TrustedSourceCreateInput): Promise<TrustedSource>;
+  /** Remove a trusted source. Idempotent, like a deny-rule removal. */
+  deleteTrustedSource(
+    userId: UserId,
+    organizationId: OrganizationId,
+    sourceId: string,
+  ): Promise<boolean>;
+
   /** Register a hostname. Always unverified: only the edge may verify it. */
   createDomain(input: DomainCreateInput): Promise<Domain>;
   /** Get a domain by id, scoped to a member's organization. */
@@ -788,6 +806,33 @@ export interface SecurityRuleCreateInput {
   readonly id: string;
   readonly organizationId: OrganizationId;
   readonly kind: SecurityRule["kind"];
+  readonly value: string;
+  readonly note: string | null;
+  readonly createdBy: UserId;
+}
+
+/**
+ * One trusted source address for an organization.
+ *
+ * The opposite intent to a `SecurityRule`: this address is *allowed* before the
+ * deny list and before any challenge, so a customer's own webhook senders and CI
+ * runners keep working while attack mode is up. Only address literals are
+ * stored — never a hostname, whose resolution is attacker-influenced.
+ */
+export interface TrustedSource {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: "ip" | "cidr";
+  readonly value: string;
+  readonly note: string | null;
+  readonly createdBy: UserId;
+  readonly createdAt: string;
+}
+
+export interface TrustedSourceCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: TrustedSource["kind"];
   readonly value: string;
   readonly note: string | null;
   readonly createdBy: UserId;

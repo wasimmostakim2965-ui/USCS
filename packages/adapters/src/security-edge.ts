@@ -102,6 +102,7 @@ export interface LadderStep {
   readonly stage:
     | "allow-verified-bot"
     | "allow-internal"
+    | "allow-trusted-ip"
     | "block-deny-list"
     | "challenge"
     | "waf"
@@ -159,6 +160,38 @@ export function validateDenyRule(rule: DenyRule): { ok: true } | { ok: false; re
   }
 }
 
+/**
+ * A trusted source: an IP or a CIDR that is never challenged or blocked.
+ *
+ * This is the answer to "attack mode must not lock out my own webhook senders or
+ * CI runners". A trusted source is the operator's own input, and the value is
+ * validated against the same IP/CIDR grammar a deny rule is — so a value that
+ * would be directive syntax is refused, not escaped.
+ *
+ * It deliberately covers only address literals. A hostname would have to be
+ * resolved, and the DNS answer is attacker-influenced, so trusting a name would
+ * make the allow-list forgeable. An address cannot be spoofed in the same way
+ * for a TCP connection the edge terminates.
+ */
+export interface TrustedSource {
+  readonly kind: "ip" | "cidr";
+  readonly value: string;
+}
+
+/** Validate one trusted source. Refuses anything that would be directive syntax. */
+export function validateTrustedSource(
+  source: TrustedSource,
+): { ok: true } | { ok: false; reason: string } {
+  switch (source.kind) {
+    case "ip":
+      if (!IPV4.test(source.value)) return { ok: false, reason: "Not an IPv4 address." };
+      return { ok: true };
+    case "cidr":
+      if (!CIDR.test(source.value)) return { ok: false, reason: "Not an IPv4 CIDR block." };
+      return { ok: true };
+  }
+}
+
 /** The Coraza operator and target for a deny rule kind. */
 function denyOperator(rule: DenyRule): { target: string; operator: string } {
   switch (rule.kind) {
@@ -201,6 +234,16 @@ export interface CompileInput {
   readonly botAllowList?: readonly VerifiedBot[] | undefined;
   /** Deny-list rules. Each is validated before it becomes a directive. */
   readonly denyList?: readonly DenyRule[] | undefined;
+  /**
+   * Trusted source addresses that are never challenged or blocked.
+   *
+   * Operator-supplied, like `botAllowList`: a customer's own webhook senders and
+   * CI runners. Emitted *before* the deny list so a trusted address is allowed
+   * even in attack mode. It cannot grant a bypass to an attacker the way a
+   * `User-Agent` claim can, because it matches the connection's source address,
+   * not a header the attacker sends.
+   */
+  readonly trustedSources?: readonly TrustedSource[] | undefined;
 }
 
 export interface CompiledEdge {
@@ -260,14 +303,15 @@ export function validateEdgeRoute(route: EdgeRoute): { ok: true } | { ok: false;
  *
  *   1. allow  — a verified bot (UA substring AND a forward-confirmed DNS suffix)
  *   2. allow  — this deployment's own internal requests
- *   3. block  — an explicit deny-list match (IP / CIDR / ASN / user-agent)
- *   4. challenge — browser traffic, only when the route is in attack mode
- *   5. waf    — the OWASP CRS anomaly threshold (the existing rule)
- *   6. log    — an inspect-only match
- *   7. pass   — default
+ *   3. allow  — a trusted source address (a webhook sender / CI runner)
+ *   4. block  — an explicit deny-list match (IP / CIDR / ASN / user-agent)
+ *   5. challenge — browser traffic, only when the route is in attack mode
+ *   6. waf    — the OWASP CRS anomaly threshold (the existing rule)
+ *   7. log    — an inspect-only match
+ *   8. pass   — default
  *
- * Steps 1 and 2 come first on purpose: that ordering is what lets attack mode be
- * enabled without breaking SEO or a customer's integrations.
+ * Steps 1-3 come first on purpose: that ordering is what lets attack mode be
+ * enabled without breaking SEO, a webhook sender or a customer's CI runner.
  */
 export function compileEdge(input: CompileInput): CompiledEdge {
   const { route, policy } = input;
@@ -301,7 +345,22 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id, stage: "allow-internal", action: "allow", directive });
   }
 
-  // 3. Deny list. Each value was validated before it reached here; a value that
+  // 3. Trusted sources. Before the deny list on purpose: a webhook sender or CI
+  //    runner the customer registered is allowed even in attack mode, and the
+  //    match is on the connection's source address, not an attacker-set header.
+  //    An address that also appears in the deny list is still allowed — the
+  //    operator asked for it twice, and "trust my own IP" is the more specific
+  //    instruction. Each value was validated before it reached here.
+  for (const source of input.trustedSources ?? []) {
+    const valid = validateTrustedSource(source);
+    if (!valid.ok) continue; // never emit a directive from an unvalidated value
+    const id = nextId++;
+    const directive = `SecRule REMOTE_ADDR "@ipMatch ${source.value}" "id:${id},phase:1,pass,nolog,setvar:tx.cloud_wai_trusted=1"`;
+    directives.push(directive);
+    ladder.push({ id, stage: "allow-trusted-ip", action: "allow", directive });
+  }
+
+  // 4. Deny list. Each value was validated before it reached here; a value that
   //    would not match its grammar never becomes a directive.
   for (const rule of input.denyList ?? []) {
     const valid = validateDenyRule(rule);
@@ -313,7 +372,7 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id, stage: "block-deny-list", action: "block", directive });
   }
 
-  // 4. Attack mode challenges browsers. It is Envoy that serves the challenge;
+  // 5. Attack mode challenges browsers. It is Envoy that serves the challenge;
   //    the WAF records the intent so the compiled config is self-describing.
   if (attackMode) {
     const id = nextId++;
@@ -322,7 +381,7 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id, stage: "challenge", action: "challenge", directive });
   }
 
-  // 5. The WAF rule. Present whenever there is a policy, in every mode: attack
+  // 6. The WAF rule. Present whenever there is a policy, in every mode: attack
   //    mode adds a challenge, it never weakens inspection.
   if (policy) {
     const severity = CORAZA_SEVERITY[policy.riskLevel];

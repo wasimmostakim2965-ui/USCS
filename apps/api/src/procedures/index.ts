@@ -81,16 +81,21 @@ import {
 } from "./data.js";
 import {
   addSecurityRule,
+  addTrustedSource,
   distributeSecurityPolicy,
   listSecurityEvents,
   listSecurityRules,
+  listTrustedSources,
   readSecurityPolicy,
   readVerifiedBots,
   removeSecurityRule,
+  removeTrustedSource,
   saveSecurityPolicy,
   type AddSecurityRuleInput,
+  type AddTrustedSourceInput,
   type DistributePolicyInput,
   type RemoveSecurityRuleInput,
+  type RemoveTrustedSourceInput,
   type SavePolicyInput,
   type SecurityDeps,
 } from "./security.js";
@@ -452,6 +457,25 @@ export function buildProcedures(
       name: "security.rules.remove",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         removeSecurityRule(ctx, securityDeps, inputOf<RemoveSecurityRuleInput>(input)),
+    },
+    {
+      name: "security.trustedSources.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listTrustedSources(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "security.trustedSources.add",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        addTrustedSource(ctx, securityDeps, inputOf<AddTrustedSourceInput>(input)),
+    },
+    {
+      name: "security.trustedSources.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeTrustedSource(ctx, securityDeps, inputOf<RemoveTrustedSourceInput>(input)),
     },
     {
       name: "security.bots.list",
