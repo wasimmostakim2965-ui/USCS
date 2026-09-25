@@ -106,6 +106,7 @@ resource "aws_ssm_parameter" "env" {
     "VITE_SUPABASE_ANON_KEY=${var.supabase_anon_key}",
     "COOLIFY_URL=${var.coolify_url}",
     "SECURITY_EDGE_URL=${var.security_edge_url}",
+    "SECURITY_EDGE_ORIGIN=${var.security_edge_origin}",
     "EDGE_HOSTNAME=${var.edge_hostname}",
     "STORAGE_ENDPOINT=${var.storage_endpoint}",
   ]))

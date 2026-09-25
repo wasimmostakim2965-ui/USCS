@@ -103,6 +103,18 @@ variable "security_edge_url" {
   default     = ""
 }
 
+variable "security_edge_origin" {
+  description = <<-EOT
+    The private origin the edge forwards to (e.g. http://10.0.1.20:8080). Required
+    for the edge to build: securityEdgeConfigFromEnv refuses a missing or
+    non-private origin, so a URL alone leaves the edge not_configured. Must be a
+    private address, because the edge exists so the origin is not reachable
+    directly.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "edge_hostname" {
   description = "Hostname a domain may CNAME to for edge verification."
   type        = string

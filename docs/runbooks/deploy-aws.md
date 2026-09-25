@@ -76,9 +76,12 @@ supabase_service_role_key = "<service-role key>"
 # Engines are optional. An empty value leaves that engine not_configured, which
 # the dashboard shows honestly. Set one to close its gate, not to fill the UI.
 coolify_url       = ""
-security_edge_url = ""
-edge_hostname     = ""
 storage_endpoint  = ""
+# The edge needs both the admin URL and the private origin it forwards to; a URL
+# alone stays not_configured, because the origin is what the edge exists to hide.
+security_edge_url    = ""
+security_edge_origin = ""   # private address, e.g. "http://10.0.1.20:8080"
+edge_hostname        = ""
 
 # SSH is off by default; Session Manager is the access path.
 ssh_public_key   = ""
@@ -142,6 +145,8 @@ COOLIFY_SERVER_UUID__f1a2b3c4=<server uuid>
 STORAGE_ENDPOINT=https://minio.example.com
 STORAGE_ACCESS_KEY__f1a2b3c4=<access key>
 STORAGE_SECRET_KEY__f1a2b3c4=<secret key>
+SECURITY_EDGE_ORIGIN=http://10.0.1.20:8080
+SECURITY_EDGE_TOKEN__f1a2b3c4=<edge admin token for this tenant>
 ENV
 aws ssm put-parameter --name /cloud-wai/prod/env --type SecureString \
   --overwrite --value "file:///tmp/cw-env"
