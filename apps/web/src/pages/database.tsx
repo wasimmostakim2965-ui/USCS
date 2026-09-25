@@ -13,7 +13,7 @@
  * and offers no control that pretends otherwise. Nothing here reports success
  * for work the platform has not performed.
  */
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import {
   Button,
   Card,
@@ -41,11 +41,13 @@ import { DataStateBadge, Timestamp } from "../components/page-parts.js";
 import { databaseSectionTitle } from "../navigation.js";
 
 /**
- * The sub-pages of this section.
+ * The sub-pages of this section, keyed by section.
  *
- * `implemented` is the one place that decides whether a section has a working
- * body or an honest placeholder, so the sidebar and the page cannot disagree.
- * It flips to true as each step of the phased plan lands.
+ * A section maps to the component that renders it, so the route cannot render
+ * the wrong body. The previous shape was a boolean `implemented` flag plus one
+ * hard-coded component, which meant any section flagged true rendered the
+ * Storage page — harmless only while Storage was the single flagged section, and
+ * a silent bug the first time another one was flipped.
  *
  * Overview and Storage are real: both read the same `data.list` rows and both
  * provision through the engine. The rest need an engine operation this build's
@@ -53,18 +55,15 @@ import { databaseSectionTitle } from "../navigation.js";
  * listing auth users — so they stay honest placeholders rather than screens
  * wired to a fake.
  */
-const SECTION_BODIES: Readonly<Record<DatabaseSection, boolean>> = {
-  overview: true,
-  tables: false,
-  sql: false,
-  auth: false,
-  storage: true,
-  api: false,
-  roles: false,
-  logs: false,
-  settings: false,
+const SECTION_COMPONENT: Partial<
+  Record<
+    DatabaseSection,
+    (props: { readonly organizationId: string; readonly projectId: string }) => ReactElement
+  >
+> = {
+  overview: DatabaseOverview,
+  storage: DatabaseStorage,
 };
-
 /**
  * What a section that is not built yet actually needs.
  *
@@ -620,6 +619,7 @@ export function DatabasePage({
   readonly section: DatabaseSection;
 }) {
   const title = databaseSectionTitle(section);
+  const Body = SECTION_COMPONENT[section];
 
   return (
     <div className="page">
@@ -636,10 +636,8 @@ export function DatabasePage({
         </div>
       </header>
 
-      {section === "overview" ? (
-        <DatabaseOverview organizationId={organizationId} projectId={projectId} />
-      ) : SECTION_BODIES[section] ? (
-        <DatabaseStorage organizationId={organizationId} projectId={projectId} />
+      {Body ? (
+        <Body organizationId={organizationId} projectId={projectId} />
       ) : (
         <NotYetBuilt section={section} />
       )}

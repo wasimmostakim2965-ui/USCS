@@ -1469,6 +1469,11 @@ describe("the Database drill-in", () => {
     // The placeholder names the missing engine capability rather than implying
     // the section is a styling task.
     expect(await screen.findByText(/auth-user listing operation/)).toBeTruthy();
+    // And it is not another section's body: dispatching by a bare "implemented"
+    // flag once rendered the Storage view for every flagged section, which is
+    // invisible until a second section is enabled.
+    expect(screen.queryByRole("button", { name: "Provision resource" })).toBeNull();
+    expect(screen.queryByText(/Connection details/)).toBeNull();
   });
 
   it("makes the Database Storage section a real bucket view, not a placeholder", async () => {
