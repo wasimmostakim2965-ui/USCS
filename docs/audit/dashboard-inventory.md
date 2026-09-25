@@ -47,6 +47,7 @@ them in this order: route/page → procedure → adapter call → live engine.
 | New deployment | `DeploymentsPage` | `deployments.create` | Working |
 | Deployment logs (build vs runtime) | `DeploymentsPage` | `deployments.logs` | Working |
 | Rollback | `DeploymentsPage` | `deployments.rollback` | Working |
+| Cancel in-flight deployment | `DeploymentsPage` (pending/running rows only) | `deployments.cancel` | Working |
 | Domains list | `DomainsPage` | `domains.list` (project-scoped) | Working |
 | Add domain | `DomainsPage` | `domains.create` | Working |
 | Verify domain | `DomainsPage` | `domains.verify` | Working |

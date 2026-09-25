@@ -617,6 +617,7 @@ export function DeploymentsPage({
   const [deploying, setDeploying] = useState(false);
   const [rollingBack, setRollingBack] = useState<DeploymentSummary | null>(null);
   const [viewingLogs, setViewingLogs] = useState<DeploymentSummary | null>(null);
+  const [cancelling, setCancelling] = useState<DeploymentSummary | null>(null);
 
   return (
     <PageShell
@@ -644,6 +645,11 @@ export function DeploymentsPage({
                   {item.status === "succeeded" ? (
                     <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
                       Rollback
+                    </Button>
+                  ) : null}
+                  {item.status === "pending" || item.status === "running" ? (
+                    <Button variant="ghost" size="sm" onClick={() => setCancelling(item)}>
+                      Cancel
                     </Button>
                   ) : null}
                 </div>
@@ -687,6 +693,17 @@ export function DeploymentsPage({
         projectId={projectId}
         deployment={viewingLogs}
         onClose={() => setViewingLogs(null)}
+      />
+
+      <CancelDeploymentModal
+        key={`cancel-${cancelling?.id ?? "none"}`}
+        projectId={projectId}
+        deployment={cancelling}
+        onClose={() => setCancelling(null)}
+        onCancelled={() => {
+          setCancelling(null);
+          reload();
+        }}
       />
     </PageShell>
   );
@@ -1002,6 +1019,74 @@ function RollbackDeploymentModal({
             />
           )}
         </Field>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Cancel an in-flight deployment.
+ *
+ * The button appears only for a pending or running row, because a terminal
+ * deployment has nothing to cancel and the server refuses it too. The result is
+ * the row the server wrote back — a cancelled run reads `failed` with the
+ * engine's reason, never a fabricated success.
+ */
+function CancelDeploymentModal({
+  projectId,
+  deployment,
+  onClose,
+  onCancelled,
+}: {
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary | null;
+  readonly onClose: () => void;
+  readonly onCancelled: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!deployment) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<{ deployment: DeploymentSummary; engineReason: string | null }>(
+      "deployments.cancel",
+      { projectId, deploymentId: deployment.id },
+    );
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The deployment could not be cancelled.");
+      return;
+    }
+    onCancelled();
+  };
+
+  return (
+    <Modal
+      title="Cancel deployment"
+      open={deployment !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Keep running</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy}>
+            Cancel deployment
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          This asks the hosting engine to stop the build. The deployment is kept in the history and
+          is marked failed, because the work did not complete.
+        </p>
+        {error ? (
+          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+            {error}
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

@@ -33,11 +33,13 @@ import {
   type OrgDeps,
 } from "./organizations.js";
 import {
+  cancelDeployment,
   deploymentsLogs,
   requestDeployment,
   listAuditEvents,
   listDeployments,
   rollbackDeployment,
+  type CancelDeploymentInput,
   type CreateDeploymentInput,
   type DeploymentDeps,
   type DeploymentLogsInput,
@@ -255,6 +257,11 @@ export function buildProcedures(
         deploymentsLogs(ctx, depDeps, inputOf<DeploymentLogsInput>(input)),
     },
     {
+      name: "deployments.cancel",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        cancelDeployment(ctx, depDeps, inputOf<CancelDeploymentInput>(input)),
+    },
+    {
       name: "audit.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listAuditEvents(
@@ -447,6 +454,7 @@ export const ROUTE_SHAPES = {
     idempotencyKey: "string?",
   },
   "deployments.logs": { projectId: "ProjectId", deploymentId: "string" },
+  "deployments.cancel": { projectId: "ProjectId", deploymentId: "string" },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId", projectId: "ProjectId?" },
   "domains.create": {

@@ -166,6 +166,128 @@ export interface DeploymentLogsInput {
   readonly deploymentId: string;
 }
 
+export interface CancelDeploymentInput {
+  readonly projectId: ProjectId;
+  readonly deploymentId: string;
+}
+
+export interface CancelDeploymentResult {
+  readonly deployment: Deployment;
+  /** The engine's own words when it could not act, for an honest UI. */
+  readonly engineReason: string | null;
+}
+
+/**
+ * Cancel an in-flight deployment.
+ *
+ * The row is the precondition: a terminal deployment has nothing left to cancel,
+ * so the request is refused rather than sent to an engine that would no-op. The
+ * cancel is addressed by the row's *deployment* handle — Coolify cancels a
+ * deployment by uuid — so a run that never reached the engine reports honestly
+ * instead of cancelling an unrelated build.
+ *
+ * Cloud Wai has no `canceled` engine status; a cancelled run is written `failed`
+ * with the reason, which is what it is: the work did not complete.
+ */
+export async function cancelDeployment(
+  ctx: RequestContext,
+  deps: DeploymentDeps,
+  input: CancelDeploymentInput,
+): Promise<CancelDeploymentResult> {
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!project) throw new ApiError("not_found", "Project not found.");
+  requireCapability(ctx, project.organizationId, "deployment:cancel");
+
+  const store = writesFor(deps);
+  if (typeof store.getDeployment !== "function") {
+    throw new ApiError("engine_unavailable", "This deployment cannot read a deployment yet.");
+  }
+
+  const deployment = await store.getDeployment(
+    ctx.principal.userId,
+    input.deploymentId as DeploymentId,
+  );
+  // A deployment outside the tenant, or one that does not exist, is the same
+  // answer: `not_found`, never a hint that another tenant's id is real.
+  if (!deployment || deployment.projectId !== project.id) {
+    throw new ApiError("not_found", "Deployment not found.");
+  }
+
+  if (deployment.status !== "pending" && deployment.status !== "running") {
+    throw new ApiError(
+      "conflict",
+      `Only a pending or running deployment can be cancelled; this one is ${deployment.status}.`,
+    );
+  }
+
+  const clock = deps.now ?? (() => new Date());
+  const adapterCtx = {
+    organizationId: project.organizationId,
+    idempotencyKey: `cancel-${deployment.id}`,
+    timeoutMs: ADAPTER_TIMEOUT_MS,
+  };
+
+  let engineReason: string | null = null;
+
+  if (!deployment.deploymentResourceId) {
+    // Nothing was sent to the engine, so there is no build to stop. The row is
+    // still closed out honestly: a pending row that never reached the engine
+    // must not sit `pending` forever.
+    engineReason =
+      "This deployment never reached the hosting engine, so there was no build to cancel.";
+  } else {
+    const ref: ProviderRef = {
+      organizationId: project.organizationId,
+      provider: HOSTING_PROVIDER as ProviderRef["provider"],
+      resourceType: "deployment",
+      resourceId: deployment.deploymentResourceId,
+    };
+    const result = await deps.engines.hosting.cancelDeployment(adapterCtx, ref);
+    if (!result.ok) {
+      // The engine refused or is unconfigured: keep the row where it is and
+      // report why, rather than claiming a cancellation that did not happen.
+      const unchanged = await store.updateDeploymentStatus({
+        id: deployment.id,
+        organizationId: project.organizationId,
+        status: deployment.status,
+        url: deployment.url,
+        failureReason: result.reason,
+        providerResourceId: deployment.providerResourceId,
+        deploymentResourceId: deployment.deploymentResourceId,
+        startedAt: clock().toISOString(),
+        finishedAt: null,
+      });
+      return { deployment: unchanged ?? deployment, engineReason: result.reason };
+    }
+    engineReason = "Cancelled by the customer.";
+  }
+
+  // A cancelled run did not complete, so `failed` — never `succeeded`.
+  const updated = await store.updateDeploymentStatus({
+    id: deployment.id,
+    organizationId: project.organizationId,
+    status: "failed",
+    url: deployment.url,
+    failureReason: engineReason,
+    providerResourceId: deployment.providerResourceId,
+    deploymentResourceId: deployment.deploymentResourceId,
+    startedAt: clock().toISOString(),
+    finishedAt: clock().toISOString(),
+  });
+
+  await deps.store.recordAuditEvent({
+    organizationId: project.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "deployment.cancelled",
+    targetType: "deployment",
+    targetId: deployment.id,
+    metadata: { projectId: project.id, status: updated?.status ?? "failed" },
+  });
+
+  return { deployment: updated ?? deployment, engineReason };
+}
+
 export interface DeploymentLogsResult {
   /** The engine's own log lines, verbatim — either a build log or a runtime tail. */
   readonly lines: readonly string[];

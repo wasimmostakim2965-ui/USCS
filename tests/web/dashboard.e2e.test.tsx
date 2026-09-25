@@ -530,6 +530,35 @@ describe("requesting and rolling back a deployment", () => {
           data: { deployment, replayed: false, engineReason: null, commit: body.commit },
         };
       }
+      if (procedure === "deployments.cancel") {
+        const body = input as { deploymentId: string };
+        const index = deployments.findIndex((d) => d.id === body.deploymentId);
+        const existing = index >= 0 ? deployments[index]! : undefined;
+        if (!existing) {
+          return {
+            ok: false,
+            status: 404,
+            error: { code: "not_found", message: "Deployment not found." },
+          };
+        }
+        if (existing.status !== "pending" && existing.status !== "running") {
+          return {
+            ok: false,
+            status: 409,
+            error: {
+              code: "conflict",
+              message: `Only a pending or running deployment can be cancelled; this one is ${existing.status}.`,
+            },
+          };
+        }
+        const cancelled = { ...existing, status: "failed", failureReason: "Cancelled by the customer." };
+        deployments[index] = cancelled;
+        return {
+          ok: true,
+          status: 200,
+          data: { deployment: cancelled, engineReason: "Cancelled by the customer." },
+        };
+      }
       return { ok: true, status: 200, data: [] };
     };
     return { responder, deployments, calls };
@@ -621,6 +650,72 @@ describe("requesting and rolling back a deployment", () => {
     );
     const rollback = calls.find((c) => c.procedure === "deployments.rollback");
     expect(rollback?.input).toMatchObject({ projectId: "p-1", commit: "abc1234" });
+  });
+
+  it("cancels an in-flight deployment and shows only terminal-state actions", async () => {
+    const { responder, calls, deployments } = deploymentPlane();
+    deployments.push({
+      id: "d-running",
+      projectId: "p-1",
+      status: "running",
+      url: null,
+      failureReason: null,
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    // The succeeded row has no Cancel; the running row does.
+    const cancels = await screen.findAllByRole("button", { name: "Cancel" });
+    expect(cancels).toHaveLength(1);
+
+    await user.click(cancels[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel deployment" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.procedure === "deployments.cancel")).toBe(true),
+    );
+    expect(calls.find((c) => c.procedure === "deployments.cancel")?.input).toMatchObject({
+      projectId: "p-1",
+      deploymentId: "d-running",
+    });
+    // After the reload the row is terminal, so the Cancel action is gone.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull());
+  });
+
+  it("surfaces a refused cancel as an alert, never as a success", async () => {
+    const { responder, deployments } = deploymentPlane();
+    deployments.push({
+      id: "d-running",
+      projectId: "p-1",
+      status: "running",
+      url: null,
+      failureReason: null,
+    });
+    const refusing: Responder = (procedure, input) => {
+      if (procedure === "deployments.cancel") {
+        return {
+          ok: false,
+          status: 409,
+          error: {
+            code: "conflict",
+            message: "Only a pending or running deployment can be cancelled; this one is succeeded.",
+          },
+        };
+      }
+      return responder(procedure, input);
+    };
+    const url = await startApi(refusing);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click((await screen.findAllByRole("button", { name: "Cancel" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Cancel deployment" }));
+
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain("Only a pending or running deployment");
   });
 
   it("surfaces a refused deployment request as an alert, never as success", async () => {

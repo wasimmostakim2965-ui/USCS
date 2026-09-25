@@ -233,6 +233,8 @@ function makeStore() {
         projectId: input.projectId,
         status: input.status,
         url: input.url,
+        providerResourceId: input.providerResourceId,
+        deploymentResourceId: null,
         failureReason: input.failureReason,
         createdAt: "2026-01-01T00:00:00Z",
       };
@@ -579,6 +581,121 @@ describe("deployments.rollback through the registered procedures", () => {
 
     const data = res.data as { deployment: Deployment };
     expect(data.deployment.status).toBe("failed");
+  });
+});
+
+describe("deployments.cancel through the registered procedures", () => {
+  it("refuses a deployment that already reached a terminal state", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    // Deploy, so a row exists; the fake reports success, so it is terminal.
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "c-1" },
+    });
+    expect(deployments[0]?.status).toBe("succeeded");
+
+    const res = await router.route({
+      procedure: "deployments.cancel",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id },
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.error?.code).toBe("conflict");
+  });
+
+  it("closes out a pending deployment that never reached the engine, honestly", async () => {
+    const { store, deployments, audit } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    // A deploy with no engine leaves a `not_configured` row; force it `pending`
+    // to model a run that never got an engine handle.
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "c-2" },
+    });
+    deployments[0] = { ...deployments[0]!, status: "pending", deploymentResourceId: null };
+
+    const res = await router.route({
+      procedure: "deployments.cancel",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment; engineReason: string | null };
+    expect(data.deployment.status).toBe("failed");
+    expect(data.engineReason).toMatch(/never reached the hosting engine/i);
+    expect(audit.some((a) => a.event === "deployment.cancelled")).toBe(true);
+  });
+
+  it("cancels through the engine when the run has a deployment handle", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "c-3" },
+    });
+    deployments[0] = {
+      ...deployments[0]!,
+      status: "running",
+      deploymentResourceId: "dep-1",
+    };
+
+    const res = await router.route({
+      procedure: "deployments.cancel",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment; engineReason: string | null };
+    expect(data.deployment.status).toBe("failed");
+    expect(data.engineReason).toMatch(/cancelled/i);
+  });
+
+  it("refuses a non-member with not_found, never a hint", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "c-4" },
+    });
+
+    const res = await router.route({
+      procedure: "deployments.cancel",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id },
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses a deployment id that belongs to another project", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "c-5" },
+    });
+
+    const res = await router.route({
+      procedure: "deployments.cancel",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "proj-other", deploymentId: deployments[0]!.id },
+    });
+
+    expect(res.status).toBe(404);
   });
 });
 

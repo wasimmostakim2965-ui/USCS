@@ -79,7 +79,7 @@ object we have not built.
 | P4 | Durable deploy execution (job + worker) | `apps/worker/src/deployment-executor.ts`; `sql-queue.ts` | **Wired** |
 | P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them | **Wired** |
 | P6 | Instant rollback | `deployments.rollback` (`index.ts:242`); Coolify needs a commit (`coolify.ts:353`) | **Wired** |
-| P7 | Cancel an in-flight deployment | adapter `cancelDeployment` (`coolify.ts:326`) — **no procedure, no button** | **Contract-only (C1)** |
+| P7 | Cancel an in-flight deployment | `deployments.cancel` (`index.ts:257`; `apps/api/src/procedures/deployments.ts:cancelDeployment`); adapter `cancelDeployment` (`coolify.ts:326`); Cancel action on pending/running rows | **Wired** |
 | P8 | Git integration: auto-deploy on push | none; repo URL is a text input (`apps/web/src/pages/pages.tsx:897`) | **Missing (D4)** |
 | P9 | Preview deployment per branch / PR | none | **Missing (D4)** |
 | P10 | Promote preview → production | none | **Missing (D6)** |
@@ -164,7 +164,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅ | Medium | **Partly closed** — the compile and control-plane surface are wired; the live edge application stays an open gate |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
 | 4 | Usage recording + hard spend cap | W8, W9 | Medium | The top user complaint |
-| 5 | Cancel / restore / edge traffic view | P7, B5, X15, X16 | Medium | "Built but unreachable" class |
+| 5 | Cancel / restore / edge traffic view | P7 ✅, B5, X15, X16 | Medium | "Built but unreachable" class — cancel is wired; restore + traffic view remain |
 | 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
 | 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
 
@@ -172,6 +172,6 @@ Ranked against the brief. Each row is a workstream, not a wish:
 
 Vercel rows come from Vercel's own docs pages named above; user rows come from the
 review sources named above. Our rows were read in the file cited, in this
-session. `pnpm verify` (463 tests) and `pnpm verify:rls` were green when this was
+session. `pnpm verify` (470 tests) and `pnpm verify:rls` were green when this was
 written. A row moves to **Wired** only with a procedure, a page and a test in the
 same commit.
