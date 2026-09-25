@@ -6,13 +6,14 @@
  * and it is the only path to that table from the API: no procedure here lets a
  * client assert a metric or a quantity.
  *
- * Honest caveat: nothing in this build *writes* a usage row yet. The table, its
- * RLS policy and the service-role write grant exist and the worker runs with the
- * credentials to write one, but no engine adapter reports a metric and no job
- * records one, so in practice the roll-up is always empty. That is why an empty
- * organization renders as an empty list and not as a zero balance — and why the
- * dashboard says the list stays empty until a metric source is wired, rather
- * than promising a recording that does not happen.
+ * Honest caveat: only work the engine *confirmed* is recorded. The worker writes
+ * one `deployments` unit when a production build settles as succeeded and one
+ * `backups` unit when a backup succeeds (`apps/worker/src/deployment-job.ts`,
+ * `backup-job.ts`); a failed or unconfigured attempt writes none, because it is
+ * not a unit the organization consumed. An organization that has not deployed or
+ * backed up therefore renders an empty list, not a zero balance — which is the
+ * honest state, and the dashboard says so rather than promising a metric source
+ * that does not exist.
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
