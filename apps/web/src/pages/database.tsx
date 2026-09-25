@@ -46,17 +46,43 @@ import { databaseSectionTitle } from "../navigation.js";
  * `implemented` is the one place that decides whether a section has a working
  * body or an honest placeholder, so the sidebar and the page cannot disagree.
  * It flips to true as each step of the phased plan lands.
+ *
+ * Overview and Storage are real: both read the same `data.list` rows and both
+ * provision through the engine. The rest need an engine operation this build's
+ * adapter interface does not expose yet — introspecting tables, running SQL,
+ * listing auth users — so they stay honest placeholders rather than screens
+ * wired to a fake.
  */
 const SECTION_BODIES: Readonly<Record<DatabaseSection, boolean>> = {
   overview: true,
   tables: false,
   sql: false,
   auth: false,
-  storage: false,
+  storage: true,
   api: false,
   roles: false,
   logs: false,
   settings: false,
+};
+
+/**
+ * What a section that is not built yet actually needs.
+ *
+ * Naming the missing engine operation is the honest form of "coming soon": it
+ * says the route is real, the plan is real, and exactly which engine capability
+ * is absent, rather than implying the feature is a styling task.
+ */
+const NOT_YET_REASON: Partial<Record<DatabaseSection, string>> = {
+  tables:
+    "Browsing and editing rows needs a table-introspection operation on the database engine, which this build's adapter interface does not expose yet.",
+  sql: "Running SQL needs a query-execution operation on the database engine, which this build's adapter interface does not expose yet.",
+  auth: "Users, sessions and providers need an auth-user listing operation on the database engine, which this build's adapter interface does not expose yet.",
+  api: "The REST endpoint list is generated from the schema, so it needs the same table-introspection operation the Table Editor does.",
+  roles:
+    "Roles and extensions need a role-introspection operation on the database engine, which this build's adapter interface does not expose yet.",
+  logs: "Database and API logs need a log-stream operation on the database engine, which this build's adapter interface does not expose yet.",
+  settings:
+    "Engine-level settings need a configuration operation on the database engine, which this build's adapter interface does not expose yet.",
 };
 
 function NotYetBuilt({ section }: { readonly section: DatabaseSection }) {
@@ -65,9 +91,9 @@ function NotYetBuilt({ section }: { readonly section: DatabaseSection }) {
       <div className="banner" role="status">
         <strong>{databaseSectionTitle(section)} is not available in this build yet.</strong>
         <span>
-          The route exists so a link to it is honest, and the section is planned. It will read from
-          the configured database engine once that step is delivered — it is not wired to a fake in
-          the meantime.
+          {NOT_YET_REASON[section] ??
+            "The route exists so a link to it is honest, and the section is planned."}{" "}
+          It is not wired to a fake in the meantime.
         </span>
       </div>
     </Card>
@@ -80,6 +106,58 @@ function DatabaseOverview({
 }: {
   readonly organizationId: string;
   readonly projectId: string;
+}) {
+  return (
+    <>
+      <SectionShell title="Project" hint="What this database section is attached to">
+        <div className="grid">
+          <StatBox label="Tables" value="—" note="Needs a configured database engine." />
+          <StatBox label="Storage buckets" value="—" note="Needs a configured database engine." />
+          <StatBox label="Auth users" value="—" note="Needs a configured database engine." />
+        </div>
+      </SectionShell>
+
+      <ResourcesPanel
+        organizationId={organizationId}
+        projectId={projectId}
+        kinds="all"
+        title="Resources"
+        hint="Provisioning runs through the database engine"
+        emptyMessage="No database resources for this project. Provisioning needs a configured database engine."
+      />
+
+      <SectionShell title="Connection" hint="Search path, roles and extensions">
+        <Card>
+          <p className="muted small">
+            Connection details appear once a database engine is configured for this deployment.
+          </p>
+        </Card>
+      </SectionShell>
+    </>
+  );
+}
+
+/**
+ * The project's data resources, filtered to one kind.
+ *
+ * Overview and Storage show the same rows through this one component: the
+ * Storage page is not a second list that could drift from the first, it is the
+ * bucket half of the same query.
+ */
+function ResourcesPanel({
+  organizationId,
+  projectId,
+  kinds,
+  title,
+  hint,
+  emptyMessage,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+  readonly kinds: "all" | "postgres" | "object_storage";
+  readonly title: string;
+  readonly hint: string;
+  readonly emptyMessage: string;
 }) {
   const { client } = useApp();
   const resources = useSection(
@@ -97,27 +175,21 @@ function DatabaseOverview({
   const visibleItems =
     resources.section.state.kind === "ready"
       ? resources.section.state.items.filter(
-          (item) => item.projectId == null || item.projectId === projectId,
+          (item) =>
+            (item.projectId == null || item.projectId === projectId) &&
+            (kinds === "all" || item.kind === kinds),
         )
       : [];
   const visibleResources =
     resources.section.state.kind === "ready"
-      ? ready("Databases and storage", visibleItems)
+      ? ready(title, visibleItems)
       : resources.section;
 
   return (
     <>
-      <SectionShell title="Project" hint="What this database section is attached to">
-        <div className="grid">
-          <StatBox label="Tables" value="—" note="Needs a configured database engine." />
-          <StatBox label="Storage buckets" value="—" note="Needs a configured database engine." />
-          <StatBox label="Auth users" value="—" note="Needs a configured database engine." />
-        </div>
-      </SectionShell>
-
       <SectionShell
-        title="Resources"
-        hint="Provisioning runs through the database engine"
+        title={title}
+        hint={hint}
         actions={
           <Button variant="primary" size="sm" onClick={() => setProvisioning(true)}>
             Provision resource
@@ -177,7 +249,7 @@ function DatabaseOverview({
             ]}
             rowKey={(item) => item.id}
             onRetry={reload}
-            emptyMessage="No database resources for this project. Provisioning needs a configured database engine."
+            emptyMessage={emptyMessage}
           />
         </Card>
       </SectionShell>
@@ -185,6 +257,7 @@ function DatabaseOverview({
       <ProvisionResourceModal
         organizationId={organizationId}
         projectId={projectId}
+        defaultKind={kinds === "object_storage" ? "object_storage" : "postgres"}
         open={provisioning}
         onClose={() => setProvisioning(false)}
         onDone={() => {
@@ -202,14 +275,66 @@ function DatabaseOverview({
           reload();
         }}
       />
+    </>
+  );
+}
 
-      <SectionShell title="Connection" hint="Search path, roles and extensions">
-        <Card>
-          <p className="muted small">
-            Connection details appear once a database engine is configured for this deployment.
-          </p>
-        </Card>
+/**
+ * Object storage for this project.
+ *
+ * The buckets are the same `data_resources` rows with kind `object_storage`
+ * that the Overview lists; this page is the storage-scoped view of them, with
+ * provisioning defaulted to a bucket.
+ */
+function DatabaseStorage({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client } = useApp();
+  const resources = useSection(
+    () => loadDataResources(client, organizationId),
+    [client, organizationId],
+    "Storage buckets",
+  );
+
+  const buckets =
+    resources.section.state.kind === "ready"
+      ? resources.section.state.items.filter(
+          (item) =>
+            item.kind === "object_storage" &&
+            (item.projectId == null || item.projectId === projectId),
+        )
+      : [];
+
+  return (
+    <>
+      <SectionShell title="Object storage" hint="Buckets for files this project reads and writes">
+        <div className="grid">
+          <StatBox label="Buckets" value={String(buckets.length)} note="For this project" />
+          <StatBox
+            label="Ready"
+            value={String(buckets.filter((item) => item.state === "ready").length)}
+            note="Reported ready by the storage engine"
+          />
+          <StatBox
+            label="Not configured"
+            value={String(buckets.filter((item) => item.state === "not_configured").length)}
+            note="Requested, but no storage engine is wired"
+          />
+        </div>
       </SectionShell>
+
+      <ResourcesPanel
+        organizationId={organizationId}
+        projectId={projectId}
+        kinds="object_storage"
+        title="Buckets"
+        hint="Created through the storage engine"
+        emptyMessage="No buckets for this project. Creating one needs a configured storage engine."
+      />
     </>
   );
 }
@@ -225,19 +350,22 @@ function DatabaseOverview({
 function ProvisionResourceModal({
   organizationId,
   projectId,
+  defaultKind = "postgres",
   open,
   onClose,
   onDone,
 }: {
   readonly organizationId: string;
   readonly projectId: string;
+  /** Which kind the form opens with. The Storage page defaults to a bucket. */
+  readonly defaultKind?: "postgres" | "object_storage";
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onDone: () => void;
 }) {
   const { client } = useApp();
   const [name, setName] = useState("");
-  const [kind, setKind] = useState<"postgres" | "object_storage">("postgres");
+  const [kind, setKind] = useState<"postgres" | "object_storage">(defaultKind);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ProvisionDataSummary | null>(null);
@@ -501,13 +629,17 @@ export function DatabasePage({
           <p className="page__sub">
             {section === "overview"
               ? "Databases, tables, storage and authentication for this project."
-              : `${title} for this project's database.`}
+              : section === "storage"
+                ? "Object storage buckets for this project, created through the storage engine."
+                : `${title} for this project's database.`}
           </p>
         </div>
       </header>
 
-      {SECTION_BODIES[section] ? (
+      {section === "overview" ? (
         <DatabaseOverview organizationId={organizationId} projectId={projectId} />
+      ) : SECTION_BODIES[section] ? (
+        <DatabaseStorage organizationId={organizationId} projectId={projectId} />
       ) : (
         <NotYetBuilt section={section} />
       )}

@@ -1442,6 +1442,82 @@ describe("the Database drill-in", () => {
     expect(
       await screen.findByText(/Authentication is not available in this build yet/),
     ).toBeTruthy();
+    // The placeholder names the missing engine capability rather than implying
+    // the section is a styling task.
+    expect(await screen.findByText(/auth-user listing operation/)).toBeTruthy();
+  });
+
+  it("makes the Database Storage section a real bucket view, not a placeholder", async () => {
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "b-1",
+              name: "assets",
+              kind: "object_storage",
+              state: "ready",
+              projectId: "p-1",
+            },
+            { id: "b-2", name: "docs", kind: "object_storage", state: "ready", projectId: "p-1" },
+            { id: "b-3", name: "other", kind: "object_storage", state: "ready", projectId: "p-2" },
+            { id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" },
+          ],
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/storage");
+
+    expect(await screen.findByRole("heading", { name: "Storage" })).toBeTruthy();
+    // Only this project's buckets: the other project's bucket and the postgres
+    // resource are excluded, because this page is storage-scoped.
+    expect(await screen.findByText("assets")).toBeTruthy();
+    expect(screen.getByText("docs")).toBeTruthy();
+    expect(screen.queryByText("other")).toBeNull();
+    expect(screen.queryByText("orders")).toBeNull();
+    // It is a live view with a real control, not the not-built placeholder.
+    expect(screen.queryByText(/Storage is not available in this build yet/)).toBeNull();
+    expect(
+      (await screen.findByRole("button", { name: "Provision resource" })) as HTMLButtonElement,
+    ).toBeTruthy();
+  });
+
+  it("opens the Storage provision form defaulted to a bucket", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const responder: Responder = (procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "data.provision") {
+        const body = input as { name: string; kind: string };
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: { id: "b-1", kind: body.kind, name: body.name, state: "ready" },
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/storage");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Provision resource" }));
+    await user.type(await screen.findByPlaceholderText("tenant-db"), "uploads");
+    await user.click(screen.getByRole("button", { name: "Provision" }));
+
+    const sent = calls.find((call) => call.procedure === "data.provision");
+    // The kind defaults to a bucket on this page, so the operator does not have
+    // to re-select it every time.
+    expect(sent?.input).toMatchObject({ name: "uploads", kind: "object_storage" });
   });
 
   it("offers real provisioning and backup controls, and invents no connection controls", async () => {
