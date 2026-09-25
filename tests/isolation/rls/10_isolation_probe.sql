@@ -322,6 +322,37 @@ begin
 end;
 $$;
 
+-- The same sweep over every tenant-owned table, not just the first two. A
+-- brand-new account is the strictest case of this probe: it belongs to no
+-- organization, so every one of these counts must be zero. Two tables passing
+-- while a third leaks is exactly the regression this catches.
+do $$
+declare
+  tenant_tables text[] := array[
+    'deployments', 'environments', 'audit_logs', 'api_keys', 'domains',
+    'data_resources', 'data_backups', 'security_policies', 'usage_records',
+    'orchestration_jobs', 'organization_members'
+  ];
+  tbl text;
+  visible int;
+  checked int := 0;
+begin
+  foreach tbl in array tenant_tables loop
+    execute format('select count(*) from %I', tbl) into visible;
+    if visible <> 0 then
+      raise exception 'ISOLATION FAIL: a non-member sees % rows in %', visible, tbl;
+    end if;
+    checked := checked + 1;
+  end loop;
+
+  -- Guard against the sweep silently checking nothing.
+  if checked <> array_length(tenant_tables, 1) then
+    raise exception 'ISOLATION FAIL: sweep checked % tables, expected %',
+      checked, array_length(tenant_tables, 1);
+  end if;
+end;
+$$;
+
 reset role;
 
 select 'RLS isolation probe passed: 7 scenarios, no cross-tenant access' as result;
