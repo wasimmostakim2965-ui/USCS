@@ -36,6 +36,17 @@ export interface BackupExecutionWrites {
     readonly targetId: string;
     readonly metadata: Record<string, unknown>;
   }): Promise<unknown>;
+  /**
+   * Record one unit of usage when the engine confirmed the work.
+   *
+   * Only a `succeeded` backup is recorded: a metric counts work that happened,
+   * and a `not_configured` or `failed` run is not a unit the customer used.
+   */
+  recordUsage(input: {
+    readonly organizationId: string;
+    readonly metric: string;
+    readonly quantity: number;
+  }): Promise<unknown>;
 }
 
 export interface BackupJobDeps {
@@ -122,5 +133,15 @@ export function buildBackupApplier(
       targetId: payload.backupId,
       metadata: { dataResourceId: payload.dataResourceId, status },
     });
+    // Usage is a count of work the engine confirmed. A failed or unconfigured
+    // backup is recorded above as a fact about the attempt, but it is not a unit
+    // the organization consumed, so no usage row is written for it.
+    if (status === "succeeded") {
+      await deps.writes.recordUsage({
+        organizationId: payload.organizationId,
+        metric: "backups",
+        quantity: 1,
+      });
+    }
   };
 }

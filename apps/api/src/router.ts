@@ -48,6 +48,7 @@ const STATUS_BY_CODE: Record<ApiError["code"], number> = {
   not_found: 404,
   invalid_input: 400,
   conflict: 409,
+  budget_exceeded: 402,
   engine_unavailable: 503,
 };
 

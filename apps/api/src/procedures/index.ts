@@ -101,7 +101,7 @@ import {
   type GitLinkDeps,
 } from "./git-links.js";
 import type { SecretCipher } from "@cloud-wai/auth";
-import { readUsage, type BillingDeps } from "./billing.js";
+import { readUsage, readBudgets, saveBudget, removeBudget, type BillingDeps } from "./billing.js";
 import { readObservability, type ObservabilityDeps } from "./observability.js";
 import type { RequestContext } from "../context.js";
 
@@ -471,6 +471,38 @@ export function buildProcedures(
         ),
     },
     {
+      name: "billing.budgets.list",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readBudgets(
+          ctx,
+          billingDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "billing.budgets.save",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        saveBudget(
+          ctx,
+          billingDeps,
+          inputOf<{
+            organizationId: OrganizationId;
+            metric: string;
+            limitQuantity: number;
+            hardCap: boolean;
+          }>(input),
+        ),
+    },
+    {
+      name: "billing.budgets.remove",
+      handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeBudget(
+          ctx,
+          billingDeps,
+          inputOf<{ organizationId: OrganizationId; metric: string }>(input),
+        ),
+    },
+    {
       name: "observability.jobs",
       handler: async (ctx: RequestContext, _deps: unknown, input: unknown) =>
         readObservability(
@@ -580,6 +612,14 @@ export const ROUTE_SHAPES = {
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },
   "providers.health": { organizationId: "OrganizationId" },
   "billing.usage": { organizationId: "OrganizationId" },
+  "billing.budgets.list": { organizationId: "OrganizationId" },
+  "billing.budgets.save": {
+    organizationId: "OrganizationId",
+    metric: "deployments|backups",
+    limitQuantity: "number",
+    hardCap: "boolean",
+  },
+  "billing.budgets.remove": { organizationId: "OrganizationId", metric: "string" },
   "observability.jobs": { organizationId: "OrganizationId" },
 } as const;
 

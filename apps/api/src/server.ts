@@ -98,7 +98,11 @@ async function handleGitHook(
   const rest = path.slice(GIT_HOOK_PREFIX.length);
   const [organizationId, linkId] = rest.split("/");
   if (!organizationId || !linkId) {
-    json(res, 404, { ok: false, status: 404, error: { code: "not_found", message: "Unknown endpoint." } });
+    json(res, 404, {
+      ok: false,
+      status: 404,
+      error: { code: "not_found", message: "Unknown endpoint." },
+    });
     return;
   }
 
@@ -124,9 +128,7 @@ async function handleGitHook(
     // thing, and an absent one is left for the body's own `object_kind`.
     event: header("x-github-event") ?? header("x-gitlab-event") ?? header("x-event-key"),
     signature:
-      header("x-hub-signature-256") ??
-      header("x-hub-signature") ??
-      header("x-gitlab-signature"),
+      header("x-hub-signature-256") ?? header("x-hub-signature") ?? header("x-gitlab-signature"),
     token: header("x-gitlab-token"),
     body: raw,
   });

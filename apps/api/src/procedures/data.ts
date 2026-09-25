@@ -641,10 +641,7 @@ export async function rotateDataCredentials(
     );
   }
   if (input.confirmName.trim() !== resource.name) {
-    throw new ApiError(
-      "invalid_input",
-      "Type the resource's name to confirm the rotation.",
-    );
+    throw new ApiError("invalid_input", "Type the resource's name to confirm the rotation.");
   }
 
   const ref: ProviderRef = {
@@ -677,4 +674,3 @@ export async function rotateDataCredentials(
 
   return { resource, engineReason };
 }
-

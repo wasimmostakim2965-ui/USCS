@@ -342,9 +342,7 @@ function makeStore() {
       return next;
     },
     async getDataBackupForService(organizationId: OrganizationId, backupId: string) {
-      return (
-        backups.find((b) => b.id === backupId && b.organizationId === organizationId) ?? null
-      );
+      return backups.find((b) => b.id === backupId && b.organizationId === organizationId) ?? null;
     },
     async createDataRestore(input: DataRestoreCreateInput) {
       const restore: DataRestore = {
@@ -361,9 +359,7 @@ function makeStore() {
       restores.push(restore);
       return restore;
     },
-    async updateDataRestoreStatus(
-      input: DataRestoreStatusInput,
-    ) {
+    async updateDataRestoreStatus(input: DataRestoreStatusInput) {
       const r = restores.find(
         (x) => x.id === input.id && x.organizationId === input.organizationId,
       );
@@ -448,9 +444,7 @@ function makeStore() {
     },
     async deleteSecurityRule(userId: UserId, org: OrganizationId, ruleId: string) {
       if (!isMember(userId, org)) return false;
-      const index = securityRules.findIndex(
-        (r) => r.id === ruleId && r.organizationId === org,
-      );
+      const index = securityRules.findIndex((r) => r.id === ruleId && r.organizationId === org);
       if (index < 0) return false;
       securityRules.splice(index, 1);
       return true;

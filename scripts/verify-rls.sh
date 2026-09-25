@@ -43,6 +43,7 @@ SQL_STEPS=(
   "security protection and events|supabase/migrations/0010_security_protection_and_events.sql"
   "project git links|supabase/migrations/0011_project_git_links.sql"
   "data restores|supabase/migrations/0012_data_restores.sql"
+  "organization budgets|supabase/migrations/0013_organization_budgets.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
@@ -52,6 +53,7 @@ SQL_STEPS=(
   "security protection probe|tests/isolation/rls/16_security_protection_probe.sql"
   "git link probe|tests/isolation/rls/17_git_link_probe.sql"
   "data restore probe|tests/isolation/rls/18_data_restore_probe.sql"
+  "budget probe|tests/isolation/rls/19_budget_probe.sql"
 )
 
 run_all() {

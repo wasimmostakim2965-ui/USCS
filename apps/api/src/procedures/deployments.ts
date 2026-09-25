@@ -16,6 +16,7 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
+import { assertWithinBudget } from "./billing.js";
 import type {
   AdapterResult,
   DeploymentId,
@@ -124,10 +125,7 @@ function previewWritesAvailable(deps: DeploymentDeps): boolean {
  */
 function previewWritesFor(deps: DeploymentDeps): PreviewWrites {
   if (!previewWritesAvailable(deps)) {
-    throw new ApiError(
-      "engine_unavailable",
-      "This deployment cannot record preview targets yet.",
-    );
+    throw new ApiError("engine_unavailable", "This deployment cannot record preview targets yet.");
   }
   return deps.store as unknown as PreviewWrites;
 }
@@ -158,7 +156,10 @@ export function previewKeyFor(
     return key === "branch-" ? "branch-unknown" : key;
   }
   if (commit) {
-    const short = commit.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 40);
+    const short = commit
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 40);
     return short ? `commit-${short}` : "commit-unknown";
   }
   // A preview with no branch, PR or commit cannot be addressed; the caller
@@ -541,8 +542,7 @@ export async function requestDeployment(
     kind === "preview" && typeof input.pullRequest === "number" && input.pullRequest > 0
       ? Math.floor(input.pullRequest)
       : null;
-  const previewKey =
-    kind === "preview" ? previewKeyFor(pullRequest, gitBranch, commit) : null;
+  const previewKey = kind === "preview" ? previewKeyFor(pullRequest, gitBranch, commit) : null;
 
   const idempotencyKey = normaliseIdempotencyKey(input.idempotencyKey, deps.newId);
   const existing = await store.findDeploymentByIdempotencyKey(
@@ -563,6 +563,11 @@ export async function requestDeployment(
     }
     return { deployment: existing, replayed: true, engineReason: existing.failureReason };
   }
+
+  // A hard spend cap is checked *before* the row is written and before any job
+  // is enqueued: the point of a cap is that the work does not start. A soft
+  // budget blocks nothing, so this is a no-op unless a hard cap is reached.
+  await assertWithinBudget({ store: deps.store }, project.organizationId, "deployments");
 
   // The row exists before the engine is called: a request that dies mid-flight
   // leaves a record, not an invisible half-deployment.

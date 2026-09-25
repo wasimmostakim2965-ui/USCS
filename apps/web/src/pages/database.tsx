@@ -228,7 +228,9 @@ function ResourcesPanel({
                 key: "actions",
                 header: "",
                 render: (item) => (
-                  <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+                  <div
+                    style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}
+                  >
                     <Button
                       size="sm"
                       // A resource that is not ready has no engine handle, and a

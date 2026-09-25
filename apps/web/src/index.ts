@@ -22,6 +22,7 @@ export {
   loadProviderHealth,
   loadAudit,
   loadUsage,
+  loadBudgets,
   loadRoute,
   sectionFrom,
 } from "./view-model.js";
@@ -37,6 +38,7 @@ export type {
   ProviderHealthRow,
   AuditSummary,
   UsageTotalSummary,
+  BudgetSummary,
   DashboardModel,
 } from "./view-model.js";
 export {

@@ -12,6 +12,7 @@ export class ApiError extends Error {
     | "not_found"
     | "invalid_input"
     | "conflict"
+    | "budget_exceeded"
     | "engine_unavailable";
 
   constructor(

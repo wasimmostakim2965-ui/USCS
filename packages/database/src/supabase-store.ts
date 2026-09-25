@@ -29,6 +29,8 @@ import type {
   ApiKeySummary,
   AuditEvent,
   AuditEventInput,
+  Budget,
+  BudgetSaveInput,
   ControlPlaneStore,
   DataBackup,
   DataBackupCreateInput,
@@ -62,6 +64,7 @@ import type {
   SecurityRule,
   SecurityRuleCreateInput,
   UsageRecord,
+  UsageRecordInput,
 } from "./index.js";
 
 /** A procedure could not reach the control-plane database. */
@@ -312,6 +315,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     };
   }
 
+  function toBudget(row: Row): Budget {
+    return {
+      organizationId: str(row, "organization_id") as OrganizationId,
+      metric: str(row, "metric"),
+      limitQuantity: num(row, "limit_quantity"),
+      period: "monthly",
+      hardCap: bool(row, "hard_cap"),
+      updatedBy: (row["updated_by"] ? str(row, "updated_by") : null) as UserId | null,
+      createdAt: str(row, "created_at"),
+      updatedAt: str(row, "updated_at"),
+    };
+  }
+
   function toOrchestrationJob(row: Row): OrchestrationJob {
     return {
       id: str(row, "id"),
@@ -351,7 +367,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       riskLevel: str(row, "risk_level") as SecurityPolicy["riskLevel"],
       action: str(row, "action") as SecurityPolicy["action"],
       state: str(row, "state") as SecurityPolicy["state"],
-      protectionMode: (nullableStr(row, "protection_mode") ?? "normal") as SecurityPolicy["protectionMode"],
+      protectionMode: (nullableStr(row, "protection_mode") ??
+        "normal") as SecurityPolicy["protectionMode"],
       protectionExpiresAt: nullableStr(row, "protection_expires_at"),
       version: num(row, "version"),
       createdAt: str(row, "created_at"),
@@ -608,6 +625,89 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/usage_records?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=recorded_at.desc&limit=500`,
       });
       return found.map(toUsageRecord);
+    },
+
+    async recordUsage(input: UsageRecordInput): Promise<UsageRecord> {
+      const created = await must<Row[]>("recordUsage", {
+        method: "POST",
+        path: "/usage_records?select=*",
+        prefer: "return=representation",
+        body: {
+          organization_id: input.organizationId,
+          metric: input.metric,
+          quantity: input.quantity,
+          ...(input.recordedAt ? { recorded_at: input.recordedAt } : {}),
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("recordUsage", "no row returned");
+      return toUsageRecord(row);
+    },
+
+    async listUsageForService(
+      organizationId: OrganizationId,
+      metric: string,
+      since: string,
+    ): Promise<readonly UsageRecord[]> {
+      const found = await rows("listUsageForService", {
+        method: "GET",
+        path: `/usage_records?select=*&organization_id=eq.${q(organizationId)}&metric=eq.${q(metric)}&recorded_at=gte.${q(since)}&limit=5000`,
+      });
+      return found.map(toUsageRecord);
+    },
+
+    async listBudgets(userId: UserId, organizationId: OrganizationId): Promise<readonly Budget[]> {
+      const found = await rows("listBudgets", {
+        method: "GET",
+        path: `/organization_budgets?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=metric.asc`,
+      });
+      return found.map(toBudget);
+    },
+
+    async getBudgetForService(
+      organizationId: OrganizationId,
+      metric: string,
+    ): Promise<Budget | null> {
+      const found = await rows("getBudgetForService", {
+        method: "GET",
+        path: `/organization_budgets?select=*&organization_id=eq.${q(organizationId)}&metric=eq.${q(metric)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toBudget(row) : null;
+    },
+
+    async saveBudget(input: BudgetSaveInput): Promise<Budget> {
+      // Upsert on the primary key (organization_id, metric): setting a cap twice
+      // replaces it rather than failing, which is what "save the limit" means.
+      const created = await must<Row[]>("saveBudget", {
+        method: "POST",
+        path: "/organization_budgets?select=*&on_conflict=organization_id,metric",
+        prefer: "return=representation,resolution=merge-duplicates",
+        body: {
+          organization_id: input.organizationId,
+          metric: input.metric,
+          limit_quantity: input.limitQuantity,
+          period: "monthly",
+          hard_cap: input.hardCap,
+          updated_by: input.updatedBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("saveBudget", "no row returned");
+      return toBudget(row);
+    },
+
+    async deleteBudget(
+      userId: UserId,
+      organizationId: OrganizationId,
+      metric: string,
+    ): Promise<boolean> {
+      const deleted = await rows("deleteBudget", {
+        method: "DELETE",
+        path: `/organization_budgets?select=organization_id,metric&organization_id=eq.${q(organizationId)}&metric=eq.${q(metric)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return deleted.length > 0;
     },
 
     async listOrchestrationJobs(
@@ -1197,10 +1297,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toGitLink(row) : null;
     },
 
-    async getGitLinkSecret(
-      organizationId: OrganizationId,
-      linkId: string,
-    ): Promise<string | null> {
+    async getGitLinkSecret(organizationId: OrganizationId, linkId: string): Promise<string | null> {
       const found = await rows("getGitLinkSecret", {
         method: "GET",
         path: `/project_git_links?select=secret_encrypted&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&limit=1`,

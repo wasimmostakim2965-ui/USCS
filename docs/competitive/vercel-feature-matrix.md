@@ -39,7 +39,7 @@ Two sources, kept separate:
 
 | Hated | Root cause | Cloud Wai's answer, and whether it is built |
 |---|---|---|
-| **Pricing surprises** — "$600 on a $20 plan", "bill jumped from $100 to $800", "$1,900 scraper spike on a dev URL" | Overage rates with no hard cap; alerts that fail silently; a dev/staging URL billed like production | Bill limits must be a *hard* control, not an alert. Our `usage_records` roll-up is the substrate (`apps/api/src/procedures/billing.ts`) but **nothing writes a usage row yet** (C5) and there is no cap/budget object — **missing**. |
+| **Pricing surprises** — "$600 on a $20 plan", "bill jumped from $100 to $800", "$1,900 scraper spike on a dev URL" | Overage rates with no hard cap; alerts that fail silently; a dev/staging URL billed like production | Bill limits are now a *hard* control, not an alert: the worker records a usage row when an engine confirms work, and `assertWithinBudget` (`apps/api/src/procedures/billing.ts`) refuses a new deployment or backup at the cap, on the request path before anything is enqueued. `organization_budgets` (migration `0013`) is owner-write / member-read under RLS. **Built (W8, W9).** |
 | **Scrapers/AI bots burning bill** on non-production URLs | Edge does not distinguish malicious automation from a normal visitor under attack mode without rules | This is our Security differentiator — but **the allow-list is missing** (S5). Honest: not built. |
 | **Cancellation/opacity** — "can't find the project", "impossible to cancel" | Navigation and account closures buried | We have one URL-driven nav (`apps/web/src/navigation.ts`) with deep links; no dark patterns by construction. |
 | **Env-var changes "take effect on the next deployment"** | UI implies immediacy the artifact does not have | We express a change that needs a redeploy *as a deployment*, never a silent edit — designed, but env vars themselves are **missing** (D5). |
@@ -60,8 +60,8 @@ object we have not built.
 | W5 | API tokens | `apiKeys.list/create/revoke` (`index.ts:335-360`); secret shown once, hashed | **Wired** |
 | W6 | Activity / audit log | `audit.list` (`index.ts:255`); `ActivityPage`; append-only in DB | **Wired** |
 | W7 | Billing / usage (read) | `billing.usage` (`apps/api/src/procedures/billing.ts`); org roll-up | **Wired (read)** |
-| W8 | Usage **recording** (the row behind the bill) | no adapter reports a metric; no job writes one | **Missing (C5)** |
-| W9 | Budget / spend cap / hard limit | none | **Missing** |
+| W8 | Usage **recording** (the row behind the bill) | `recordUsage` writes a row when an engine confirms a deployment (`apps/worker/src/deployment-job.ts`) or a backup (`apps/worker/src/backup-job.ts`) | **Wired** |
+| W9 | Budget / spend cap / hard limit | `organization_budgets` (migration `0013`); `billing.budgets.list/save/remove`; `assertWithinBudget` refuses at the cap; `BillingPage` spend-cap section | **Wired** |
 | W10 | Webhooks (account-level) | none | **Missing** |
 | W11 | Notifications (email/push/SMS) | none | **Missing** |
 | W12 | 2FA enforcement / SAML SSO | none | **Missing** |
@@ -163,7 +163,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | 1 | Git integration + preview deployments | P8, P9, P10 | Large | "Vercel-grade deploy" claim |
 | 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅ | Medium | **Partly closed** — the compile and control-plane surface are wired; the live edge application stays an open gate |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
-| 4 | Usage recording + hard spend cap | W8, W9 | Medium | The top user complaint |
+| 4 | Usage recording + hard spend cap | W8 ✅, W9 ✅ | Medium | **Closed** — the top user complaint |
 | 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X15, X16 | Medium | "Built but unreachable" class — cancel and restore are wired; traffic view remains |
 | 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
 | 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
@@ -172,6 +172,6 @@ Ranked against the brief. Each row is a workstream, not a wish:
 
 Vercel rows come from Vercel's own docs pages named above; user rows come from the
 review sources named above. Our rows were read in the file cited, in this
-session. `pnpm verify` (470 tests) and `pnpm verify:rls` were green when this was
+session. `pnpm verify` (511 tests) and `pnpm verify:rls` were green when this was
 written. A row moves to **Wired** only with a procedure, a page and a test in the
 same commit.

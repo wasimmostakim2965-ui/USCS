@@ -36,6 +36,17 @@ export interface DeploymentJobOutcomeWriter {
     readonly startedAt: string;
     readonly finishedAt: string | null;
   }): Promise<unknown>;
+  /**
+   * Record one unit of usage when the engine confirmed the deployment.
+   *
+   * Only a `succeeded` deployment is a unit the organization consumed; a failed
+   * or `not_configured` run is recorded on its own row but is not billed.
+   */
+  recordUsage(input: {
+    readonly organizationId: string;
+    readonly metric: string;
+    readonly quantity: number;
+  }): Promise<unknown>;
 }
 
 export interface DeploymentJobDeps extends DeploymentExecutorDeps {
@@ -110,6 +121,16 @@ export function buildDeploymentApplier(
         startedAt: finished,
         finishedAt: isTerminal(value?.status ?? result.status) ? finished : null,
       });
+      // A deployment the engine confirmed is one unit of usage. A run that is
+      // still `running` is not counted here: the job is requeued and will be
+      // counted once, when it finally settles as succeeded.
+      if ((value?.status ?? result.status) === "succeeded") {
+        await deps.outcome.recordUsage({
+          organizationId: payload.organizationId,
+          metric: "deployments",
+          quantity: 1,
+        });
+      }
       return;
     }
 

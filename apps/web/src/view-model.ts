@@ -89,6 +89,48 @@ export async function loadUsage(
   return ready("Usage", response.data?.totals ?? []);
 }
 
+/** One budget as the API reports it: the cap, and the period's spend beside it. */
+export interface BudgetSummary {
+  readonly metric: string;
+  readonly limitQuantity: number;
+  readonly period: "monthly";
+  readonly hardCap: boolean;
+  readonly usedQuantity: number;
+  readonly ratio: number;
+  readonly exceeded: boolean;
+}
+
+export interface BudgetReportResponse {
+  readonly budgets: readonly BudgetSummary[];
+  readonly periodStart: string;
+}
+
+/**
+ * Load an organization's budgets with their current-period spend.
+ *
+ * `periodStart` rides along so the page can name the window it is measuring,
+ * rather than asserting "this month" from the client's own clock, which would be
+ * a second, possibly different, boundary.
+ */
+export async function loadBudgets(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<BudgetSummary>> {
+  const response = await client.call<BudgetReportResponse>("billing.budgets.list", {
+    organizationId,
+  });
+  if (response.notConfigured) {
+    return {
+      title: "Budgets",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Budgets", response.error?.message ?? "Request failed.");
+  }
+  return ready("Budgets", response.data?.budgets ?? []);
+}
+
 /**
  * One job row as the dashboard renders it.
  *
@@ -527,6 +569,15 @@ export const API_KEY_SCOPES: readonly string[] = [
   "apikey:read",
   "audit:read",
 ];
+
+/**
+ * The metrics a cap can name, offered in the budget form.
+ *
+ * These mirror `USAGE_METRICS` on the API — the two quantities this build's
+ * worker records. Offering anything else would let the form create a cap that
+ * nothing can ever move.
+ */
+export const USAGE_METRIC_CHOICES: readonly string[] = ["deployments", "backups"];
 
 /** An engine the dashboard shows, with the honest reason for its state. */
 export interface ProviderHealthRow {

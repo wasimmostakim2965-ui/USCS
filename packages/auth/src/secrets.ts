@@ -20,7 +20,13 @@
  *      generic `===` on a hex digest leaks the correct prefix one byte at a
  *      time, and a re-serialised JSON body changes bytes the sender signed.
  */
-import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 
 /**
  * AES-256-GCM over a per-secret random IV.
@@ -116,7 +122,10 @@ export function computeSignature(secret: string, body: string): string {
  * length mismatch short-circuits to false *before* `timingSafeEqual`, which
  * throws on unequal lengths — and a mismatch is itself not a secret.
  */
-export function signatureMatches(expectedHex: string, presented: string | null | undefined): boolean {
+export function signatureMatches(
+  expectedHex: string,
+  presented: string | null | undefined,
+): boolean {
   if (!presented) return false;
   const value = presented.includes("=") ? presented.slice(presented.indexOf("=") + 1) : presented;
   const candidate = Buffer.from(value.trim().toLowerCase(), "hex");

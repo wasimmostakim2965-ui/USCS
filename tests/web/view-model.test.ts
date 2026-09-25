@@ -12,6 +12,7 @@ import {
   loadProjects,
   loadRoute,
   loadUsage,
+  loadBudgets,
   sectionFrom,
 } from "@cloud-wai/web";
 import {
@@ -238,6 +239,49 @@ describe("loaders", () => {
     });
 
     const section = await loadUsage(client, "org-a");
+    expect(section.state.kind).toBe("degraded");
+    expect(hasData(section)).toBe(false);
+  });
+
+  it("carries each cap's limit and this period's spend through unchanged", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: {
+        periodStart: "2026-09-01T00:00:00Z",
+        budgets: [
+          {
+            metric: "deployments",
+            limitQuantity: 10,
+            period: "monthly",
+            hardCap: true,
+            usedQuantity: 4,
+            ratio: 0.4,
+            exceeded: false,
+          },
+        ],
+      },
+    });
+
+    const section = await loadBudgets(client, "org-a");
+    expect(section.state.kind).toBe("ready");
+    if (section.state.kind !== "ready") throw new Error("unreachable");
+    // The page renders these numbers; nothing here recomputes them, so the
+    // section must hold the API's own figures rather than a derived guess.
+    expect(section.state.items[0]?.limitQuantity).toBe(10);
+    expect(section.state.items[0]?.usedQuantity).toBe(4);
+    expect(section.state.items[0]?.exceeded).toBe(false);
+  });
+
+  it("renders an unconfigured budget read as degraded, never as an empty success", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      notConfigured: true,
+      error: { code: "not_configured", message: "The billing engine is not configured." },
+    });
+
+    const section = await loadBudgets(client, "org-a");
     expect(section.state.kind).toBe("degraded");
     expect(hasData(section)).toBe(false);
   });

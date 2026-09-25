@@ -232,7 +232,10 @@ export interface ControlPlaneWrites {
   ): Promise<readonly SecurityPolicyEvent[]>;
 
   /** The organization's deny-list rules, newest first. Membership-scoped. */
-  listSecurityRules(userId: UserId, organizationId: OrganizationId): Promise<readonly SecurityRule[]>;
+  listSecurityRules(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly SecurityRule[]>;
   /** Add a deny-list rule. The value grammar is enforced by the table and the API. */
   createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule>;
   /**
@@ -318,15 +321,14 @@ export interface ControlPlaneWrites {
    * where clause is the tenant boundary. On the write interface, so no
    * browser-facing read path can reach it.
    */
-  getGitLinkForService(organizationId: OrganizationId, linkId: string): Promise<ProjectGitLink | null>;
+  getGitLinkForService(
+    organizationId: OrganizationId,
+    linkId: string,
+  ): Promise<ProjectGitLink | null>;
   /** The secret ciphertext for a link, read only by the receiver. Service-scoped. */
   getGitLinkSecret(organizationId: OrganizationId, linkId: string): Promise<string | null>;
   /** Remove a link. Idempotent: removing an absent link reports false. */
-  deleteGitLink(
-    userId: UserId,
-    organizationId: OrganizationId,
-    linkId: string,
-  ): Promise<boolean>;
+  deleteGitLink(userId: UserId, organizationId: OrganizationId, linkId: string): Promise<boolean>;
 
   /**
    * A project by id, scoped by organization only.
@@ -380,6 +382,44 @@ export interface ControlPlaneWrites {
     readonly provider: string;
     readonly providerResourceId: string;
   }): Promise<PreviewTarget | null>;
+
+  /**
+   * Record one usage row, written only by the worker from an engine's own answer.
+   *
+   * This is the write the billing roll-up has always read from and never had a
+   * producer for. `quantity` is what an engine reported — a build's duration, a
+   * backup's bytes — never a number a client asserted, and there is no procedure
+   * that lets a client reach this method.
+   */
+  recordUsage(input: UsageRecordInput): Promise<UsageRecord>;
+
+  /**
+   * Usage rows for one metric since an instant, service-scoped.
+   *
+   * The request path sums these to enforce a hard cap before it enqueues work.
+   * Service-scoped on purpose: enforcement must not depend on the actor's
+   * membership read returning the same set a member-scoped read would, or a
+   * caller could see a smaller total than the one that bills them.
+   */
+  listUsageForService(
+    organizationId: OrganizationId,
+    metric: string,
+    since: string,
+  ): Promise<readonly UsageRecord[]>;
+
+  /** An organization's budgets, newest first by metric. Members may read. */
+  listBudgets(userId: UserId, organizationId: OrganizationId): Promise<readonly Budget[]>;
+  /**
+   * A budget by metric, or null.
+   *
+   * Service-scoped on the request path only through the enforcement read below;
+   * no browser-facing procedure calls this directly.
+   */
+  getBudgetForService(organizationId: OrganizationId, metric: string): Promise<Budget | null>;
+  /** Set or replace one metric's cap. Only an admin or owner may. */
+  saveBudget(input: BudgetSaveInput): Promise<Budget>;
+  /** Remove a metric's cap. Owner-only; idempotent, reports whether a row went. */
+  deleteBudget(userId: UserId, organizationId: OrganizationId, metric: string): Promise<boolean>;
 }
 
 /** The full store a control-plane deployment needs. */
@@ -808,6 +848,52 @@ export interface UsageRecord {
   readonly metric: string;
   readonly quantity: number;
   readonly recordedAt: string;
+}
+
+/** The input to `recordUsage`: the engine's own number, never a client's. */
+export interface UsageRecordInput {
+  readonly organizationId: OrganizationId;
+  readonly metric: string;
+  readonly quantity: number;
+  readonly recordedAt?: string;
+}
+
+/**
+ * The metrics this build's worker actually records.
+ *
+ * Both are counts of work the platform performed and observed itself: one
+ * `deployments` unit per deployment the engine confirmed, one `backups` unit per
+ * backup the engine confirmed. A metric an engine cannot report is deliberately
+ * absent, so the vocabulary never promises a quantity nothing produces.
+ */
+export const USAGE_METRICS = ["deployments", "backups"] as const;
+export type UsageMetric = (typeof USAGE_METRICS)[number];
+
+/**
+ * A hard spend cap for one metric.
+ *
+ * `hard_cap` is the whole point: when true the API refuses to enqueue new work
+ * once the period's usage reaches `limitQuantity`, so the cap is a control. When
+ * false it is informational — the ratio is shown and nothing is blocked, which
+ * is the honest state of a soft budget this build has no channel to alert on.
+ */
+export interface Budget {
+  readonly organizationId: OrganizationId;
+  readonly metric: string;
+  readonly limitQuantity: number;
+  readonly period: "monthly";
+  readonly hardCap: boolean;
+  readonly updatedBy: UserId | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface BudgetSaveInput {
+  readonly organizationId: OrganizationId;
+  readonly metric: string;
+  readonly limitQuantity: number;
+  readonly hardCap: boolean;
+  readonly updatedBy: UserId;
 }
 
 /**

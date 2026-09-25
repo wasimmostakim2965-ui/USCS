@@ -39,6 +39,7 @@ import type {
   Deployment,
   Organization,
   Project,
+  UsageRecord,
 } from "@cloud-wai/database";
 import type { OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 
@@ -79,6 +80,7 @@ function makeStore() {
     },
   ];
   const deployments: Deployment[] = [];
+  const usage: UsageRecord[] = [];
   // The engine-side target lives outside `Project` (the real store selects it
   // from columns `Project` does not expose), so the fixture keeps its own map.
   const targets = new Map<string, { provider: string | null; providerResourceId: string | null }>();
@@ -229,6 +231,15 @@ function makeStore() {
       deployments[deployments.indexOf(d)] = next;
       return next;
     },
+    async recordUsage(input: { organizationId: OrganizationId; metric: string; quantity: number }) {
+      usage.push({
+        id: `usage-${usage.length + 1}`,
+        organizationId: input.organizationId,
+        metric: input.metric,
+        quantity: input.quantity,
+        recordedAt: "2026-01-01T00:00:00Z",
+      });
+    },
     async setProjectProviderResource(input: {
       organizationId: OrganizationId;
       projectId: ProjectId;
@@ -267,7 +278,7 @@ function makeStore() {
     },
   } satisfies DataStore & Partial<ControlPlaneWrites>;
 
-  return { store, deployments, projects };
+  return { store, deployments, projects, usage };
 }
 
 type StoreLike = DataStore & Partial<ControlPlaneWrites>;
@@ -328,7 +339,10 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
               store.getProjectDeploymentTargetForService!(org, project),
             setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
           },
-          outcome: { updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input) },
+          outcome: {
+            updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+            recordUsage: (input) => store.recordUsage!(input),
+          },
         }),
       },
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -340,7 +354,10 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
             store.getProjectDeploymentTargetForService!(org, project),
           setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
         },
-        outcome: { updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input) },
+        outcome: {
+          updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+          recordUsage: (input) => store.recordUsage!(input),
+        },
       }),
     });
 
@@ -383,7 +400,10 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
               store.getProjectDeploymentTargetForService!(org, project),
             setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
           },
-          outcome: { updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input) },
+          outcome: {
+            updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+            recordUsage: (input) => store.recordUsage!(input),
+          },
         }),
       },
       logger: { debug() {}, info() {}, warn() {}, error() {} },
@@ -395,7 +415,10 @@ describe("deploy is recorded in orchestration_jobs and executed by the worker", 
             store.getProjectDeploymentTargetForService!(org, project),
           setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
         },
-        outcome: { updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input) },
+        outcome: {
+          updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+          recordUsage: (input) => store.recordUsage!(input),
+        },
       }),
     });
 

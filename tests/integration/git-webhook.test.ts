@@ -59,7 +59,13 @@ function makeStore(link: ProjectGitLink) {
   const previewTargets: PreviewTarget[] = [];
   const audit: AuditEvent[] = [];
   const projects: Project[] = [
-    { id: PROJ_A, organizationId: ORG_A, name: "Alpha", slug: "alpha", createdAt: "2026-01-01T00:00:00Z" },
+    {
+      id: PROJ_A,
+      organizationId: ORG_A,
+      name: "Alpha",
+      slug: "alpha",
+      createdAt: "2026-01-01T00:00:00Z",
+    },
   ];
 
   const writes = {
@@ -134,7 +140,11 @@ function makeStore(link: ProjectGitLink) {
       return found ?? null;
     },
     async recordAuditEvent(input: AuditEventInput) {
-      const event: AuditEvent = { ...input, id: `a-${audit.length + 1}`, createdAt: "2026-01-01T00:00:00Z" };
+      const event: AuditEvent = {
+        ...input,
+        id: `a-${audit.length + 1}`,
+        createdAt: "2026-01-01T00:00:00Z",
+      };
       audit.push(event);
       return event;
     },
@@ -189,7 +199,11 @@ function deps(store: unknown, cipher = CIPHER) {
 }
 
 const pushBody = (branch: string, commit: string) =>
-  JSON.stringify({ ref: `refs/heads/${branch}`, after: commit, repository: { full_name: "acme/site" } });
+  JSON.stringify({
+    ref: `refs/heads/${branch}`,
+    after: commit,
+    repository: { full_name: "acme/site" },
+  });
 
 const signed = (body: string) => `sha256=${computeSignature(SECRET, body)}`;
 
@@ -401,7 +415,10 @@ describe("parseGitDelivery", () => {
   it("reads a GitHub pull request", () => {
     const parsed = parseGitDelivery(
       "pull_request",
-      JSON.stringify({ action: "opened", pull_request: { number: 7, head: { ref: "feature", sha: "abcdef0123" } } }),
+      JSON.stringify({
+        action: "opened",
+        pull_request: { number: 7, head: { ref: "feature", sha: "abcdef0123" } },
+      }),
     );
     expect(parsed).toMatchObject({
       branch: "feature",

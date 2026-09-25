@@ -551,7 +551,11 @@ describe("requesting and rolling back a deployment", () => {
             },
           };
         }
-        const cancelled = { ...existing, status: "failed", failureReason: "Cancelled by the customer." };
+        const cancelled = {
+          ...existing,
+          status: "failed",
+          failureReason: "Cancelled by the customer.",
+        };
         deployments[index] = cancelled;
         return {
           ok: true,
@@ -673,9 +677,7 @@ describe("requesting and rolling back a deployment", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Cancel deployment" }));
 
-    await waitFor(() =>
-      expect(calls.some((c) => c.procedure === "deployments.cancel")).toBe(true),
-    );
+    await waitFor(() => expect(calls.some((c) => c.procedure === "deployments.cancel")).toBe(true));
     expect(calls.find((c) => c.procedure === "deployments.cancel")?.input).toMatchObject({
       projectId: "p-1",
       deploymentId: "d-running",
@@ -700,7 +702,8 @@ describe("requesting and rolling back a deployment", () => {
           status: 409,
           error: {
             code: "conflict",
-            message: "Only a pending or running deployment can be cancelled; this one is succeeded.",
+            message:
+              "Only a pending or running deployment can be cancelled; this one is succeeded.",
           },
         };
       }
@@ -1461,6 +1464,85 @@ describe("the dashboard renders every state for every route", () => {
     expect(screen.queryByText(/No usage has been recorded for this organization/)).toBeNull();
   });
 
+  it("shows a saved cap with the API's own spend, and says it refuses work", async () => {
+    const calls: string[] = [];
+    const url = await startApi((procedure) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "billing.budgets.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            periodStart: "2026-09-01T00:00:00Z",
+            budgets: [
+              {
+                metric: "deployments",
+                limitQuantity: 10,
+                period: "monthly",
+                hardCap: true,
+                usedQuantity: 4,
+                ratio: 0.4,
+                exceeded: false,
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/billing");
+
+    expect(await screen.findByText("deployments")).toBeTruthy();
+    // The used and limit figures are the server's, printed side by side so the
+    // meter is never the only statement.
+    expect(screen.getByText("4 / 10")).toBeTruthy();
+    expect(screen.getByText("Hard cap")).toBeTruthy();
+    expect(calls).toContain("billing.budgets.list");
+  });
+
+  it("saves a cap through the real procedure and reloads the list", async () => {
+    const calls: string[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push(procedure);
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "billing.budgets.save") {
+        // The input the form sent is echoed back as the stored cap, so the test
+        // proves the form posts the metric and limit a person typed.
+        return { ok: true, status: 200, data: { ...(input as object), period: "monthly" } };
+      }
+      if (procedure === "billing.budgets.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: { periodStart: "2026-09-01T00:00:00Z", budgets: [] },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/billing");
+
+    await screen.findByText(/No cap is set/);
+    await userEvent.click(screen.getByRole("button", { name: "Set a cap" }));
+
+    const limit = await screen.findByLabelText("Limit for this month");
+    await userEvent.clear(limit);
+    await userEvent.type(limit, "25");
+    await userEvent.click(screen.getByRole("button", { name: "Save cap" }));
+
+    await waitFor(() => expect(calls).toContain("billing.budgets.save"));
+    // The list re-reads after a save, so the page cannot show a stale cap.
+    await waitFor(() =>
+      expect(calls.filter((c) => c === "billing.budgets.list").length).toBeGreaterThan(1),
+    );
+  });
+
   it("shows the job roll-up the API reported, and calls the real procedure", async () => {
     const calls: string[] = [];
     const url = await startApi((procedure) => {
@@ -2095,7 +2177,9 @@ describe("the Database drill-in", () => {
     const dialog = await screen.findByRole("dialog", { name: "Restore from backup" });
     // Only the completed backup is offered: the pending one has no handle to
     // restore from, so it is not in the options.
-    const options = within(dialog).getAllByRole("option").map((o) => o.textContent ?? "");
+    const options = within(dialog)
+      .getAllByRole("option")
+      .map((o) => o.textContent ?? "");
     expect(options.some((label) => label.includes("b-good"))).toBe(false); // labels are timestamps
     expect(within(dialog).queryAllByRole("option").length).toBe(2); // placeholder + b-good
 
@@ -2320,9 +2404,7 @@ describe("connecting a repository for deploy-on-push", () => {
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/projects/p-1/git");
 
-    expect(
-      await screen.findByText(/No repository is connected/),
-    ).toBeTruthy();
+    expect(await screen.findByText(/No repository is connected/)).toBeTruthy();
   });
 
   it("connects a repository and shows the webhook secret exactly once", async () => {
@@ -2729,7 +2811,10 @@ describe("the Security policy write path", () => {
         return {
           ok: false,
           status: 503,
-          error: { code: "engine_unavailable", message: "This deployment cannot record rules yet." },
+          error: {
+            code: "engine_unavailable",
+            message: "This deployment cannot record rules yet.",
+          },
         };
       }
       return { ok: true, status: 200, data: [] };

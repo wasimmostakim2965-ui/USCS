@@ -34,6 +34,7 @@ import type { Route } from "../routes.js";
 import {
   loadApiKeys,
   loadAudit,
+  loadBudgets,
   loadDeployments,
   loadDeploymentLogs,
   loadDomains,
@@ -52,8 +53,10 @@ import {
   loadSecurityPolicy,
   loadSecurityPolicyEvents,
   API_KEY_SCOPES,
+  USAGE_METRIC_CHOICES,
   type ApiKeySummaryRow,
   type AuditSummary,
+  type BudgetSummary,
   type DeploymentRequestSummary,
   type DeploymentLogsSummary,
   type DeploymentSummary,
@@ -1054,10 +1057,10 @@ function CancelDeploymentModal({
     if (!deployment) return;
     setBusy(true);
     setError(null);
-    const response = await client.call<{ deployment: DeploymentSummary; engineReason: string | null }>(
-      "deployments.cancel",
-      { projectId, deploymentId: deployment.id },
-    );
+    const response = await client.call<{
+      deployment: DeploymentSummary;
+      engineReason: string | null;
+    }>("deployments.cancel", { projectId, deploymentId: deployment.id });
     setBusy(false);
     if (!response.ok || !response.data) {
       setError(response.error?.message ?? "The deployment could not be cancelled.");
@@ -1697,8 +1700,8 @@ function ConnectRepositoryModal({
       {connected ? (
         <div className="stack">
           <p className="small">
-            Copy this secret into your provider now. It is shown once and cannot be retrieved again —
-            Cloud Wai stores it encrypted, and no list returns it.
+            Copy this secret into your provider now. It is shown once and cannot be retrieved again
+            — Cloud Wai stores it encrypted, and no list returns it.
           </p>
           <Field label="Payload URL">
             {(id) => (
@@ -1731,9 +1734,7 @@ function ConnectRepositoryModal({
                 id={id}
                 className="select"
                 value={provider}
-                onChange={(event) =>
-                  setProvider(event.target.value as GitLinkSummary["provider"])
-                }
+                onChange={(event) => setProvider(event.target.value as GitLinkSummary["provider"])}
               >
                 {GIT_PROVIDERS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -2130,7 +2131,10 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 key: "value",
                 header: "Value",
                 render: (item) => (
-                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 360 }}>
+                  <span
+                    className="mono small truncate"
+                    style={{ display: "inline-block", maxWidth: 360 }}
+                  >
                     {item.value}
                   </span>
                 ),
@@ -2179,7 +2183,10 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 key: "userAgent",
                 header: "User-Agent",
                 render: (item) => (
-                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 280 }}>
+                  <span
+                    className="mono small truncate"
+                    style={{ display: "inline-block", maxWidth: 280 }}
+                  >
                     {item.userAgent}
                   </span>
                 ),
@@ -2349,10 +2356,7 @@ function ProtectionBadge({ policy }: { readonly policy: SecurityPolicySummary })
     (policy.protectionExpiresAt === null || Date.parse(policy.protectionExpiresAt) > Date.now());
   if (!active) return <StatusBadge label="Normal" tone="neutral" />;
   return (
-    <StatusBadge
-      label={policy.protectionExpiresAt ? "Attack (timed)" : "Attack"}
-      tone="danger"
-    />
+    <StatusBadge label={policy.protectionExpiresAt ? "Attack (timed)" : "Attack"} tone="danger" />
   );
 }
 
@@ -2394,9 +2398,7 @@ function SavePolicyModal({
   const [protectionMode, setProtectionMode] = useState<"normal" | "attack">(
     policy?.protectionMode ?? "normal",
   );
-  const [protectionExpiresAt, setProtectionExpiresAt] = useState(
-    policy?.protectionExpiresAt ?? "",
-  );
+  const [protectionExpiresAt, setProtectionExpiresAt] = useState(policy?.protectionExpiresAt ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -2517,9 +2519,7 @@ function SavePolicyModal({
                 value={protectionExpiresAt === "" ? "" : toLocalInputValue(protectionExpiresAt)}
                 onChange={(event) =>
                   setProtectionExpiresAt(
-                    event.target.value === ""
-                      ? ""
-                      : new Date(event.target.value).toISOString(),
+                    event.target.value === "" ? "" : new Date(event.target.value).toISOString(),
                   )
                 }
               />
@@ -2698,7 +2698,8 @@ function AddSecurityRuleModal({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const selected = RULE_KIND_OPTIONS.find((option) => option.kind === kind) ?? RULE_KIND_OPTIONS[0]!;
+  const selected =
+    RULE_KIND_OPTIONS.find((option) => option.kind === kind) ?? RULE_KIND_OPTIONS[0]!;
 
   const close = () => {
     setError(null);
@@ -2932,6 +2933,12 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
     [client, organizationId],
     "Usage",
   );
+  const budgets = useSection(
+    () => loadBudgets(client, organizationId),
+    [client, organizationId],
+    "Budgets",
+  );
+  const [editing, setEditing] = useState(false);
 
   const totals = section.state.kind === "ready" ? section.state.items : [];
   const grandTotal = totals.reduce((sum, item) => sum + item.total, 0);
@@ -2951,7 +2958,7 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
           <SectionView<UsageTotalSummary>
             section={section}
             onRetry={reload}
-            emptyMessage="No usage has been recorded for this organization. No engine in this deployment reports a usage metric yet, so this list stays empty until one is wired."
+            emptyMessage="No usage has been recorded for this organization yet. A deployment or a backup that an engine confirms records one unit here; until one succeeds, this list is empty."
             renderReady={(items) => (
               <Table
                 items={items}
@@ -2989,6 +2996,75 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
         </Card>
       </SectionShell>
 
+      <SectionShell
+        title="Spend caps"
+        hint="A hard cap refuses new work at the limit"
+        actions={
+          <Button variant="primary" onClick={() => setEditing(true)}>
+            Set a cap
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<BudgetSummary>
+            section={budgets.section}
+            onRetry={budgets.reload}
+            emptyMessage="No cap is set. Usage is recorded and shown above, but nothing is refused at a limit. Set a hard cap to make the platform stop new deployments or backups once the limit is reached."
+            renderReady={(items) => (
+              <Table
+                items={items}
+                rowKey={(item) => item.metric}
+                columns={[
+                  {
+                    key: "metric",
+                    header: "Metric",
+                    render: (item) => <span className="mono small">{item.metric}</span>,
+                  },
+                  {
+                    key: "used",
+                    header: "Used this month",
+                    render: (item) => (
+                      <span className="mono">
+                        {item.usedQuantity} / {item.limitQuantity}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: "ratio",
+                    header: "",
+                    render: (item) => <BudgetMeter ratio={item.ratio} exceeded={item.exceeded} />,
+                  },
+                  {
+                    key: "enforcement",
+                    header: "Enforcement",
+                    render: (item) => (
+                      <StatusBadge
+                        label={item.hardCap ? "Hard cap" : "Soft (informational)"}
+                        tone={item.exceeded ? "danger" : item.hardCap ? "progress" : "neutral"}
+                      />
+                    ),
+                  },
+                  {
+                    key: "actions",
+                    header: "",
+                    render: (item) => (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditing(true)}
+                        title="Replace this cap"
+                      >
+                        Edit
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            )}
+          />
+        </Card>
+      </SectionShell>
+
       <SectionShell title="Invoicing" hint="Not wired in this deployment">
         <Card>
           <p className="small" style={{ margin: 0 }}>
@@ -2998,7 +3074,203 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
           </p>
         </Card>
       </SectionShell>
+
+      <SetBudgetModal
+        organizationId={organizationId}
+        open={editing}
+        onClose={() => setEditing(false)}
+        onSaved={() => {
+          setEditing(false);
+          budgets.reload();
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * A cap's fill level.
+ *
+ * The bar exists because a ratio is the one number a person reads at a glance,
+ * but the exact `used / limit` is printed beside it, so the bar is never the
+ * only statement. It is capped at 100% width while the text keeps the true
+ * figure, because a bar that overflows its track would misrepresent the ratio.
+ */
+function BudgetMeter({ ratio, exceeded }: { readonly ratio: number; readonly exceeded: boolean }) {
+  const pct = Math.min(100, Math.round(ratio * 100));
+  return (
+    <div
+      className="meter"
+      role="meter"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+      style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 140 }}
+    >
+      <div
+        style={{
+          flex: 1,
+          height: 6,
+          borderRadius: 3,
+          background: "var(--border, #333)",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: "100%",
+            background: exceeded ? "var(--danger, #f55)" : "var(--accent, #5b8def)",
+          }}
+        />
+      </div>
+      <span className="mono small faint">{pct}%</span>
+    </div>
+  );
+}
+
+/**
+ * Set or replace one metric's cap.
+ *
+ * The metric is chosen from the two the worker actually records, so the form
+ * cannot create a cap on a quantity nothing writes. A hard cap is the default
+ * because that is the control a person came to this page for; turning it off is
+ * an explicit, labelled choice.
+ */
+function SetBudgetModal({
+  organizationId,
+  open,
+  onClose,
+  onSaved,
+}: {
+  readonly organizationId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const { client } = useApp();
+  const [metric, setMetric] = useState<string>(USAGE_METRIC_CHOICES[0] ?? "deployments");
+  const [limit, setLimit] = useState("10");
+  const [hardCap, setHardCap] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const close = () => {
+    setError(null);
+    setBusy(false);
+    onClose();
+  };
+
+  const submit = async () => {
+    const limitQuantity = Number(limit);
+    if (!Number.isFinite(limitQuantity) || limitQuantity < 0) {
+      setError("Enter a limit of zero or more.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await client.call("billing.budgets.save", {
+      organizationId,
+      metric,
+      limitQuantity,
+      hardCap,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The cap could not be saved.");
+      return;
+    }
+    onSaved();
+  };
+
+  const remove = async () => {
+    setRemoving(true);
+    setError(null);
+    const response = await client.call<{ readonly removed: boolean }>("billing.budgets.remove", {
+      organizationId,
+      metric,
+    });
+    setRemoving(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The cap could not be removed.");
+      return;
+    }
+    if (!response.data?.removed) {
+      setError("There was no cap on that metric to remove.");
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title="Spend cap"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button
+            variant="ghost"
+            onClick={() => void remove()}
+            busy={removing}
+            title="Remove this metric's cap"
+          >
+            Remove cap
+          </Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Save cap
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Metric" hint="Only metrics the platform records can be capped.">
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={metric}
+              onChange={(event) => setMetric(event.target.value)}
+            >
+              {USAGE_METRIC_CHOICES.map((choice) => (
+                <option key={choice} value={choice}>
+                  {choice}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field
+          label="Limit for this month"
+          hint="The most units of this metric the organization may record this calendar month."
+          {...(error ? { error } : {})}
+        >
+          {(id) => (
+            <TextInput
+              id={id}
+              value={limit}
+              onChange={setLimit}
+              type="number"
+              error={Boolean(error)}
+            />
+          )}
+        </Field>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={hardCap}
+            onChange={(event) => setHardCap(event.target.checked)}
+          />
+          <span>
+            Hard cap — refuse new deployments and backups once the limit is reached. Uncheck for a
+            soft, informational budget that blocks nothing.
+          </span>
+        </label>
+      </div>
+    </Modal>
   );
 }
 

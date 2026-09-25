@@ -80,18 +80,16 @@ export function buildWorkerWiring(
       store.getProjectDeploymentTargetForService(organizationId, projectId),
     setProjectProviderResource: (input: Parameters<typeof store.setProjectProviderResource>[0]) =>
       store.setProjectProviderResource(input),
-    getPreviewTargetForService: (
-      organizationId: string,
-      projectId: string,
-      previewKey: string,
-    ) => store.getPreviewTargetForService(organizationId, projectId, previewKey),
-    setPreviewTargetProvider: (
-      input: Parameters<typeof store.setPreviewTargetProvider>[0],
-    ) => store.setPreviewTargetProvider(input),
+    getPreviewTargetForService: (organizationId: string, projectId: string, previewKey: string) =>
+      store.getPreviewTargetForService(organizationId, projectId, previewKey),
+    setPreviewTargetProvider: (input: Parameters<typeof store.setPreviewTargetProvider>[0]) =>
+      store.setPreviewTargetProvider(input),
   };
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>
       store.updateDeploymentStatus(input),
+    recordUsage: (input: { organizationId: string; metric: string; quantity: number }) =>
+      store.recordUsage(input),
   };
   const backupWrites = {
     getDataResourceForService: (organizationId: string, resourceId: string) =>
@@ -100,6 +98,8 @@ export function buildWorkerWiring(
       store.updateDataBackupStatus(input),
     recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
       store.recordAuditEvent(input),
+    recordUsage: (input: { organizationId: string; metric: string; quantity: number }) =>
+      store.recordUsage(input),
   };
   const restoreWrites = {
     getDataResourceForService: (organizationId: string, resourceId: string) =>
