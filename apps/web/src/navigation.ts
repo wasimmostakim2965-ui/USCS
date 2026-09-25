@@ -76,7 +76,7 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       id: "billing",
       label: "Billing",
       icon: "billing",
-      description: "Usage recorded for this organization.",
+      description: "Usage recorded for this organization. Empty until a metric is recorded.",
       route: { name: "billing", organizationId },
     },
     {

@@ -2014,7 +2014,7 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
           <SectionView<UsageTotalSummary>
             section={section}
             onRetry={reload}
-            emptyMessage="No usage recorded yet. The worker records a metric when an engine reports one."
+            emptyMessage="No usage has been recorded for this organization. No engine in this deployment reports a usage metric yet, so this list stays empty until one is wired."
             renderReady={(items) => (
               <Table
                 items={items}

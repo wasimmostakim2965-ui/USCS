@@ -2,12 +2,17 @@
  * Billing procedures.
  *
  * Billing is the organization-level surface Vercel lacks (its dashboards are
- * per-project only), so this is a roll-up over `usage_records`. It is a read:
- * usage is recorded by the worker through the service role when an engine
- * reports what it actually consumed, and no procedure here lets a client assert
- * a metric or a quantity. An organization with no usage rows renders as an empty
- * list, which is a different and honest statement from "the engine is not
- * configured".
+ * per-project only), so this is a roll-up over `usage_records`. It is a read,
+ * and it is the only path to that table from the API: no procedure here lets a
+ * client assert a metric or a quantity.
+ *
+ * Honest caveat: nothing in this build *writes* a usage row yet. The table, its
+ * RLS policy and the service-role write grant exist and the worker runs with the
+ * credentials to write one, but no engine adapter reports a metric and no job
+ * records one, so in practice the roll-up is always empty. That is why an empty
+ * organization renders as an empty list and not as a zero balance — and why the
+ * dashboard says the list stays empty until a metric source is wired, rather
+ * than promising a recording that does not happen.
  */
 import { requireCapability } from "../guard.js";
 import type { DataStore, UsageRecord } from "@cloud-wai/database";

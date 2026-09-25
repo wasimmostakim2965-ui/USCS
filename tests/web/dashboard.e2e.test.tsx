@@ -1187,7 +1187,9 @@ describe("the dashboard renders every state for every route", () => {
     const url = await startApi(only("billing.usage", empty));
     renderApp(url, "#/orgs/org-1/billing");
 
-    expect(await screen.findByText(/No usage recorded yet/)).toBeTruthy();
+    expect(
+      await screen.findByText(/No usage has been recorded for this organization/),
+    ).toBeTruthy();
   });
 
   it("renders a not-configured billing read as degraded, never as an empty success", async () => {
@@ -1195,7 +1197,7 @@ describe("the dashboard renders every state for every route", () => {
     renderApp(url, "#/orgs/org-1/billing");
 
     expect(await screen.findByText(/No hosting engine is configured/)).toBeTruthy();
-    expect(screen.queryByText(/No usage recorded yet/)).toBeNull();
+    expect(screen.queryByText(/No usage has been recorded for this organization/)).toBeNull();
   });
 });
 

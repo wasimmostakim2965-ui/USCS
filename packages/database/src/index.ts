@@ -102,10 +102,11 @@ export interface DataStore {
   /**
    * Usage records for an organization, newest first.
    *
-   * `usage_records` is written only by the service role (the worker records what
-   * an engine actually consumed) and is readable by any member through RLS. This
-   * is a read: it never writes a usage row, and there is no procedure that lets a
-   * client assert usage.
+   * `usage_records` is readable by any member through RLS and writable only by
+   * the service role, but no code in this build writes one: there is no adapter
+   * that reports a metric and no job that records one, so this read is always
+   * empty today. This is a read — it never writes a usage row, and there is no
+   * procedure that lets a client assert usage.
    */
   listUsageRecords(userId: UserId, organizationId: OrganizationId): Promise<readonly UsageRecord[]>;
   /** Persist a newly issued key. The secret is never part of this input. */
