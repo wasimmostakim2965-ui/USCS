@@ -112,9 +112,11 @@ import {
 import { providerHealth, type HealthDeps } from "./health.js";
 import {
   connectGitLink,
+  deployFromLink,
   disconnectGitLink,
   listGitLinks,
   type ConnectGitLinkInput,
+  type DeployNowInput,
   type DisconnectGitLinkInput,
   type GitLinkDeps,
 } from "./git-links.js";
@@ -365,6 +367,16 @@ export function buildProcedures(
       name: "git.disconnect",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         disconnectGitLink(ctx, gitLinkDeps, inputOf<DisconnectGitLinkInput>(input)),
+    },
+    {
+      name: "git.deployNow",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        deployFromLink(
+          ctx,
+          gitLinkDeps,
+          (innerCtx, deployInput) => requestDeployment(innerCtx, depDeps, deployInput),
+          inputOf<DeployNowInput>(input),
+        ),
     },
     {
       name: "env.list",
@@ -694,6 +706,7 @@ export const ROUTE_SHAPES = {
     previewsEnabled: "boolean?",
   },
   "git.disconnect": { projectId: "ProjectId", linkId: "string" },
+  "git.deployNow": { projectId: "ProjectId", idempotencyKey: "string?" },
   "env.list": { projectId: "ProjectId" },
   "env.set": { projectId: "ProjectId", key: "string", value: "string", isBuildTime: "boolean?" },
   "env.remove": { projectId: "ProjectId", key: "string" },

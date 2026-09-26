@@ -23,10 +23,26 @@ import { randomBytes } from "node:crypto";
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { ControlPlaneWrites, DataStore, ProjectGitLink } from "@cloud-wai/database";
-import type { OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
 import type { SecretCipher } from "@cloud-wai/auth";
 import { computeSignature, secretPrefix, signatureMatches, tokenMatches } from "@cloud-wai/auth";
 import type { RequestContext } from "../context.js";
+import type { CreateDeploymentInput, DeploymentRequestResult } from "./deployments.js";
+
+/**
+ * The one deploy path, injected rather than imported.
+ *
+ * `git.deployNow` is a *trigger*, not a second deploy implementation: it resolves
+ * a project's connected repository and hands it to the same `requestDeployment`
+ * the Deploy button uses. Injecting it keeps the dependency direction clean —
+ * this module knows how to read a link, `deployments.ts` knows how to request a
+ * deployment, and `procedures/index.ts` wires the two — so neither module grows a
+ * runtime import of the other and their rules cannot drift.
+ */
+export type DeployFromLink = (
+  ctx: RequestContext,
+  input: CreateDeploymentInput,
+) => Promise<DeploymentRequestResult>;
 
 /**
  * `owner/name`, lower-cased, no scheme, no `.git` suffix.
@@ -41,6 +57,33 @@ const REPOSITORY_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
 /** The git providers a link can name. `generic` is an HMAC sender. */
 export const GIT_PROVIDERS = ["github", "gitlab", "bitbucket", "generic"] as const;
 export type GitProvider = (typeof GIT_PROVIDERS)[number];
+
+/**
+ * The public clone URL for a stored link.
+ *
+ * A link stores `owner/name` (normalised on connect), but the hosting engine
+ * needs a clone URL it can fetch. The mapping is provider-specific and lives
+ * here rather than in the engine adapter: the adapter is told a URL and never
+ * learns which provider it came from, so adding a provider is a change in one
+ * place and never a change to an engine.
+ *
+ * `generic` has no derivable host — an HMAC sender may be any git server — so it
+ * yields `null`. A caller that needs a URL for a generic link asks the operator
+ * to supply one; inventing a hostname would be a clone attempt against a machine
+ * that may not exist.
+ */
+export function cloneUrlFor(provider: GitProvider, repository: string): string | null {
+  switch (provider) {
+    case "github":
+      return `https://github.com/${repository}.git`;
+    case "gitlab":
+      return `https://gitlab.com/${repository}.git`;
+    case "bitbucket":
+      return `https://bitbucket.org/${repository}.git`;
+    case "generic":
+      return null;
+  }
+}
 
 type GitLinkWrites = Pick<
   ControlPlaneWrites,
@@ -238,6 +281,82 @@ export async function disconnectGitLink(
     });
   }
   return { removed };
+}
+
+/**
+ * The clone URL and branch a manual deploy should use for a project's link.
+ *
+ * This is what lets "Deploy now" exist beside the webhook: the same connect step
+ * that gives a provider a delivery URL also gives the operator a first build
+ * without waiting for a push (the gap that made a freshly connected repository
+ * look inert). It returns `null` when the project has no link, or when the link
+ * is `generic` and has no derivable clone host — an honest absence, never a
+ * guessed URL.
+ */
+export async function deploymentSourceForProject(
+  deps: GitLinkDeps,
+  userId: UserId,
+  projectId: ProjectId,
+): Promise<{ readonly repository: string; readonly branch: string } | null> {
+  const links = await deps.store.listGitLinks(userId, projectId);
+  const link = links[0];
+  if (!link) return null;
+  const repository = cloneUrlFor(link.provider, link.repository);
+  if (!repository) return null;
+  return { repository, branch: link.productionBranch };
+}
+
+/**
+ * Request a deployment of a project's connected repository.
+ *
+ * This is the operator-triggered counterpart of a webhook delivery: the same
+ * connect step that hands a provider a delivery URL also gives the operator a
+ * first build without waiting for a push. Without it a freshly connected
+ * repository looks inert — nothing runs until someone pushes, which is not the
+ * "import a repository and it builds" behaviour the platform is compared against.
+ *
+ * It is deliberately thin. It resolves the link's clone URL and branch, then
+ * hands them to `requestDeployment` — the one deploy path, with its own
+ * authorization, idempotency, budget check and audit. A second enqueue here
+ * would be a second set of those rules to keep in step, so there is none.
+ *
+ * Three honest refusals, none of them a fake success:
+ *   * no link — "connect a repository first";
+ *   * a `generic` link with no derivable clone host — the operator must supply
+ *     the repository on the Deployments page instead;
+ *   * no queue configured — the deployment is still recorded, and the caller
+ *     sees that the durable path is absent.
+ */
+export interface DeployNowInput {
+  readonly projectId: ProjectId;
+  readonly idempotencyKey?: string | undefined;
+}
+
+export async function deployFromLink(
+  ctx: RequestContext,
+  deps: GitLinkDeps,
+  deploy: DeployFromLink,
+  input: DeployNowInput,
+): Promise<DeploymentRequestResult> {
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!project) throw new ApiError("not_found", "Project not found.");
+  requireCapability(ctx, project.organizationId, "deployment:create");
+
+  const source = await deploymentSourceForProject(deps, ctx.principal.userId, project.id);
+  if (!source) {
+    throw new ApiError(
+      "invalid_input",
+      "Connect a repository to this project first, or deploy with an explicit repository from the Deployments page.",
+    );
+  }
+
+  return deploy(ctx, {
+    projectId: project.id,
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    gitRepository: source.repository,
+    gitBranch: source.branch,
+    kind: "production",
+  });
 }
 
 /** The organization a link belongs to, for the receiver. Null when absent. */

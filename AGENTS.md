@@ -62,6 +62,10 @@ pnpm format:check   # check formatting
 
 - `pnpm` 9.x is expected. Docker is needed for `verify:rls`; without it, run
   `pnpm verify` (build + typecheck + tests).
+- In a sandbox where `pnpm` is not on `PATH`, corepack provides it:
+  `export PATH="/usr/local/lib/node_modules/corepack/shims:$PATH"` and
+  `export COREPACK_ENABLE_DOWNLOAD_PROMPT=0` (the second stops the one-time
+  download from blocking on a `[Y/n]` prompt).
 - **The web tests render built output, not source.** `tests/web/*` import
   `@cloud-wai/web`, which resolves to `apps/web/dist`. A `tsc -b` at the root
   can decide the package is up to date while your edit is unbuilt, and the test

@@ -42,6 +42,8 @@ import {
   loadDomains,
   loadEnvVars,
   loadGitLinks,
+  deployFromLink,
+  loadGitDeploySource,
   loadOrganization,
   loadOrganizationMembers,
   loadObservability,
@@ -1090,6 +1092,28 @@ function NewDeploymentModal({
   // the same request instead of queuing a second deployment.
   const [idempotencyKey] = useState(newRequestId);
 
+  // A connected repository is the obvious default, so the operator does not
+  // retype what the project already holds. It only pre-fills the fields the
+  // operator has not touched, and a load failure leaves them empty rather than
+  // blocking the form: the engine may still hold a source of its own.
+  const [prefilled, setPrefilled] = useState(false);
+  useEffect(() => {
+    if (!open || prefilled) return;
+    let cancelled = false;
+    void (async () => {
+      const source = await loadGitDeploySource(client, projectId);
+      if (cancelled || source.state.kind !== "ready") return;
+      const item = source.state.items[0];
+      if (!item) return;
+      setGitRepository((current) => (current === "" ? item.repository : current));
+      setGitBranch((current) => (current === "" ? item.branch : current));
+      setPrefilled(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projectId, open, prefilled]);
+
   const reset = () => {
     setGitRepository("");
     setGitBranch("");
@@ -1839,15 +1863,41 @@ export function GitPage({
 
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState<GitLinkSummary | null>(null);
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<DeploymentRequestSummary | null>(null);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [deployKey] = useState(newRequestId);
+
+  const hasLink = section.state.kind === "ready" && section.state.items.length > 0;
+
+  const deployNow = async () => {
+    setDeploying(true);
+    setDeployError(null);
+    setDeployResult(null);
+    const response = await deployFromLink(client, projectId, deployKey);
+    setDeploying(false);
+    if (!response.ok || !response.data) {
+      setDeployError(response.error?.message ?? "The deployment could not be requested.");
+      return;
+    }
+    setDeployResult(response.data);
+  };
 
   return (
     <PageShell
       title="Git"
       subtitle="Connect a repository and a push deploys this project. A non-production branch is a preview."
       actions={
-        <Button variant="primary" onClick={() => setConnecting(true)}>
-          Connect repository
-        </Button>
+        <>
+          {hasLink ? (
+            <Button onClick={() => void deployNow()} busy={deploying}>
+              Deploy now
+            </Button>
+          ) : null}
+          <Button variant="primary" onClick={() => setConnecting(true)}>
+            Connect repository
+          </Button>
+        </>
       }
     >
       <Card flush>
@@ -1900,6 +1950,12 @@ export function GitPage({
         />
       </Card>
 
+      {deployResult || deployError ? (
+        <Card title="Deploy now">
+          <DeployNowResult result={deployResult} error={deployError} onRefresh={reload} />
+        </Card>
+      ) : null}
+
       <ConnectRepositoryModal
         key={`connect-${String(connecting)}`}
         organizationId={organizationId}
@@ -1922,6 +1978,71 @@ export function GitPage({
         }}
       />
     </PageShell>
+  );
+}
+
+/**
+ * The answer to "Deploy now".
+ *
+ * A build that reached the engine shows its status and, when one was issued, the
+ * URL to visit. A refusal is the server's own words — "connect a repository
+ * first" or the engine's reason — never a bare failure the operator cannot act
+ * on.
+ */
+function DeployNowResult({
+  result,
+  error,
+  onRefresh,
+}: {
+  readonly result: DeploymentRequestSummary | null;
+  readonly error: string | null;
+  readonly onRefresh: () => void;
+}) {
+  if (error) {
+    return (
+      <p className="field__error" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (!result) return null;
+  const status = presentDeploymentStatus(result.deployment.status);
+  return (
+    <div className="stack">
+      <dl className="dl">
+        <dt>Status</dt>
+        <dd>
+          <StatusBadge label={status.label} tone={status.tone} />
+        </dd>
+        {result.deployment.url ? (
+          <>
+            <dt>URL</dt>
+            <dd className="mono small">
+              <VisitLink url={result.deployment.url} />
+            </dd>
+          </>
+        ) : null}
+      </dl>
+      {result.engineReason ? (
+        <p className="small muted" role="status">
+          The hosting engine did not act: {result.engineReason}
+        </p>
+      ) : null}
+      {result.replayed ? (
+        <p className="small muted">
+          This request matched an earlier deployment, so nothing new was queued.
+        </p>
+      ) : (
+        <p className="small muted">
+          The build runs in the background. Follow it on the Deployments page.
+        </p>
+      )}
+      <div className="row">
+        <Button size="sm" onClick={onRefresh}>
+          Refresh repositories
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -3109,9 +3230,7 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
               {
                 key: "resolution",
                 header: "Resolution",
-                render: (item) => (
-                  <span className="small">{item.resolution ?? "—"}</span>
-                ),
+                render: (item) => <span className="small">{item.resolution ?? "—"}</span>,
               },
               {
                 key: "actions",
@@ -3951,15 +4070,12 @@ function IncidentActionModal({
     }
     setBusy(true);
     setError(null);
-    const response = await client.call<SecurityIncidentSummary>(
-      "security.incidents.transition",
-      {
-        organizationId,
-        incidentId: incident.id,
-        state: mode === "triage" ? "triaged" : closeAs,
-        ...(mode === "close" ? { resolution: resolution.trim() } : {}),
-      },
-    );
+    const response = await client.call<SecurityIncidentSummary>("security.incidents.transition", {
+      organizationId,
+      incidentId: incident.id,
+      state: mode === "triage" ? "triaged" : closeAs,
+      ...(mode === "close" ? { resolution: resolution.trim() } : {}),
+    });
     setBusy(false);
     if (!response.ok) {
       setError(response.error?.message ?? "The incident could not be updated.");

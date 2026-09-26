@@ -1073,6 +1073,32 @@ export interface ConnectedGitLinkSummary {
   readonly webhookSecret: string;
 }
 
+/**
+ * The public clone URL for a stored link.
+ *
+ * Declared here rather than imported from the API: the dashboard talks to the
+ * API over its contract, and the API keeps a link as `owner/name` precisely so
+ * the web bundle never pulls server code. This mirrors `cloneUrlFor` in
+ * `apps/api/src/procedures/git-links.ts`; the two must stay in step, and a
+ * provider the server learns to clone but the client does not simply pre-fills
+ * nothing (never a wrong host).
+ */
+export function cloneUrlFor(
+  provider: GitLinkSummary["provider"],
+  repository: string,
+): string | null {
+  switch (provider) {
+    case "github":
+      return `https://github.com/${repository}.git`;
+    case "gitlab":
+      return `https://gitlab.com/${repository}.git`;
+    case "bitbucket":
+      return `https://bitbucket.org/${repository}.git`;
+    case "generic":
+      return null;
+  }
+}
+
 /** The repositories linked to a project. */
 export async function loadGitLinks(
   client: ApiClient,
@@ -1080,6 +1106,53 @@ export async function loadGitLinks(
 ): Promise<Section<GitLinkSummary>> {
   const response = await client.call<readonly GitLinkSummary[]>("git.links.list", { projectId });
   return sectionFrom("Repositories", response);
+}
+
+/**
+ * Build the repository a project has connected, now, without waiting for a push.
+ *
+ * This is the operator-triggered counterpart of a webhook delivery: the server
+ * resolves the link's clone URL and branch and runs the one deploy path, so the
+ * answer carries the same deployment shape a Deploy button returns. A project
+ * with no link (or a `generic` link with no derivable clone host) answers with
+ * the server's own words rather than a guessed repository.
+ */
+export async function deployFromLink(
+  client: ApiClient,
+  projectId: string,
+  idempotencyKey: string,
+): Promise<ApiResponse<DeploymentRequestSummary>> {
+  return client.call<DeploymentRequestSummary>("git.deployNow", { projectId, idempotencyKey });
+}
+
+/** The clone URL and branch a connected repository resolves to, for prefill. */
+export async function loadGitDeploySource(
+  client: ApiClient,
+  projectId: string,
+): Promise<Section<GitDeploySource>> {
+  const response = await client.call<readonly GitLinkSummary[]>("git.links.list", { projectId });
+  const title = "Repositories";
+  if (response.notConfigured) {
+    return {
+      title,
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored(title, response.error?.message ?? "Request failed.");
+  }
+  const link = (response.data ?? [])[0];
+  const repository = link ? cloneUrlFor(link.provider, link.repository) : null;
+  // A project with no link, or a `generic` link with no derivable host, has no
+  // source to prefill. `ready` with an empty list is the honest shape: the
+  // caller pre-fills nothing rather than a guessed URL.
+  return ready(title, repository ? [{ repository, branch: link!.productionBranch }] : []);
+}
+
+/** A connected repository resolved to a clone URL and branch. */
+export interface GitDeploySource {
+  readonly repository: string;
+  readonly branch: string;
 }
 
 /**

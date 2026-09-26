@@ -31,6 +31,7 @@ import type {
   MembershipStore,
   Organization,
   Project,
+  ProjectGitLink,
 } from "@cloud-wai/database";
 import type {
   AdapterResult,
@@ -54,6 +55,7 @@ import {
   type JobQueue,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
+import { cloneUrlFor } from "@cloud-wai/api";
 
 const ALICE = "u-alice";
 const CAROL = "u-carol";
@@ -118,6 +120,7 @@ function makeStore() {
   const dataResources: DataResource[] = [];
   const apiKeys: ApiKeySummary[] = [];
   const usage: UsageRecord[] = [];
+  const gitLinks: ProjectGitLink[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -217,6 +220,12 @@ function makeStore() {
       audit.push(e);
       return e;
     },
+    async listGitLinks(userId: UserId, projectId: ProjectId) {
+      const p = projects.find((x) => x.id === projectId);
+      return p && isMember(userId, p.organizationId)
+        ? gitLinks.filter((l) => l.projectId === projectId)
+        : [];
+    },
 
     async createDeployment(input: {
       organizationId: OrganizationId;
@@ -229,6 +238,10 @@ function makeStore() {
       url: string | null;
       failureReason: string | null;
       kind?: "production" | "preview";
+      gitBranch?: string | null;
+      gitCommit?: string | null;
+      pullRequest?: number | null;
+      previewKey?: string | null;
     }) {
       const d: Deployment = {
         id: `d-${deployments.length + 1}` as Deployment["id"],
@@ -237,10 +250,10 @@ function makeStore() {
         status: input.status,
         url: input.url,
         kind: input.kind ?? "production",
-        gitBranch: null,
-        gitCommit: null,
-        pullRequest: null,
-        previewKey: null,
+        gitBranch: input.gitBranch ?? null,
+        gitCommit: input.gitCommit ?? null,
+        pullRequest: input.pullRequest ?? null,
+        previewKey: input.previewKey ?? null,
         providerResourceId: input.providerResourceId,
         deploymentResourceId: null,
         isCurrent: false,
@@ -338,7 +351,7 @@ function makeStore() {
     },
   } satisfies DataStoreLike;
 
-  return { store, deployments, audit, projects };
+  return { store, deployments, audit, projects, gitLinks };
 }
 
 type DataStoreLike = import("@cloud-wai/database").DataStore & Partial<ControlPlaneWrites>;
@@ -1167,5 +1180,135 @@ describe("deployments.promote — the production pointer", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("git.deployNow through the registered procedures", () => {
+  const LINK: ProjectGitLink = {
+    id: "link-1",
+    organizationId: ORG_A,
+    projectId: PROJ_A,
+    provider: "github",
+    repository: "acme/site",
+    productionBranch: "main",
+    previewsEnabled: false,
+    secretPrefix: "whsec_test",
+    createdBy: ALICE as UserId,
+    createdAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("builds the connected repository without waiting for a push", async () => {
+    const { store, deployments, gitLinks } = makeStore();
+    gitLinks.push(LINK);
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "now-1" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment; replayed: boolean };
+    expect(data.replayed).toBe(false);
+    expect(deployments).toHaveLength(1);
+    // With a durable queue the row is honest about being queued, not built.
+    expect(data.deployment.status).toBe("pending");
+    expect(data.deployment.gitBranch).toBe("main");
+    // Exactly one job, and it is the same `deployments.execute` the webhook and
+    // the Deploy button enqueue — not a second execution path.
+    const job = await queue.claim("w-1", 30_000);
+    expect(job?.kind).toBe("deployments.execute");
+    expect(job?.payload).toMatchObject({ gitRepository: "https://github.com/acme/site.git" });
+  });
+
+  it("builds synchronously and honestly when no queue is wired", async () => {
+    const { store, deployments, gitLinks } = makeStore();
+    gitLinks.push(LINK);
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "now-sync" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment };
+    expect(data.deployment.status).toBe("succeeded");
+    expect(deployments).toHaveLength(1);
+  });
+
+  it("uses the link's production branch, not a caller-supplied one", async () => {
+    const { store, gitLinks } = makeStore();
+    gitLinks.push({ ...LINK, productionBranch: "release" });
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "now-2" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment };
+    expect(data.deployment.gitBranch).toBe("release");
+  });
+
+  it("refuses honestly when no repository is connected", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "now-3" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    // Nothing was queued or written: the refusal is not a partial deploy.
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("refuses a generic link with no derivable clone host", async () => {
+    const { store, deployments, gitLinks } = makeStore();
+    gitLinks.push({ ...LINK, provider: "generic" });
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "now-4" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("refuses a non-member without revealing the project", async () => {
+    const { store, gitLinks } = makeStore();
+    gitLinks.push(LINK);
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "git.deployNow",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, idempotencyKey: "now-5" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("cloneUrlFor", () => {
+  it("maps each provider to its public clone host, and generic to nothing", () => {
+    expect(cloneUrlFor("github", "acme/site")).toBe("https://github.com/acme/site.git");
+    expect(cloneUrlFor("gitlab", "acme/site")).toBe("https://gitlab.com/acme/site.git");
+    expect(cloneUrlFor("bitbucket", "acme/site")).toBe("https://bitbucket.org/acme/site.git");
+    expect(cloneUrlFor("generic", "acme/site")).toBeNull();
   });
 });

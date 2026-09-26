@@ -75,6 +75,9 @@ export {
   gitLinkForService,
   GIT_PROVIDERS,
   defaultWebhookSecret,
+  cloneUrlFor,
+  deploymentSourceForProject,
+  deployFromLink,
 } from "./procedures/git-links.js";
 export type {
   ConnectGitLinkInput,
@@ -85,6 +88,8 @@ export type {
   GitProvider,
   ListGitLinksInput,
   VerifyGitDeliveryInput,
+  DeployFromLink,
+  DeployNowInput,
 } from "./procedures/git-links.js";
 export { receiveGitDelivery, deployFromDelivery, parseGitDelivery } from "./git-hook.js";
 export type { GitHookDeps, GitHookOutcome, ParsedGitDelivery } from "./git-hook.js";

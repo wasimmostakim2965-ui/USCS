@@ -252,6 +252,7 @@ describe("the registered procedure table", () => {
       "env.remove",
       "env.set",
       "git.connect",
+      "git.deployNow",
       "git.disconnect",
       "git.links.list",
       "observability.jobs",
@@ -364,6 +365,7 @@ describe("the registered procedure table", () => {
       "security.rateLimits.remove": { organizationId: ORG_A, rateLimitId: "rl-1" },
       "security.bots.list": { organizationId: ORG_A },
       "security.events.list": { organizationId: ORG_A },
+      "git.deployNow": { projectId: "p-1" },
     };
 
     for (const [procedure, input] of Object.entries(scoped)) {

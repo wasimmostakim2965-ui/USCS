@@ -14,6 +14,8 @@ import {
   loadUsage,
   loadBudgets,
   loadTrustedSources,
+  cloneUrlFor,
+  loadGitDeploySource,
   sectionFrom,
 } from "@cloud-wai/web";
 import {
@@ -384,6 +386,85 @@ describe("loaders", () => {
       projectId: "p-1",
     });
     expect(model.sections[0]!.state.kind).toBe("degraded");
+  });
+});
+
+describe("the connected-repository prefill and deploy-now loaders", () => {
+  it("resolves a github link to a public clone URL and its production branch", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: [
+        {
+          id: "l-1",
+          organizationId: "org-a",
+          projectId: "p-1",
+          provider: "github",
+          repository: "acme/site",
+          productionBranch: "main",
+          previewsEnabled: false,
+          secretPrefix: "whsec_x",
+          createdBy: "u-1",
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    const section = await loadGitDeploySource(client, "p-1");
+    expect(section.state.kind).toBe("ready");
+    if (section.state.kind === "ready") {
+      expect(section.state.items[0]).toEqual({
+        repository: "https://github.com/acme/site.git",
+        branch: "main",
+      });
+    }
+  });
+
+  it("pre-fills nothing for a project with no connected repository", async () => {
+    const client = clientReturning({ ok: true, status: 200, data: [] });
+    const section = await loadGitDeploySource(client, "p-1");
+    // Honest absence: empty, never a guessed URL.
+    expect(section.state.kind).toBe("empty");
+  });
+
+  it("pre-fills nothing for a generic link, which has no derivable host", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      data: [
+        {
+          id: "l-1",
+          organizationId: "org-a",
+          projectId: "p-1",
+          provider: "generic",
+          repository: "acme/site",
+          productionBranch: "main",
+          previewsEnabled: false,
+          secretPrefix: "whsec_x",
+          createdBy: "u-1",
+          createdAt: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    const section = await loadGitDeploySource(client, "p-1");
+    expect(section.state.kind).toBe("empty");
+  });
+
+  it("reports a not_configured link list as degraded, not as a prefill", async () => {
+    const client = clientReturning({
+      ok: true,
+      status: 200,
+      notConfigured: true,
+      data: [],
+    });
+    const section = await loadGitDeploySource(client, "p-1");
+    expect(section.state.kind).toBe("degraded");
+  });
+
+  it("maps clone URLs per provider and returns null for generic", () => {
+    expect(cloneUrlFor("github", "acme/site")).toBe("https://github.com/acme/site.git");
+    expect(cloneUrlFor("gitlab", "acme/site")).toBe("https://gitlab.com/acme/site.git");
+    expect(cloneUrlFor("bitbucket", "acme/site")).toBe("https://bitbucket.org/acme/site.git");
+    expect(cloneUrlFor("generic", "acme/site")).toBeNull();
   });
 });
 

@@ -30,6 +30,9 @@ export {
   loadTrustedSources,
   addTrustedSource,
   removeTrustedSource,
+  cloneUrlFor,
+  loadGitDeploySource,
+  deployFromLink,
   sectionFrom,
 } from "./view-model.js";
 export type {
