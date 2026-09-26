@@ -17,6 +17,7 @@ export {
   loadDeployments,
   loadDeploymentLogs,
   promoteDeployment,
+  BUILD_PACK_OPTIONS,
   loadDomains,
   loadDataResources,
   loadApiKeys,
@@ -34,6 +35,7 @@ export {
 export type {
   OrganizationSummary,
   ProjectSummary,
+  BuildPack,
   DeploymentSummary,
   DeploymentLogsSummary,
   DeploymentRequestSummary,

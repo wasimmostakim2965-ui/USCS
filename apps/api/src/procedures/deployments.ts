@@ -28,7 +28,7 @@ import type {
   UserId,
 } from "@cloud-wai/contracts";
 import type { BuildPack, Engines, JobQueue, ServerlessArtifact } from "@cloud-wai/adapters";
-import { deploymentEngineFor, runBuildStep } from "@cloud-wai/adapters";
+import { BUILD_PACKS, deploymentEngineFor, runBuildStep } from "@cloud-wai/adapters";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
 import type { AuditEvent, ControlPlaneWrites, DataStore, Deployment } from "@cloud-wai/database";
 import type { RequestContext } from "../context.js";
@@ -231,6 +231,23 @@ function optionalRepository(value: string | undefined): string | null {
     throw new ApiError("invalid_input", "Repository must be an https://, http:// or git@ URL.");
   }
   return trimmed;
+}
+
+/**
+ * A build pack, checked against the list the engine accepts.
+ *
+ * The type is a union, so TypeScript callers cannot send a stray value — but the
+ * procedure is reachable over HTTP, where the body is whatever the caller typed.
+ * An unknown pack is refused here rather than forwarded to the engine, which
+ * would reject it later with a message about its own internals.
+ */
+function optionalBuildPack(value: string | undefined): BuildPack | null {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") return null;
+  if (!(BUILD_PACKS as readonly string[]).includes(trimmed)) {
+    throw new ApiError("invalid_input", `Build pack must be one of: ${BUILD_PACKS.join(", ")}.`);
+  }
+  return trimmed as BuildPack;
 }
 
 export async function listDeployments(
@@ -655,6 +672,7 @@ export async function requestDeployment(
   const gitBranch = optionalRef(input.gitBranch, "Branch");
   const commit = optionalRef(input.commit, "Commit");
   const gitRepository = optionalRepository(input.gitRepository);
+  const buildPack = optionalBuildPack(input.buildPack);
 
   // A preview build is identified by its *target* — the pull request, or the
   // branch — not by the delivery, so pushing twice to one branch redeploys the
@@ -738,7 +756,7 @@ export async function requestDeployment(
       projectSlug: project.slug,
       gitRepository,
       gitBranch,
-      buildPack: input.buildPack ?? null,
+      buildPack,
       commit,
       kind,
       previewKey,
@@ -835,7 +853,7 @@ export async function requestDeployment(
       name: applicationName,
       gitRepository: gitRepository ?? null,
       gitBranch: gitBranch ?? null,
-      buildPack: input.buildPack ?? null,
+      buildPack,
     });
     if (!created.ok) {
       engineReason = created.reason;
@@ -876,7 +894,7 @@ export async function requestDeployment(
           timeoutMs: adapterCtx.timeoutMs,
           repository: gitRepository ?? null,
           branch: gitBranch ?? null,
-          buildPack: input.buildPack ?? null,
+          buildPack,
         },
       );
       if (!built.ok) {

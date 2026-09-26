@@ -506,6 +506,59 @@ describe("deployments.create through the registered procedures", () => {
     expect(deployments).toHaveLength(0);
   });
 
+  it("refuses a build pack the engine does not accept, before any deploy", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    // The union stops a TypeScript caller, but this procedure is reachable over
+    // HTTP. Forwarding an unknown pack would surface as the engine's own error
+    // about its internals; it is refused here instead.
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "bad-pack", buildPack: "webpack" },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.error?.code).toBe("invalid_input");
+    expect(res.error?.message).toContain("nixpacks");
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("hands the caller's build pack to the engine, and omits it when unset", async () => {
+    const { store } = makeStore();
+    const seen: (string | null | undefined)[] = [];
+    const base = fakeHosting();
+    const recording: Engines = {
+      ...unconfiguredEngines(),
+      hosting: {
+        ...base,
+        createApplication: (ctx, input) => {
+          seen.push(input.buildPack);
+          return base.createApplication(ctx, input);
+        },
+      },
+    };
+    const router = routerWith(store, recording);
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "pack-1", buildPack: "static" },
+    });
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "pack-2" },
+    });
+
+    // The pin is forwarded as chosen; an unset pack stays unset, so a project
+    // that pins its own build pack in the engine keeps it rather than being
+    // silently overwritten with a platform default.
+    expect(seen[0]).toBe("static");
+    expect(seen[1] ?? null).toBe(null);
+  });
+
   it("reports engine_unavailable rather than a fake success when the store cannot write", async () => {
     // A read-only store: the procedure must not answer ok for a deployment it
     // never recorded.

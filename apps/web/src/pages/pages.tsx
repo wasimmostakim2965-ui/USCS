@@ -67,6 +67,7 @@ import {
   type ApiKeySummaryRow,
   type AuditSummary,
   type BudgetSummary,
+  type BuildPack,
   type DeploymentRequestSummary,
   type DeploymentLogsSummary,
   type DeploymentSummary,
@@ -1077,6 +1078,9 @@ function NewDeploymentModal({
   const [gitRepository, setGitRepository] = useState("");
   const [gitBranch, setGitBranch] = useState("");
   const [commit, setCommit] = useState("");
+  // Empty means "let the engine decide": the server omits the field rather than
+  // sending a default, so a project that pins its own build pack keeps it.
+  const [buildPack, setBuildPack] = useState<"" | BuildPack>("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DeploymentRequestSummary | null>(null);
@@ -1088,6 +1092,7 @@ function NewDeploymentModal({
     setGitRepository("");
     setGitBranch("");
     setCommit("");
+    setBuildPack("");
     setError(null);
     setResult(null);
   };
@@ -1101,6 +1106,7 @@ function NewDeploymentModal({
       ...(gitRepository ? { gitRepository } : {}),
       ...(gitBranch ? { gitBranch } : {}),
       ...(commit ? { commit } : {}),
+      ...(buildPack ? { buildPack } : {}),
     });
     setBusy(false);
     if (!response.ok || !response.data) {
@@ -1200,6 +1206,50 @@ function NewDeploymentModal({
           <Field label="Commit" hint="Optional; a specific revision to deploy.">
             {(id) => (
               <TextInput id={id} value={commit} onChange={setCommit} placeholder="abc1234" />
+            )}
+          </Field>
+          <Field
+            label="Build pack"
+            hint="Optional. Leave as the engine's choice unless a build fails to detect the framework — this is the override for that case."
+          >
+            {() => (
+              <ChoiceGroup<"" | BuildPack>
+                name="build-pack"
+                value={buildPack}
+                onChange={setBuildPack}
+                options={[
+                  {
+                    value: "",
+                    label: "Engine's choice",
+                    hint: "The hosting engine detects the build pack from the source.",
+                  },
+                  {
+                    value: "nixpacks",
+                    label: "Nixpacks",
+                    hint: "Language auto-detection from the repository's own files.",
+                  },
+                  {
+                    value: "railpack",
+                    label: "Railpack",
+                    hint: "The build engine this platform ships, for a detected framework.",
+                  },
+                  {
+                    value: "static",
+                    label: "Static",
+                    hint: "No server build: the output directory is served as-is.",
+                  },
+                  {
+                    value: "dockerfile",
+                    label: "Dockerfile",
+                    hint: "Build from the repository's own Dockerfile.",
+                  },
+                  {
+                    value: "dockercompose",
+                    label: "Docker Compose",
+                    hint: "Build and run from the repository's compose file.",
+                  },
+                ]}
+              />
             )}
           </Field>
           {error ? (

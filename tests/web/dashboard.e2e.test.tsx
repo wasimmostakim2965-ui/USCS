@@ -823,6 +823,23 @@ describe("requesting and rolling back a deployment", () => {
     expect(deployments).toHaveLength(2);
   });
 
+  it("sends a chosen build pack, and leaves it out when the engine should choose", async () => {
+    const { responder, calls } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "New deployment" }));
+
+    // The override is the answer to "the build failed to detect my framework".
+    // Choosing it must change what the server receives, not just the UI.
+    await user.click(await screen.findByRole("radio", { name: /Dockerfile/ }));
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    const create = calls.find((c) => c.procedure === "deployments.create");
+    expect(create?.input).toMatchObject({ buildPack: "dockerfile" });
+  });
+
   it("sends an idempotency key and reuses it on a retry, so a double press cannot deploy twice", async () => {
     const calls: { procedure: string; input: unknown }[] = [];
     // The first attempt fails, which leaves the form open so the operator can

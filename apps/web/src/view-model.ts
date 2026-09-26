@@ -70,6 +70,24 @@ export interface DeploymentRequestSummary {
   readonly engineReason: string | null;
 }
 
+/**
+ * The build packs a deployment may pin.
+ *
+ * Declared here rather than imported from the adapters: the dashboard talks to
+ * the API, and the API's contract keeps this as a string precisely so the web
+ * bundle never pulls an engine package. The list must stay in step with
+ * `BUILD_PACKS` in the adapters; a value the server does not accept is rejected
+ * by the procedure, so a drift here fails loudly rather than silently.
+ */
+export const BUILD_PACK_OPTIONS = [
+  "nixpacks",
+  "railpack",
+  "static",
+  "dockerfile",
+  "dockercompose",
+] as const;
+export type BuildPack = (typeof BUILD_PACK_OPTIONS)[number];
+
 export interface AuditSummary {
   readonly id: string;
   readonly event: string;
