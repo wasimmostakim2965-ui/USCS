@@ -155,6 +155,33 @@ rm /tmp/cw-env
 aws ec2 reboot-instances --instance-ids "$(terraform output -raw instance_id)"
 ```
 
+### The edge's obligation to the verified-bot allow
+
+The compiled policy allows a crawler only when **two** conditions hold: the
+`User-Agent` matches, and `tx.cloud_wai_bot_confirm` equals the operator's
+suffix. Coraza cannot do a reverse-DNS lookup, so the edge host must populate
+that variable before the WAF runs, and it must do it honestly:
+
+1. Reverse-resolve `REMOTE_ADDR` and require the PTR name to sit under the
+   operator's suffix **at a DNS label boundary** (so `googlebot.com.attacker.net`
+   and `evilgooglebot.com` both fail).
+2. Forward-resolve that exact PTR name and require it to return the original
+   address. A PTR record alone is trivially forged; this second step is what
+   makes the claim trustworthy.
+3. Only then set `tx.cloud_wai_bot_confirm` to the matched suffix.
+
+Set it from the DNS answer, **never** from an inbound header: a header is
+attacker-controlled, and a value the attacker chooses would make the second
+condition tautological and reopen the `User-Agent: Googlebot` bypass the chain
+exists to close. If the lookup fails or times out, leave the variable unset — the
+chain then does not match, no allow is granted, and the request falls through to
+the challenge and the WAF. Fail closed.
+
+Because the allow is a real Coraza chain, a deployment that sets nothing keeps
+the SEO behaviour only if it also keeps attack mode off. Turning attack mode on
+without this step challenges every crawler. That is why it is written down here
+rather than left to the operator to infer.
+
 ## 6. Verify the deployment
 
 1. **Liveness, through the load balancer:**

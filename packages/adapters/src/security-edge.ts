@@ -70,6 +70,30 @@ export interface VerifiedBot {
   readonly confirmSuffix: string;
 }
 
+const BOT_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+/**
+ * Validate a bot entry before it can become a directive.
+ *
+ * The curated directory is compiled in, but `botAllowList` is operator-supplied
+ * and reaches the same string templates as a deny rule's value. The same rule
+ * applies: nothing arrives by concatenation. The suffix is checked as a DNS
+ * name, which is what the edge will match its confirmation against, so a value
+ * that is not a name is refused rather than escaped.
+ */
+export function validateVerifiedBot(
+  bot: VerifiedBot,
+): { ok: true } | { ok: false; reason: string } {
+  if (!BOT_NAME.test(bot.name)) return { ok: false, reason: "A bot name is 1-40 [a-z0-9-]." };
+  if (!UA_VALUE.test(bot.userAgent)) {
+    return { ok: false, reason: "A bot user-agent is 1-120 plain characters." };
+  }
+  if (!HOST_PATTERN.test(bot.confirmSuffix)) {
+    return { ok: false, reason: "A confirm suffix must be a DNS name." };
+  }
+  return { ok: true };
+}
+
 /**
  * The curated verified-bot directory.
  *
@@ -280,9 +304,43 @@ function denyOperator(rule: DenyRule): { target: string; operator: string } {
   }
 }
 
-/** Render a verified-bot step: UA substring AND a forward-confirmed DNS suffix. */
-function verifiedBotDirective(id: number, bot: VerifiedBot): string {
-  return `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,setvar:tx.cloud_wai_bot=${id},setvar:tx.cloud_wai_bot_confirm=${bot.confirmSuffix}"`;
+/**
+ * The transaction variable the edge sets to the suffix it forward-confirmed.
+ *
+ * The edge performs the reverse-DNS lookup and the forward confirmation, and
+ * writes the operator's suffix here only when both agree at a DNS label
+ * boundary. Coraza cannot do that lookup itself, so the directive consumes the
+ * result instead of inventing it. The edge must never populate this from an
+ * inbound header: a header is attacker-controlled and would make the check
+ * tautological.
+ *
+ * `@rbl` is deliberately not used. It queries `<ip>.<service>` for a listing,
+ * which is not a PTR lookup and performs no forward confirmation, so it cannot
+ * express "the reverse name is under this suffix AND resolves back to this
+ * address". The edge does that check; this variable carries its answer.
+ */
+export const BOT_CONFIRM_VARIABLE = "tx.cloud_wai_bot_confirm";
+
+/**
+ * Render a verified-bot allow as a real two-rule Coraza chain.
+ *
+ * `chain` binds a rule to the rule that *immediately follows*, and the chain
+ * matches only if every member matches. The starter tests the User-Agent; the
+ * member tests the forward-confirmed suffix the edge recorded. Emitting the
+ * starter alone — as an earlier version did — made each bot rule swallow the
+ * next rule as its member, which is not a valid ruleset and could never allow a
+ * crawler. A `User-Agent` on its own is attacker-controlled, so the second
+ * condition is what makes the allow trustworthy; without it, a scraper that
+ * sets `User-Agent: Googlebot` would pass.
+ *
+ * The member carries no `id` and no `phase`: Coraza rejects those on a chain
+ * member ("can only be specified by chain starter rules").
+ */
+function verifiedBotDirectives(id: number, bot: VerifiedBot): { starter: string; member: string } {
+  return {
+    starter: `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,setvar:tx.cloud_wai_bot=${id},msg:'cloud-wai verified bot: ${bot.name}'"`,
+    member: `SecRule ${BOT_CONFIRM_VARIABLE} "@streq ${bot.confirmSuffix}" "t:none"`,
+  };
 }
 
 /**
@@ -458,13 +516,25 @@ export function compileEdge(input: CompileInput): CompiledEdge {
   ];
   let nextId = 10;
 
-  // 1. Verified bots. The UA match chains to a forward-confirmed reverse-DNS
-  //    check, so a spoofed User-Agent does not get the allow.
+  // 1. Verified bots. Each allow is a two-rule chain: the UA match, then the
+  //    forward-confirmed reverse-DNS suffix the edge recorded. The pair is what
+  //    makes the allow trustworthy — a UA alone is attacker-controlled. Both
+  //    rules are pushed so the chain is balanced: the member immediately follows
+  //    its starter, and the next bot's starter is not swallowed by it.
   for (const bot of bots) {
+    const valid = validateVerifiedBot(bot);
+    if (!valid.ok) continue; // never emit a directive from an unvalidated bot
     const id = nextId++;
-    const directive = verifiedBotDirective(id, bot);
-    directives.push(directive);
-    ladder.push({ id, stage: "allow-verified-bot", action: "allow", directive });
+    const { starter, member } = verifiedBotDirectives(id, bot);
+    directives.push(starter, member);
+    // The reviewable form shows the whole chain, the way Coraza itself stores a
+    // chained rule, so the confirmation is visible without reading SecLang.
+    ladder.push({
+      id,
+      stage: "allow-verified-bot",
+      action: "allow",
+      directive: `${starter}\n${member}`,
+    });
   }
 
   // 2. Internal requests. This deployment's own health checks and probes carry

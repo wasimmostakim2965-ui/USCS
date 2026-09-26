@@ -10,7 +10,9 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AdapterContext, ProviderRef } from "@cloud-wai/contracts";
 import {
+  BOT_CONFIRM_VARIABLE,
   CORAZA_ACTION,
+  INTERNAL_REQUEST_HEADER,
   compileEdge,
   createEnvoySecurityEdge,
   validateDenyRule,
@@ -237,6 +239,69 @@ describe("the decision ladder", () => {
     // sets `User-Agent: Googlebot` does not get the allow on UA alone.
     expect(googlebot!.directive).toContain("chain");
     expect(googlebot!.directive).toContain("googlebot.com");
+  });
+
+  it("emits every bot chain with a matching member, never a dangling chain", () => {
+    // `chain` binds a rule to the rule that immediately follows it. A starter
+    // with no member is not a valid ruleset, and if the member is the *next*
+    // bot's rule then the bots form one impossible AND-chain and no crawler is
+    // ever allowed. So: one member per starter, immediately after it, and the
+    // member is a suffix check rather than another bot's UA.
+    const compiled = compileEdge({ route: route(), policy });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    lines.forEach((line, index) => {
+      if (!line.includes(",chain,")) return;
+      const member = lines[index + 1];
+      expect(member, `chain starter at ${index} has no member`).toBeDefined();
+      // A member must not repeat the bot's UA; it must be the confirm check.
+      expect(member).toContain(BOT_CONFIRM_VARIABLE);
+      expect(member).not.toContain("User-Agent");
+    });
+  });
+
+  it("keeps chain members free of the actions Coraza forbids on a member", () => {
+    // Coraza rejects `id` and `phase` on a chain member ("can only be specified
+    // by chain starter rules"), which would make the whole ruleset fail to load.
+    const compiled = compileEdge({ route: route(), policy });
+    const members = compiled.corazaDirectives
+      .flatMap((d) => d.split("\n"))
+      .filter((line) => line.includes(BOT_CONFIRM_VARIABLE));
+    expect(members.length).toBeGreaterThan(0);
+    for (const member of members) {
+      expect(member).not.toMatch(/id:\d+/);
+      expect(member).not.toContain("phase:");
+    }
+  });
+
+  it("does not let a bot chain swallow the internal-request rule", () => {
+    // The internal rule is a real rule of its own. If a bot starter chained onto
+    // it, the deployment's own probes would stop being recognised.
+    const compiled = compileEdge({ route: route(), policy });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const internalIndex = lines.findIndex((line) => line.includes(INTERNAL_REQUEST_HEADER));
+    expect(internalIndex).toBeGreaterThan(0);
+    expect(lines[internalIndex - 1]).toContain(BOT_CONFIRM_VARIABLE);
+  });
+
+  it("refuses a hostile bot entry rather than emitting it as a directive", () => {
+    // `botAllowList` is operator-supplied and reaches the same templates as a
+    // deny rule. A value that would be directive syntax is dropped, never
+    // escaped and forwarded.
+    const compiled = compileEdge({
+      route: route(),
+      botAllowList: [
+        {
+          name: "evil",
+          userAgent: '" \nSecRuleEngine Off',
+          confirmSuffix: "evil.example",
+        },
+      ],
+    });
+    expect(compiled.corazaDirectives.some((d) => d.includes("SecRuleEngine Off"))).toBe(false);
+    const evil = compiled.ladder.filter(
+      (s) => s.stage === "allow-verified-bot" && s.directive.includes("evil"),
+    );
+    expect(evil).toEqual([]);
   });
 
   it("challenges browsers only in attack mode", () => {
