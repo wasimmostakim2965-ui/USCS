@@ -261,6 +261,44 @@ describe("security edge loaders", () => {
     expect(input?.route.host).toBe("app.example.com");
   });
 
+  it("compiles a lapsed attack window back to normal, so a timed posture really ends", async () => {
+    // A policy saved with `protectionMode: "attack"` and an expiry is a *timed*
+    // posture. The compiled artifact is a boolean, so if the loader ignored the
+    // expiry the edge would keep challenging browsers long after the window the
+    // customer set had ended, with nothing to switch it back. The loader must
+    // evaluate the window and emit `normal` once it has lapsed.
+    const { store } = storeOver({
+      security_policies: [
+        {
+          ...policyRow("org-a"),
+          protection_expires_at: "2020-01-01T00:00:00.000Z",
+        },
+      ],
+      domains: [domainRow("org-a", "app.example.com", true, "2026-01-02T00:00:00.000Z")],
+    });
+    const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    expect(input?.protection).toBe("normal");
+    const compiled = compileEdge(input!);
+    expect(compiled.envoyConfig.challengeBrowsers).toBe(false);
+    expect(compiled.envoyConfig.skipChallengeForVerifiedBots).toBe(false);
+  });
+
+  it("keeps a live attack window in force", async () => {
+    const { store } = storeOver({
+      security_policies: [
+        {
+          ...policyRow("org-a"),
+          protection_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        },
+      ],
+      domains: [domainRow("org-a", "app.example.com", true, "2026-01-02T00:00:00.000Z")],
+    });
+    const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    expect(input?.protection).toBe("attack");
+  });
+
   it("refuses to compile a policy for an organization with no verified route", async () => {
     const { store } = storeOver({
       security_policies: [policyRow("org-a")],

@@ -419,6 +419,13 @@ export interface CompileInput {
    * Whether browsers are challenged. `attack` is the "under attack" posture:
    * verified bots and internal requests still pass, browser traffic is
    * challenged, and the WAF stays on. It never removes the allow-list steps.
+   *
+   * An *expiry* does not belong here. This input is compiled at publish time, so
+   * a timestamp in it would be frozen into the artifact and would keep
+   * challenging browsers after the window the customer set had ended. The loader
+   * evaluates the window (`protectionIsActive`) and passes `normal` once it has
+   * lapsed; a timed posture therefore ends at the next distribution, which is the
+   * behaviour documented in AGENTS.md.
    */
   readonly protection?: RouteProtectionMode | undefined;
   /**

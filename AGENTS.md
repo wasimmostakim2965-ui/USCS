@@ -165,6 +165,19 @@ so an existing bookmark does not 404.
   do the forward-confirmed DNS check; handing it a UA pattern would reopen the
   spoof the WAF chain closes.
 
+- **A timed attack window ends at the next policy distribution, not on a timer.**
+  The compiled artifact carries `protection: "attack" | "normal"` — a boolean, not
+  a timestamp — so the edge cannot end a window by itself. `protectionIsActive`
+  is the single expiry rule, and the loader (`packages/database/src/edge-loaders.ts`)
+  evaluates it at publish time and passes `normal` once the window has lapsed; a
+  test pins that a lapsed window compiles to no challenge and a live one stays in
+  force. So a customer's 24h window really ends, but at the next distribution
+  rather than at the exact instant. A worker that republishes on expiry would
+  close the gap; until then, a policy that is distributed after the window has
+  lapsed is what switches the edge back. Do not move the expiry into the compile
+  input: it is compiled once and frozen, so a timestamp there would keep
+  challenging browsers forever.
+
 ## Phase status
 
 ADR-0006 numbers phases 0–8 (superseding the earlier 0–6). See the `feat(phase-N)`

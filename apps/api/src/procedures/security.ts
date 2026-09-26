@@ -241,9 +241,12 @@ export async function saveSecurityPolicy(
   const now = (deps.now?.() ?? new Date()).toISOString();
 
   // The posture: keep the stored one unless the caller changed it, so a routine
-  // save does not drop a live attack mode. An attack mode that expires is
-  // bounded to 24h, which is the longest the edge accepts, so a customer cannot
-  // park a permanent challenge on their own visitors by accident.
+  // save does not drop a live attack mode. An *explicit* window is capped at 24h,
+  // the longest the edge accepts, so a customer cannot park a challenge on their
+  // own visitors by choosing an absurd expiry. Omitting the window while asking
+  // for `attack` deliberately means "until switched back" — that is the posture
+  // the dashboard offers ("leave empty to keep it on until you switch back") and
+  // the type documents, so it is not an accident and is not capped.
   const protectionMode = input.protectionMode ?? existing?.protectionMode ?? "normal";
   let protectionExpiresAt: string | null =
     input.protectionExpiresAt !== undefined
