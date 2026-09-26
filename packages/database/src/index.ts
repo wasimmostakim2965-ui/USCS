@@ -12,6 +12,7 @@ import type {
   DeploymentId,
   DomainId,
   EngineStatus,
+  EnvironmentId,
   ExecutionModel,
   JobState,
   OrganizationId,
@@ -192,6 +193,29 @@ export interface DataStore {
    * build-time.
    */
   listEnvVars(userId: UserId, projectId: ProjectId): Promise<readonly ProjectEnvVar[]>;
+  /**
+   * A project's environments, production first.
+   *
+   * The two platform environments exist for every project (migration `0024`),
+   * so this is never empty for a project the caller can see. Membership-scoped
+   * like every read.
+   */
+  listEnvironments(
+    userId: UserId,
+    projectId: ProjectId,
+  ): Promise<readonly ProjectEnvironment[]>;
+  /**
+   * One environment by id, scoped to a member's project.
+   *
+   * Used to validate that an environment a client names belongs to the project
+   * it is being attached to, rather than trusting the id. Null when the row is
+   * absent or invisible, exactly like the other scoped reads.
+   */
+  getEnvironment(
+    userId: UserId,
+    projectId: ProjectId,
+    environmentId: EnvironmentId,
+  ): Promise<ProjectEnvironment | null>;
 }
 
 /**
@@ -633,15 +657,22 @@ export interface ControlPlaneWrites {
    * recovered, to push it into the engine. It is on the write interface so no
    * browser-facing read path can reach it, and it is scoped by organization so
    * the worker's session-less read still cannot cross a tenant.
+   *
+   * `environmentId` selects which environment's variables are returned, because
+   * a preview build must receive the Preview values and a production build the
+   * Production ones — the point of `0025`. It is required, not optional: a
+   * caller that forgot it would push every value into every build.
    */
   listEnvVarsForService(
     organizationId: OrganizationId,
     projectId: ProjectId,
+    environmentId: EnvironmentId,
   ): Promise<readonly ProjectEnvVarSecret[]>;
   /** Record the engine's handle for a variable. Service-scoped, engine-owned. */
   setEnvVarEngineRef(input: {
     readonly organizationId: OrganizationId;
     readonly projectId: ProjectId;
+    readonly environmentId: EnvironmentId;
     readonly key: string;
     readonly engineRef: string;
     readonly provider: string | null;
@@ -651,22 +682,42 @@ export interface ControlPlaneWrites {
    * The engine handle for one variable, or null.
    *
    * Member-scoped: a remove needs the handle so it can delete the engine's copy
-   * first. It returns only the handle � never the ciphertext � so the request
+   * first. It returns only the handle — never the ciphertext — so the request
    * path cannot recover a value it does not need.
    */
   getEnvVarEngineRef(
     userId: UserId,
     organizationId: OrganizationId,
     projectId: ProjectId,
+    environmentId: EnvironmentId,
     key: string,
   ): Promise<string | null>;
-  /** Remove one variable by key. Idempotent: reports whether a row went. */
+  /**
+   * Remove one variable by environment and key.
+   *
+   * Idempotent: reports whether a row went. Both coordinates are needed because
+   * `0025` makes the same key valid once per environment, so a key alone no
+   * longer names a single row.
+   */
   deleteEnvVar(
     userId: UserId,
     organizationId: OrganizationId,
     projectId: ProjectId,
+    environmentId: EnvironmentId,
     key: string,
   ): Promise<boolean>;
+  /**
+   * A project's environments, scoped by organization only.
+   *
+   * The worker has no session, so `organization_id` is the tenant boundary —
+   * the same shape as `getProjectDeploymentTargetForService`. It exists so a
+   * deployment job that predates the environment model can still resolve the
+   * project's default environment and push the right variable set.
+   */
+  listEnvironmentsForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<readonly ProjectEnvironment[]>;
 }
 
 /** The full store a control-plane deployment needs. */
@@ -684,6 +735,14 @@ export interface DeploymentCreateInput {
   readonly failureReason: string | null;
   /** Defaults to `production` in the column, so an older caller is unchanged. */
   readonly kind?: "production" | "preview";
+  /**
+   * The environment this deployment belongs to.
+   *
+   * Resolved by the API from the project's environments (`0024`): Production for
+   * a production build, Preview for a preview. It selects which variable set the
+   * build receives (`0025`).
+   */
+  readonly environmentId?: EnvironmentId | null;
   /**
    * True when this production build is staged: built but not made live.
    *
@@ -762,6 +821,14 @@ export interface ProjectEnvVar {
   readonly id: string;
   readonly organizationId: OrganizationId;
   readonly projectId: ProjectId;
+  /**
+   * The environment this variable is scoped to.
+   *
+   * Vercel's model: the same key holds a different value per environment, so a
+   * variable is never just a project's — it belongs to one of the project's
+   * environments (Production or Preview, per `0024`).
+   */
+  readonly environmentId: EnvironmentId;
   readonly key: string;
   readonly valuePrefix: string;
   readonly isBuildTime: boolean;
@@ -789,6 +856,8 @@ export interface EnvVarSaveInput {
   readonly id: string;
   readonly organizationId: OrganizationId;
   readonly projectId: ProjectId;
+  /** The environment the variable belongs to. */
+  readonly environmentId: EnvironmentId;
   /** Normalised by the caller to `[A-Z][A-Z0-9_]*`. */
   readonly key: string;
   /** AES-256-GCM ciphertext produced by the API. Never a plaintext value. */
@@ -796,6 +865,26 @@ export interface EnvVarSaveInput {
   readonly valuePrefix: string;
   readonly isBuildTime: boolean;
   readonly updatedBy: UserId;
+}
+
+/**
+ * One of a project's environments.
+ *
+ * The two platform environments — Production and Preview — exist for every
+ * project (migration `0024`), and a customer may add `custom` ones. `kind` is
+ * what makes the model usable: `production` and `preview` are the names Vercel's
+ * own Environment Variables dialog offers, and the deployment path resolves an
+ * environment by kind rather than by a customer-chosen name.
+ */
+export interface ProjectEnvironment {
+  readonly id: EnvironmentId;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly name: string;
+  readonly kind: "production" | "preview" | "custom";
+  /** The environment a deployment uses when it names none. Production. */
+  readonly isDefault: boolean;
+  readonly createdAt: string;
 }
 
 /**
@@ -1468,6 +1557,15 @@ export interface Deployment {
    * "Preview" beside a build without inventing a second table.
    */
   readonly kind: "production" | "preview";
+  /**
+   * The environment this deployment belongs to, or null for a row written
+   * before `0024`.
+   *
+   * Vercel's model: a deployment is Production or Preview, and the environment
+   * is what selects the variable set the build received. A request attribute,
+   * not an engine observation, so it is not frozen by the engine-column guard.
+   */
+  readonly environmentId: EnvironmentId | null;
   /**
    * Whether this production deployment was built without being made live.
    *

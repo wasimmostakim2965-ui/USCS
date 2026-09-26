@@ -38,11 +38,13 @@ import type {
   MembershipStore,
   Organization,
   Project,
+  ProjectEnvironment,
   ProjectEnvVar,
   ProjectEnvVarSecret,
 } from "@cloud-wai/database";
 import type {
   AdapterContext,
+  EnvironmentId,
   OrganizationId,
   ProjectId,
   ProviderRef,
@@ -64,6 +66,8 @@ const ALICE = "u-alice";
 const CAROL = "u-carol";
 const ORG_A = "org-a" as OrganizationId;
 const PROJ_A = "proj-a" as ProjectId;
+const ENV_PROD = "env-prod" as EnvironmentId;
+const ENV_PREVIEW = "env-preview" as EnvironmentId;
 const TOKEN_ALICE = "t-alice";
 const TOKEN_CAROL = "t-carol";
 
@@ -112,6 +116,30 @@ function makeStore() {
     },
   ];
   const envVars: ProjectEnvVar[] = [];
+  // The two platform environments every project has (`0024`). The store models
+  // them for real, because the procedures resolve an environment by membership
+  // and a variable is scoped to one: a test that skipped this would not exercise
+  // the environment resolution at all.
+  const environments: ProjectEnvironment[] = [
+    {
+      id: ENV_PROD,
+      organizationId: ORG_A,
+      projectId: PROJ_A,
+      name: "Production",
+      kind: "production",
+      isDefault: true,
+      createdAt: "2026-01-01T00:00:00Z",
+    },
+    {
+      id: ENV_PREVIEW,
+      organizationId: ORG_A,
+      projectId: PROJ_A,
+      name: "Preview",
+      kind: "preview",
+      isDefault: false,
+      createdAt: "2026-01-01T00:00:00Z",
+    },
+  ];
   const encrypted = new Map<string, string>();
   const engineRefs = new Map<string, string>();
   const audit: AuditEvent[] = [];
@@ -128,6 +156,7 @@ function makeStore() {
     id: input.id,
     organizationId: input.organizationId,
     projectId: input.projectId,
+    environmentId: input.environmentId,
     key: input.key,
     valuePrefix: input.valuePrefix,
     isBuildTime: input.isBuildTime,
@@ -135,8 +164,12 @@ function makeStore() {
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   });
-  const refKey = (org: OrganizationId, project: ProjectId, key: string) =>
-    `${org}|${project}|${key}`;
+  const refKey = (
+    org: OrganizationId,
+    project: ProjectId,
+    environment: EnvironmentId,
+    key: string,
+  ) => `${org}|${project}|${environment}|${key}`;
 
   const store = {
     async listOrganizations(userId: UserId) {
@@ -178,51 +211,103 @@ function makeStore() {
         (v) =>
           v.organizationId === input.organizationId &&
           v.projectId === input.projectId &&
+          v.environmentId === input.environmentId &&
           v.key === input.key,
       );
       const next = toEnvVar(input);
       if (existing) envVars[envVars.indexOf(existing)] = next;
       else envVars.push(next);
-      encrypted.set(refKey(input.organizationId, input.projectId, input.key), input.valueEncrypted);
+      encrypted.set(
+        refKey(input.organizationId, input.projectId, input.environmentId, input.key),
+        input.valueEncrypted,
+      );
       return next;
     },
     async listEnvVarsForService(
       org: OrganizationId,
       projectId: ProjectId,
+      environmentId: EnvironmentId,
     ): Promise<readonly ProjectEnvVarSecret[]> {
       return envVars
-        .filter((v) => v.organizationId === org && v.projectId === projectId)
+        .filter(
+          (v) =>
+            v.organizationId === org &&
+            v.projectId === projectId &&
+            v.environmentId === environmentId,
+        )
         .map((v) => ({
           ...v,
-          valueEncrypted: encrypted.get(refKey(v.organizationId, v.projectId, v.key)) ?? "",
+          valueEncrypted: encrypted.get(refKey(v.organizationId, v.projectId, v.environmentId, v.key)) ?? "",
         }));
     },
     async setEnvVarEngineRef(input: {
       organizationId: OrganizationId;
       projectId: ProjectId;
+      environmentId: EnvironmentId;
       key: string;
       engineRef: string;
     }) {
-      engineRefs.set(refKey(input.organizationId, input.projectId, input.key), input.engineRef);
-      return envVars.find((v) => v.projectId === input.projectId && v.key === input.key) ?? null;
+      engineRefs.set(
+        refKey(input.organizationId, input.projectId, input.environmentId, input.key),
+        input.engineRef,
+      );
+      return (
+        envVars.find(
+          (v) =>
+            v.projectId === input.projectId &&
+            v.environmentId === input.environmentId &&
+            v.key === input.key,
+        ) ?? null
+      );
     },
     async getEnvVarEngineRef(
       _userId: UserId,
       org: OrganizationId,
       project: ProjectId,
+      environmentId: EnvironmentId,
       key: string,
     ) {
-      return engineRefs.get(refKey(org, project, key)) ?? null;
+      return engineRefs.get(refKey(org, project, environmentId, key)) ?? null;
     },
-    async deleteEnvVar(_userId: UserId, org: OrganizationId, project: ProjectId, key: string) {
+    async deleteEnvVar(
+      _userId: UserId,
+      org: OrganizationId,
+      project: ProjectId,
+      environmentId: EnvironmentId,
+      key: string,
+    ) {
       const index = envVars.findIndex(
-        (v) => v.organizationId === org && v.projectId === project && v.key === key,
+        (v) =>
+          v.organizationId === org &&
+          v.projectId === project &&
+          v.environmentId === environmentId &&
+          v.key === key,
       );
       if (index < 0) return false;
       envVars.splice(index, 1);
-      engineRefs.delete(refKey(org, project, key));
-      encrypted.delete(refKey(org, project, key));
+      engineRefs.delete(refKey(org, project, environmentId, key));
+      encrypted.delete(refKey(org, project, environmentId, key));
       return true;
+    },
+    async listEnvironments(userId: UserId, projectId: ProjectId) {
+      const p = projects.find((x) => x.id === projectId);
+      if (!p || !isMember(userId, p.organizationId)) return [];
+      return environments.filter((environment) => environment.projectId === projectId);
+    },
+    async getEnvironment(userId: UserId, projectId: ProjectId, environmentId: EnvironmentId) {
+      const p = projects.find((x) => x.id === projectId);
+      if (!p || !isMember(userId, p.organizationId)) return null;
+      return (
+        environments.find(
+          (environment) =>
+            environment.projectId === projectId && environment.id === environmentId,
+        ) ?? null
+      );
+    },
+    async listEnvironmentsForService(org: OrganizationId, projectId: ProjectId) {
+      return environments.filter(
+        (environment) => environment.organizationId === org && environment.projectId === projectId,
+      );
     },
     async getProjectDeploymentTarget() {
       return target.providerResourceId
@@ -231,7 +316,7 @@ function makeStore() {
     },
   } satisfies DataStore & Partial<ControlPlaneWrites>;
 
-  return { store, envVars, engineRefs, encrypted, audit, target };
+  return { store, envVars, environments, engineRefs, encrypted, audit, target };
 }
 
 type StoreLike = DataStore & Partial<ControlPlaneWrites>;
@@ -329,7 +414,7 @@ describe("env.set through the registered procedures", () => {
     expect(data.applied).toBe("engine");
     expect(data.redeployRequired).toBe(true);
     // The stored ciphertext is genuinely encrypted: it decrypts back to the value.
-    const ciphertext = encrypted.get(`${ORG_A}|${PROJ_A}|DATABASE_URL`)!;
+    const ciphertext = encrypted.get(`${ORG_A}|${PROJ_A}|${ENV_PROD}|DATABASE_URL`)!;
     expect(ciphertext).not.toContain("postgres://secret");
     expect(CIPHER.decrypt(ciphertext)).toBe("postgres://secret");
     expect(data.variable.valuePrefix).toBe(valueFingerprint("postgres://secret"));
@@ -553,3 +638,151 @@ describe("the engine resolves an application by the deploy's resourceId", () => 
     if (unknown.ok) expect(unknown.value).toHaveLength(0);
   });
 });
+
+describe("variables are scoped per environment (P13 / audit D5)", () => {
+  it("stores the same key twice, once per environment, with different values", async () => {
+    const { store, envVars, encrypted, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+
+    const prod = await set(router, {
+      projectId: PROJ_A,
+      key: "DATABASE_URL",
+      value: "postgres://prod",
+      environmentId: ENV_PROD,
+    });
+    const preview = await set(router, {
+      projectId: PROJ_A,
+      key: "DATABASE_URL",
+      value: "postgres://preview",
+      environmentId: ENV_PREVIEW,
+    });
+
+    expect(prod.ok).toBe(true);
+    expect(preview.ok).toBe(true);
+    // Two rows, one per environment — not one row overwritten.
+    expect(envVars).toHaveLength(2);
+    expect(envVars.map((v) => v.environmentId).sort()).toEqual([ENV_PROD, ENV_PREVIEW].sort());
+    // Each environment keeps its own ciphertext, so neither value leaked across.
+    expect(CIPHER.decrypt(encrypted.get(`${ORG_A}|${PROJ_A}|${ENV_PROD}|DATABASE_URL`)!)).toBe(
+      "postgres://prod",
+    );
+    expect(CIPHER.decrypt(encrypted.get(`${ORG_A}|${PROJ_A}|${ENV_PREVIEW}|DATABASE_URL`)!)).toBe(
+      "postgres://preview",
+    );
+  });
+
+  it("lists only the named environment's variables when one is given", async () => {
+    const { store, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+    await set(router, { projectId: PROJ_A, key: "PROD_ONLY", value: "1", environmentId: ENV_PROD });
+    await set(router, {
+      projectId: PROJ_A,
+      key: "PREVIEW_ONLY",
+      value: "2",
+      environmentId: ENV_PREVIEW,
+    });
+
+    const scoped = await router.route({
+      procedure: "env.list",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, environmentId: ENV_PREVIEW },
+    });
+
+    expect(scoped.ok).toBe(true);
+    const rows = scoped.data as readonly ProjectEnvVar[];
+    expect(rows.map((row) => row.key)).toEqual(["PREVIEW_ONLY"]);
+
+    // The unscoped list still names both, which is what a grouped page wants.
+    const all = await router.route({
+      procedure: "env.list",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A },
+    });
+    expect((all.data as readonly ProjectEnvVar[]).map((row) => row.key).sort()).toEqual([
+      "PREVIEW_ONLY",
+      "PROD_ONLY",
+    ]);
+  });
+
+  it("defaults to Production when no environment is named", async () => {
+    const { store, envVars, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+
+    await set(router, { projectId: PROJ_A, key: "OK", value: "x" });
+
+    expect(envVars).toHaveLength(1);
+    expect(envVars[0]!.environmentId).toBe(ENV_PROD);
+  });
+
+  it("refuses an environment that belongs to no project the caller can see", async () => {
+    const { store, envVars, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+
+    const res = await set(router, {
+      projectId: PROJ_A,
+      key: "OK",
+      value: "x",
+      environmentId: "env-from-another-tenant" as EnvironmentId,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("not_found");
+    expect(envVars).toHaveLength(0);
+  });
+
+  it("removes only the named environment's copy, leaving the other", async () => {
+    const { store, envVars, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+    await set(router, { projectId: PROJ_A, key: "SHARED", value: "prod", environmentId: ENV_PROD });
+    await set(router, {
+      projectId: PROJ_A,
+      key: "SHARED",
+      value: "preview",
+      environmentId: ENV_PREVIEW,
+    });
+
+    const res = await router.route({
+      procedure: "env.remove",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, key: "SHARED", environmentId: ENV_PREVIEW },
+    });
+
+    expect(res.ok).toBe(true);
+    expect((res.data as { removed: boolean }).removed).toBe(true);
+    expect(envVars).toHaveLength(1);
+    expect(envVars[0]!.environmentId).toBe(ENV_PROD);
+  });
+});
+
+describe("environments.list through the registered procedures", () => {
+  it("returns the project's environments, production first", async () => {
+    const { store, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+
+    const res = await router.route({
+      procedure: "environments.list",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A },
+    });
+
+    expect(res.ok).toBe(true);
+    const rows = res.data as readonly ProjectEnvironment[];
+    expect(rows.map((row) => row.kind)).toEqual(["production", "preview"]);
+    expect(rows[0]!.isDefault).toBe(true);
+  });
+
+  it("refuses a non-member rather than revealing the project exists", async () => {
+    const { store, hosting } = await provisioned();
+    const router = routerWith(store, enginesWith(hosting));
+
+    const res = await router.route({
+      procedure: "environments.list",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("not_found");
+  });
+});
+

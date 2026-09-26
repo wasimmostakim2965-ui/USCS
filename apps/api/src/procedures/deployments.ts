@@ -22,6 +22,7 @@ import type {
   AdapterResult,
   DeploymentId,
   EngineStatus,
+  EnvironmentId,
   ExecutionModel,
   OrganizationId,
   ProjectId,
@@ -134,6 +135,27 @@ function previewWritesFor(deps: DeploymentDeps): PreviewWrites {
     throw new ApiError("engine_unavailable", "This deployment cannot record preview targets yet.");
   }
   return deps.store as unknown as PreviewWrites;
+}
+
+/**
+ * The environment a deployment belongs to, by kind.
+ *
+ * Production and Preview exist for every project (`0024`), so a project that has
+ * them resolves to the matching row. A project that somehow has none yields null
+ * rather than a fabricated id: the deployment is still recorded and executed,
+ * and `environmentId` being null is the honest "this predates the model" state
+ * the column allows. The deploy itself never depends on this — only which set of
+ * environment variables the build receives does.
+ */
+async function environmentIdFor(
+  deps: DeploymentDeps,
+  userId: UserId,
+  projectId: ProjectId,
+  kind: "production" | "preview",
+): Promise<EnvironmentId | null> {
+  if (typeof deps.store.listEnvironments !== "function") return null;
+  const environments = await deps.store.listEnvironments(userId, projectId);
+  return environments.find((environment) => environment.kind === kind)?.id ?? null;
 }
 
 /**
@@ -830,6 +852,13 @@ export async function requestDeployment(
 
   // The row exists before the engine is called: a request that dies mid-flight
   // leaves a record, not an invisible half-deployment.
+  //
+  // The environment is resolved from the project's own rows (`0024`): Production
+  // for a production build, Preview for a preview. It is what selects the
+  // variable set the build receives (`0025`). A project with no environments
+  // (predating the model) records null, which is the honest state, not a guess.
+  const environmentId = await environmentIdFor(deps, ctx.principal.userId, project.id, kind);
+
   let deployment = await store.createDeployment({
     organizationId: project.organizationId,
     projectId: project.id,
@@ -841,6 +870,7 @@ export async function requestDeployment(
     url: null,
     failureReason: null,
     kind,
+    environmentId,
     staged,
     gitBranch,
     gitCommit: commit,
@@ -884,6 +914,7 @@ export async function requestDeployment(
       kind,
       staged,
       previewKey,
+      environmentId,
     };
     await deps.queue.enqueue({
       organizationId: project.organizationId,
@@ -1144,6 +1175,10 @@ export async function rollbackDeployment(
     return { deployment: existing, replayed: true, engineReason: existing.failureReason };
   }
 
+  // A rollback returns the production pointer to an earlier revision, so it is
+  // a Production deployment and belongs to the project's Production environment.
+  const environmentId = await environmentIdFor(deps, ctx.principal.userId, project.id, "production");
+
   let deployment = await store.createDeployment({
     organizationId: project.organizationId,
     projectId: project.id,
@@ -1154,6 +1189,8 @@ export async function rollbackDeployment(
     providerResourceId: null,
     url: null,
     failureReason: null,
+    kind: "production",
+    environmentId,
   });
 
   const adapterCtx = {
@@ -1186,6 +1223,7 @@ export async function rollbackDeployment(
       // revision, so it always takes effect.
       staged: false,
       previewKey: null,
+      environmentId,
     };
     await deps.queue.enqueue({
       organizationId: project.organizationId,

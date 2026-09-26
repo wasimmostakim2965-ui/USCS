@@ -830,6 +830,181 @@ describe("project environment variables", () => {
   });
 });
 
+describe("environment-scoped variables (P13/P14)", () => {
+  const environments = [
+    { id: "env-prod", name: "Production", kind: "production", isDefault: true },
+    { id: "env-preview", name: "Preview", kind: "preview", isDefault: false },
+  ];
+  const prodVar = {
+    id: "ev-1",
+    key: "DATABASE_URL",
+    valuePrefix: "a1b2",
+    isBuildTime: true,
+    environmentId: "env-prod",
+    updatedAt: "2026-01-02T00:00:00.000Z",
+  };
+  const previewVar = {
+    id: "ev-2",
+    key: "DATABASE_URL",
+    valuePrefix: "c3d4",
+    isBuildTime: true,
+    environmentId: "env-preview",
+    updatedAt: "2026-01-03T00:00:00.000Z",
+  };
+
+  it("offers the project's environments from the server, not a client constant", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "environments.list") {
+        return { ok: true, status: 200, data: environments };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: [prodVar, previewVar] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+
+    const picker = (await screen.findByLabelText("Environment")) as HTMLSelectElement;
+    await waitFor(() => expect(picker.options.length).toBe(3));
+    const labels = Array.from(picker.options).map((option) => option.textContent);
+    expect(labels).toEqual(["All environments", "Production (default)", "Preview"]);
+  });
+
+  it("filters on the server when an environment is selected", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "environments.list") {
+        return { ok: true, status: 200, data: environments };
+      }
+      if (procedure === "env.list") {
+        const body = input as { environmentId?: string };
+        const data = body.environmentId === "env-preview" ? [previewVar] : [prodVar, previewVar];
+        return { ok: true, status: 200, data };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    // Both environments' variables are shown initially, grouped by the column.
+    await waitFor(() => expect(screen.getByText("a1b2…")).toBeTruthy());
+    expect(screen.getByText("c3d4…")).toBeTruthy();
+
+    const picker = screen.getByLabelText("Environment") as HTMLSelectElement;
+    await waitFor(() => expect(picker.options.length).toBe(3));
+    await user.selectOptions(picker, "env-preview");
+
+    // The request carries the environment, so the filter is the server's.
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.procedure === "env.list" &&
+            (call.input as { environmentId?: string }).environmentId === "env-preview",
+        ),
+      ).toBe(true),
+    );
+    // Only Preview's value remains; the Production row is gone.
+    await waitFor(() => expect(screen.queryByText("a1b2…")).toBeNull());
+    expect(screen.getByText("c3d4…")).toBeTruthy();
+  });
+
+  it("sends the chosen environment when adding a variable", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "environments.list") {
+        return { ok: true, status: 200, data: environments };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      if (procedure === "env.set") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            variable: { ...previewVar, key: "API_TOKEN", valuePrefix: "ffff" },
+            applied: "engine",
+            redeployRequired: true,
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add variable" }));
+    await user.type(await screen.findByLabelText("Key"), "API_TOKEN");
+    await user.type(await screen.findByLabelText("Value"), "s3cret");
+    const picker = screen.getByLabelText("Variable environment") as HTMLSelectElement;
+    await waitFor(() => expect(picker.options.length).toBe(2));
+    await user.selectOptions(picker, "env-preview");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.procedure === "env.set" &&
+            (call.input as { environmentId?: string }).environmentId === "env-preview",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("sends the variable's own environment when removing it", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "environments.list") {
+        return { ok: true, status: 200, data: environments };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: [previewVar] };
+      }
+      if (procedure === "env.remove") {
+        return { ok: true, status: 200, data: { removed: true, engineReason: null } };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove" })[1]!);
+
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.procedure === "env.remove" &&
+            (call.input as { environmentId?: string }).environmentId === "env-preview",
+        ),
+      ).toBe(true),
+    );
+  });
+});
+
 describe("requesting and rolling back a deployment", () => {
   /**
    * A control plane that really records deployments, so the test exercises the

@@ -105,6 +105,10 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
         // it is a production deploy, which is what the defaults say.
         kind: input.kind ?? "production",
         previewKey: input.previewKey ?? null,
+        // An older job row has no environment; the executor then falls back to
+        // the project's default environment, so a queued job from before `0024`
+        // still receives a coherent variable set rather than none.
+        environmentId: input.environmentId ?? null,
       },
     );
 

@@ -25,6 +25,7 @@
  */
 import type { ControlPlaneWrites, DataStore, ProjectGitLink } from "@cloud-wai/database";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
+import type { EnvironmentId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import type { JobQueue } from "@cloud-wai/adapters";
 import type { SecretCipher } from "@cloud-wai/auth";
 import { cloneUrlFor, verifyGitDelivery } from "./procedures/git-links.js";
@@ -46,7 +47,15 @@ type HookWrites = Pick<
   | "getProjectForService"
   | "createDeployment"
   | "findDeploymentByIdempotencyKeyForService"
->;
+> & {
+  /**
+   * The project's environments, to scope the build's variables (`0025`).
+   *
+   * Optional: a store that cannot list them yields no environment id, and the
+   * executor resolves the project's default instead of the webhook guessing.
+   */
+  readonly listEnvironmentsForService?: ControlPlaneWrites["listEnvironmentsForService"];
+};
 
 const REQUIRED_WRITES = [
   "getGitLinkForService",
@@ -84,6 +93,25 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function stringAt(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * The environment a delivery's build belongs to, or null.
+ *
+ * A push is a production deploy and a pull request a preview, so the mapping is
+ * the same one `requestDeployment` uses. A store that cannot list environments
+ * (a first deployment, a read-only double) yields null, which the executor then
+ * resolves to the project's default — never a fabricated id.
+ */
+async function environmentIdForHook(
+  writes: HookWrites,
+  organizationId: OrganizationId,
+  projectId: ProjectId,
+  kind: "production" | "preview",
+): Promise<EnvironmentId | null> {
+  if (typeof writes.listEnvironmentsForService !== "function") return null;
+  const environments = await writes.listEnvironmentsForService(organizationId, projectId);
+  return environments.find((environment) => environment.kind === kind)?.id ?? null;
 }
 
 /** A delivery parsed down to what a deployment needs. */
@@ -290,6 +318,12 @@ export async function deployFromDelivery(
     return { status: 202, body: { ok: true, reason: "repository_url_unknown" } };
   }
 
+  // The environment the build belongs to: Production for a push, Preview for a
+  // pull request — the same mapping `requestDeployment` uses. A store that
+  // cannot list environments leaves it null and the executor resolves the
+  // project's default, so a webhook is never blocked on this.
+  const environmentId = await environmentIdForHook(writes, link.organizationId, link.projectId, kind);
+
   const deployment = await writes.createDeployment({
     organizationId: link.organizationId,
     projectId: link.projectId,
@@ -303,6 +337,7 @@ export async function deployFromDelivery(
     url: null,
     failureReason: null,
     kind,
+    environmentId,
     gitBranch: delivery.branch,
     gitCommit: delivery.commit,
     pullRequest: delivery.pullRequest,
@@ -341,6 +376,7 @@ export async function deployFromDelivery(
     // is a deliberate human step (`deployments.create` with `staged`).
     staged: false,
     previewKey,
+    environmentId,
   };
   await deps.queue.enqueue({
     organizationId: link.organizationId,

@@ -42,6 +42,7 @@ import {
   loadDeploymentLogs,
   loadDomains,
   loadEnvVars,
+  loadEnvironments,
   loadGitLinks,
   deployFromLink,
   loadGitDeploySource,
@@ -84,6 +85,7 @@ import {
   type DomainVerificationSummary,
   type GitLinkSummary,
   type EnvVarSummary,
+  type EnvironmentSummary,
   type SetEnvVarOutcome,
   type ConnectedGitLinkSummary,
   type IssuedApiKey,
@@ -2530,6 +2532,14 @@ function DisconnectRepositoryModal({
  * here. A variable a project has never deployed is stored and honestly reported
  * as `stored` rather than applied, because a project with no application has
  * nowhere to push it; the deploy that creates that application reconciles it.
+ *
+ * A variable belongs to one of the project's environments (`0025`), so the page
+ * is organised the way Vercel's Environment Variables dialog is: a picker that
+ * selects an environment, and a list of that environment's variables. The picker
+ * is built from `environments.list`, never from a client-side constant, so an
+ * environment the server does not report cannot be offered. Selecting one filters
+ * on the *server* (the same `environmentId` the API validates), so the page never
+ * hides a row it was not meant to see — it never receives it.
  */
 export function EnvVarsPage({
   organizationId,
@@ -2539,9 +2549,22 @@ export function EnvVarsPage({
   readonly projectId: string;
 }) {
   const { client } = useApp();
-  const { section, reload } = useSection(
-    () => loadEnvVars(client, projectId),
+  const environments = useSection(
+    () => loadEnvironments(client, projectId),
     [client, projectId],
+    "Environments",
+  );
+  // The selected environment is the picker's own state; it starts empty and is
+  // set from the server's list once it loads, so the first render never filters
+  // on an id the page invented.
+  const [environmentId, setEnvironmentId] = useState<string>("");
+  const environmentList =
+    environments.section.state.kind === "ready" ? environments.section.state.items : [];
+  const selected = environmentList.find((environment) => environment.id === environmentId) ?? null;
+
+  const { section, reload } = useSection(
+    () => loadEnvVars(client, projectId, environmentId || undefined),
+    [client, projectId, environmentId],
     "Environment variables",
   );
 
@@ -2549,10 +2572,13 @@ export function EnvVarsPage({
   const [creating, setCreating] = useState(false);
   const [removing, setRemoving] = useState<EnvVarSummary | null>(null);
 
+  const environmentName = (id: string) =>
+    environmentList.find((environment) => environment.id === id)?.name ?? id;
+
   return (
     <PageShell
       title="Environment"
-      subtitle="Variables injected into this project's builds and runtime. Values are encrypted and never shown again."
+      subtitle="Variables injected into this project's builds and runtime, per environment. Values are encrypted and never shown again."
       actions={
         <div style={{ display: "flex", gap: 8 }}>
           <Button onClick={reload} aria-label="Refresh variables">
@@ -2564,6 +2590,31 @@ export function EnvVarsPage({
         </div>
       }
     >
+      <Card>
+        <Field
+          label="Environment"
+          hint="Production and Preview exist for every project. A variable is scoped to one of them."
+        >
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              aria-label="Environment"
+              value={environmentId}
+              onChange={(event) => setEnvironmentId(event.target.value)}
+            >
+              <option value="">All environments</option>
+              {environmentList.map((environment) => (
+                <option key={environment.id} value={environment.id}>
+                  {environment.name}
+                  {environment.isDefault ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      </Card>
+
       <Card flush>
         <SectionView<EnvVarSummary>
           section={section}
@@ -2572,6 +2623,13 @@ export function EnvVarsPage({
               key: "key",
               header: "Key",
               render: (item) => <span className="mono">{item.key}</span>,
+            },
+            {
+              key: "environment",
+              header: "Environment",
+              render: (item) => (
+                <span>{environmentName(item.environmentId)}</span>
+              ),
             },
             {
               key: "value",
@@ -2610,16 +2668,18 @@ export function EnvVarsPage({
           ]}
           rowKey={(item) => item.id}
           onRetry={reload}
-          emptyMessage="No environment variables yet. Add one and it is injected into the next build."
+          emptyMessage="No environment variables here yet. Add one and it is injected into the next build."
           filterText={(item) => item.key}
           filterLabel="Filter variables"
         />
       </Card>
 
       <EnvVarModal
-        key={`create-${String(creating)}`}
+        key={`create-${String(creating)}-${environmentId}`}
         open={creating}
         projectId={projectId}
+        environments={environmentList}
+        defaultEnvironmentId={selected?.id ?? environmentId}
         existing={null}
         onClose={() => setCreating(false)}
         onSaved={() => {
@@ -2632,6 +2692,8 @@ export function EnvVarsPage({
         key={`edit-${editing?.id ?? "none"}`}
         open={editing !== null}
         projectId={projectId}
+        environments={environmentList}
+        defaultEnvironmentId={editing?.environmentId ?? environmentId}
         existing={editing}
         onClose={() => setEditing(null)}
         onSaved={() => {
@@ -2662,16 +2724,24 @@ export function EnvVarsPage({
  * adapter confirmed the write, `stored` when it could only be saved — and a
  * build-time save offers a redeploy, because that is the only thing that makes a
  * build-time change take effect.
+ *
+ * The environment picker is populated from the project's own environments, so
+ * the operator chooses one the server recognises; the chosen id is sent with the
+ * write, and the API validates it belongs to this project before storing it.
  */
 function EnvVarModal({
   open,
   projectId,
+  environments,
+  defaultEnvironmentId,
   existing,
   onClose,
   onSaved,
 }: {
   readonly open: boolean;
   readonly projectId: string;
+  readonly environments: readonly EnvironmentSummary[];
+  readonly defaultEnvironmentId: string;
   readonly existing: EnvVarSummary | null;
   readonly onClose: () => void;
   readonly onSaved: () => void;
@@ -2680,6 +2750,7 @@ function EnvVarModal({
   const [key, setKey] = useState(existing?.key ?? "");
   const [value, setValue] = useState("");
   const [isBuildTime, setIsBuildTime] = useState(existing?.isBuildTime ?? true);
+  const [environmentId, setEnvironmentId] = useState(defaultEnvironmentId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<SetEnvVarOutcome | null>(null);
@@ -2698,6 +2769,7 @@ function EnvVarModal({
       key,
       value,
       isBuildTime,
+      ...(environmentId ? { environmentId } : {}),
     });
     setBusy(false);
     if (!response.ok || !response.data) {
@@ -2834,6 +2906,33 @@ function EnvVarModal({
               />
             )}
           </Field>
+          <Field
+            label="Environment"
+            hint="The environment this variable is scoped to. The same key can hold a different value in each."
+          >
+            {(id) => (
+              <select
+                id={id}
+                className="input"
+                aria-label="Variable environment"
+                value={environmentId}
+                disabled={editing}
+                onChange={(event) => setEnvironmentId(event.target.value)}
+              >
+                {environments.map((environment) => (
+                  <option key={environment.id} value={environment.id}>
+                    {environment.name}
+                    {environment.isDefault ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          {editing ? (
+            <p className="small muted">
+              An environment is fixed once a variable exists. Remove it and add it again to move it.
+            </p>
+          ) : null}
           <label className="row small">
             <input
               type="checkbox"
@@ -2878,7 +2977,11 @@ function RemoveEnvVarModal({
     setError(null);
     const response = await client.call<{ removed: boolean; engineReason: string | null }>(
       "env.remove",
-      { projectId, key: variable.key },
+      {
+        projectId,
+        key: variable.key,
+        ...(variable.environmentId ? { environmentId: variable.environmentId } : {}),
+      },
     );
     setBusy(false);
     if (!response.ok || !response.data) {

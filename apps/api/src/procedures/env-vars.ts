@@ -25,8 +25,14 @@
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { Engines } from "@cloud-wai/adapters";
-import type { ControlPlaneWrites, DataStore, Project, ProjectEnvVar } from "@cloud-wai/database";
-import type { OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
+import type {
+  ControlPlaneWrites,
+  DataStore,
+  Project,
+  ProjectEnvironment,
+  ProjectEnvVar,
+} from "@cloud-wai/database";
+import type { EnvironmentId, OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
 import type { SecretCipher } from "@cloud-wai/auth";
 import { valueFingerprint } from "@cloud-wai/auth";
 import type { RequestContext } from "../context.js";
@@ -108,6 +114,43 @@ function checkValue(value: string): string {
 }
 
 /**
+ * Resolve the environment a variable belongs to.
+ *
+ * An absent id means the project's default environment — Production — which is
+ * what a plain save did before `0025` scoped variables per environment, so an
+ * older caller keeps its behaviour rather than failing or landing in Preview. A
+ * present id must name an environment of *this* project: the lookup is scoped by
+ * project and membership, so a client cannot attach a variable to another
+ * tenant's environment by guessing an id.
+ */
+async function resolveEnvironment(
+  ctx: RequestContext,
+  deps: EnvVarDeps,
+  project: Project,
+  environmentId: EnvironmentId | undefined,
+): Promise<ProjectEnvironment> {
+  const environments = await deps.store.listEnvironments(ctx.principal.userId, project.id);
+  if (environments.length === 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      "This project has no environments yet, so a variable cannot be scoped to one.",
+    );
+  }
+
+  if (environmentId === undefined) {
+    return environments.find((environment) => environment.isDefault) ?? environments[0]!;
+  }
+
+  const found = environments.find((environment) => environment.id === environmentId);
+  if (!found) {
+    // A project-scoped lookup, not a global one: an id from another project or
+    // another tenant is simply not among this project's environments.
+    throw new ApiError("not_found", "That environment does not belong to this project.");
+  }
+  return found;
+}
+
+/**
  * The engine-side application a variable belongs to, or null.
  *
  * Environment variables live on the *application*, so a project that has never
@@ -132,6 +175,12 @@ async function applicationRefFor(
 
 export interface ListEnvVarsInput {
   readonly projectId: ProjectId;
+  /**
+   * Filter to one environment. Absent lists every environment's variables, which
+   * is what the page wants when it groups by environment; a present id must name
+   * an environment of this project.
+   */
+  readonly environmentId?: EnvironmentId | undefined;
 }
 
 /** A project's environment variables. Never includes a value. */
@@ -143,7 +192,15 @@ export async function listEnvVars(
   const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
   if (!project) throw new ApiError("not_found", "Project not found.");
   requireCapability(ctx, project.organizationId, "project:read");
-  return deps.store.listEnvVars(ctx.principal.userId, project.id);
+
+  const variables = await deps.store.listEnvVars(ctx.principal.userId, project.id);
+  if (input.environmentId === undefined) return variables;
+
+  // A named environment must belong to this project; an unknown id returns
+  // nothing rather than another project's rows, because the filter is applied to
+  // this project's own variables.
+  const environment = await resolveEnvironment(ctx, deps, project, input.environmentId);
+  return variables.filter((variable) => variable.environmentId === environment.id);
 }
 
 export interface SetEnvVarInput {
@@ -151,6 +208,11 @@ export interface SetEnvVarInput {
   readonly key: string;
   readonly value: string;
   readonly isBuildTime?: boolean | undefined;
+  /**
+   * The environment to write into. Absent means the project's default
+   * (Production), which is the pre-`0025` behaviour for an older caller.
+   */
+  readonly environmentId?: EnvironmentId | undefined;
 }
 
 /**
@@ -201,11 +263,14 @@ export async function setEnvVar(
   const value = checkValue(input.value);
   const isBuildTime = input.isBuildTime ?? true;
 
+  const environment = await resolveEnvironment(ctx, deps, project, input.environmentId);
+
   const writes = writesFor(deps);
   const variable = await writes.saveEnvVar({
     id: deps.newId(),
     organizationId: project.organizationId,
     projectId: project.id,
+    environmentId: environment.id,
     key,
     valueEncrypted: deps.cipher.encrypt(value),
     valuePrefix: valueFingerprint(value),
@@ -220,7 +285,7 @@ export async function setEnvVar(
     const result = await deps.engines.hosting.createEnvVar(
       {
         organizationId: project.organizationId,
-        idempotencyKey: `env-${project.id}-${key}`,
+        idempotencyKey: `env-${project.id}-${environment.id}-${key}`,
         timeoutMs: ADAPTER_TIMEOUT_MS,
       },
       { applicationRef: ref, variable: { key, value, isBuildTime } },
@@ -230,6 +295,7 @@ export async function setEnvVar(
       await writes.setEnvVarEngineRef({
         organizationId: project.organizationId,
         projectId: project.id,
+        environmentId: environment.id,
         key,
         engineRef: result.value.engineRef ?? "",
         provider: ref.provider,
@@ -254,7 +320,7 @@ export async function setEnvVar(
     targetId: variable.id,
     // The value is deliberately absent: an audit row is readable by every
     // member, and a value in it would be a secret published to the tenant.
-    metadata: { projectId: project.id, key, isBuildTime, applied },
+    metadata: { projectId: project.id, environmentId: environment.id, key, isBuildTime, applied },
   });
 
   return {
@@ -270,6 +336,11 @@ export async function setEnvVar(
 export interface RemoveEnvVarInput {
   readonly projectId: ProjectId;
   readonly key: string;
+  /**
+   * The environment to remove from. Absent means the project's default
+   * (Production), so a key alone removes the variable it named before `0025`.
+   */
+  readonly environmentId?: EnvironmentId | undefined;
 }
 
 export interface RemoveEnvVarOutcome {
@@ -297,10 +368,11 @@ export async function removeEnvVar(
   requireCapability(ctx, project.organizationId, "project:update");
 
   const key = normaliseKey(input.key);
+  const environment = await resolveEnvironment(ctx, deps, project, input.environmentId);
   const writes = writesFor(deps);
 
   const existing = (await deps.store.listEnvVars(ctx.principal.userId, project.id)).find(
-    (item) => item.key === key,
+    (item) => item.key === key && item.environmentId === environment.id,
   );
   if (!existing) {
     // Removing an absent variable is not an error; it is already gone.
@@ -314,13 +386,14 @@ export async function removeEnvVar(
       ctx.principal.userId,
       project.organizationId,
       project.id,
+      environment.id,
       key,
     );
     if (engineRef) {
       const result = await deps.engines.hosting.deleteEnvVar(
         {
           organizationId: project.organizationId,
-          idempotencyKey: `env-del-${project.id}-${key}`,
+          idempotencyKey: `env-del-${project.id}-${environment.id}-${key}`,
           timeoutMs: ADAPTER_TIMEOUT_MS,
         },
         { applicationRef: ref, engineRef },
@@ -337,6 +410,7 @@ export async function removeEnvVar(
     ctx.principal.userId,
     project.organizationId,
     project.id,
+    environment.id,
     key,
   );
 
@@ -348,7 +422,7 @@ export async function removeEnvVar(
       event: "env.removed",
       targetType: "project_env_var",
       targetId: existing.id,
-      metadata: { projectId: project.id, key },
+      metadata: { projectId: project.id, environmentId: environment.id, key },
     });
   }
   return { removed, engineReason };

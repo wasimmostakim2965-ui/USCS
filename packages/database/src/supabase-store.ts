@@ -17,6 +17,7 @@ import type {
   DataResourceId,
   DeploymentId,
   DomainId,
+  EnvironmentId,
   ExecutionModel,
   JobState,
   OrganizationId,
@@ -59,6 +60,7 @@ import type {
   ProjectDeploymentTarget,
   ProjectEnvVar,
   ProjectEnvVarSecret,
+  ProjectEnvironment,
   ProjectGitLink,
   ProjectProviderInput,
   ProjectUpdateInput,
@@ -223,6 +225,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       status: str(row, "status") as Deployment["status"],
       url: nullableStr(row, "url"),
       kind: str(row, "kind") === "preview" ? "preview" : "production",
+      environmentId: nullableStr(row, "environment_id") as EnvironmentId | null,
       staged: bool(row, "staged"),
       gitBranch: nullableStr(row, "git_branch"),
       gitCommit: nullableStr(row, "git_commit"),
@@ -259,6 +262,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       id: str(row, "id"),
       organizationId: str(row, "organization_id") as OrganizationId,
       projectId: str(row, "project_id") as ProjectId,
+      environmentId: str(row, "environment_id") as EnvironmentId,
       key: str(row, "key"),
       valuePrefix: str(row, "value_prefix"),
       isBuildTime: bool(row, "is_build_time"),
@@ -273,6 +277,22 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       ...toEnvVar(row),
       valueEncrypted: str(row, "value_encrypted"),
       engineRef: nullableStr(row, "engine_ref"),
+    };
+  }
+
+  function toEnvironment(row: Row): ProjectEnvironment {
+    const kind = str(row, "kind");
+    return {
+      id: str(row, "id") as EnvironmentId,
+      organizationId: str(row, "organization_id") as OrganizationId,
+      projectId: str(row, "project_id") as ProjectId,
+      name: str(row, "name"),
+      // A row written before `0024` carries the column default `custom`, so an
+      // unknown value is classified honestly rather than silently called
+      // Production.
+      kind: kind === "production" || kind === "preview" ? kind : "custom",
+      isDefault: bool(row, "is_default"),
+      createdAt: str(row, "created_at"),
     };
   }
 
@@ -771,9 +791,36 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         method: "GET",
         // `value_encrypted` is not named here, and is not in the client SELECT
         // grant either, so even a widened select cannot return it.
-        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=key.asc`,
+        path: `/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=key.asc`,
       });
       return found.map(toEnvVar);
+    },
+
+    async listEnvironments(
+      userId: UserId,
+      projectId: ProjectId,
+    ): Promise<readonly ProjectEnvironment[]> {
+      const found = await rows("listEnvironments", {
+        method: "GET",
+        // Production first, then Preview, then a customer's own: the order the
+        // dashboard's environment picker and the deploy path both want, and the
+        // order Vercel's own Environment Variables dialog lists them in.
+        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=kind.asc,name.asc`,
+      });
+      return found.map(toEnvironment);
+    },
+
+    async getEnvironment(
+      userId: UserId,
+      projectId: ProjectId,
+      environmentId: EnvironmentId,
+    ): Promise<ProjectEnvironment | null> {
+      const found = await rows("getEnvironment", {
+        method: "GET",
+        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at&project_id=eq.${q(projectId)}&id=eq.${q(environmentId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toEnvironment(row) : null;
     },
 
     async listUsageRecords(
@@ -1124,6 +1171,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           requested_by: input.requestedBy,
           failure_reason: input.failureReason,
           ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.environmentId ? { environment_id: input.environmentId } : {}),
           ...(input.staged ? { staged: input.staged } : {}),
           ...(input.gitBranch !== undefined ? { git_branch: input.gitBranch } : {}),
           ...(input.gitCommit !== undefined ? { git_commit: input.gitCommit } : {}),
@@ -1767,16 +1815,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async saveEnvVar(input: EnvVarSaveInput): Promise<ProjectEnvVar> {
       const saved = await must<Row[]>("saveEnvVar", {
         method: "POST",
-        // An upsert on (project_id, key): setting a variable that exists replaces
-        // its value and flags rather than failing, which is what "save" means.
-        // The service role bypasses the client grant, so the ciphertext is
-        // returned here — this method is not on a browser-facing read path.
-        path: "/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&on_conflict=project_id,key",
+        // An upsert on (project_id, environment_id, key): setting a variable that
+        // exists replaces its value and flags rather than failing, which is what
+        // "save" means. The conflict target is the unique index from `0025`, so a
+        // Preview row and a Production row with one key stay distinct. The service
+        // role bypasses the client grant, so the ciphertext is returned here —
+        // this method is not on a browser-facing read path.
+        path: "/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&on_conflict=project_id,environment_id,key",
         prefer: "return=representation,resolution=merge-duplicates",
         body: {
           id: input.id,
           organization_id: input.organizationId,
           project_id: input.projectId,
+          environment_id: input.environmentId,
           key: input.key,
           value_encrypted: input.valueEncrypted,
           value_prefix: input.valuePrefix,
@@ -1792,13 +1843,15 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async listEnvVarsForService(
       organizationId: OrganizationId,
       projectId: ProjectId,
+      environmentId: EnvironmentId,
     ): Promise<readonly ProjectEnvVarSecret[]> {
       const found = await rows("listEnvVarsForService", {
         method: "GET",
         // Service role only: this read returns the ciphertext, so it is on the
         // write interface where no browser-facing path can reach it. The tenant
-        // in the where clause is the boundary for a session-less worker.
-        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at,value_encrypted,engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&order=key.asc`,
+        // in the where clause is the boundary for a session-less worker, and the
+        // environment is what selects Preview values for a preview build.
+        path: `/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at,value_encrypted,engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&order=key.asc`,
       });
       return found.map(toEnvVarSecret);
     },
@@ -1806,6 +1859,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async setEnvVarEngineRef(input: {
       readonly organizationId: OrganizationId;
       readonly projectId: ProjectId;
+      readonly environmentId: EnvironmentId;
       readonly key: string;
       readonly engineRef: string;
       readonly provider: string | null;
@@ -1813,7 +1867,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     }): Promise<ProjectEnvVar | null> {
       const updated = await rows("setEnvVarEngineRef", {
         method: "PATCH",
-        path: `/project_env_vars?select=id,organization_id,project_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&organization_id=eq.${q(input.organizationId)}&project_id=eq.${q(input.projectId)}&key=eq.${q(input.key)}`,
+        path: `/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&organization_id=eq.${q(input.organizationId)}&project_id=eq.${q(input.projectId)}&environment_id=eq.${q(input.environmentId)}&key=eq.${q(input.key)}`,
         prefer: "return=representation",
         body: {
           engine_ref: input.engineRef,
@@ -1829,11 +1883,12 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       userId: UserId,
       organizationId: OrganizationId,
       projectId: ProjectId,
+      environmentId: EnvironmentId,
       key: string,
     ): Promise<string | null> {
       const found = await rows("getEnvVarEngineRef", {
         method: "GET",
-        path: `/project_env_vars?select=engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/project_env_vars?select=engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       return found.length > 0 ? nullableStr(found[0]!, "engine_ref") : null;
     },
@@ -1842,14 +1897,28 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       userId: UserId,
       organizationId: OrganizationId,
       projectId: ProjectId,
+      environmentId: EnvironmentId,
       key: string,
     ): Promise<boolean> {
       const deleted = await rows("deleteEnvVar", {
         method: "DELETE",
-        path: `/project_env_vars?select=id&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/project_env_vars?select=id&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;
+    },
+
+    async listEnvironmentsForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<readonly ProjectEnvironment[]> {
+      const found = await rows("listEnvironmentsForService", {
+        method: "GET",
+        // Service role: the worker has no session, so `organization_id` is the
+        // tenant boundary, exactly like `getProjectDeploymentTargetForService`.
+        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&order=kind.asc,name.asc`,
+      });
+      return found.map(toEnvironment);
     },
 
     async getPreviewTargetForService(

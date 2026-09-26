@@ -106,6 +106,28 @@ export interface DeploymentExecutionWrites {
     organizationId: OrganizationId,
     deploymentId: string,
   ): Promise<StoredDeploymentHandle | null>;
+  /**
+   * The project's environments, read on the service role.
+   *
+   * The executor needs the environment a job belongs to in order to select which
+   * variable set the build receives. A job enqueued before `0024` carries no
+   * environment, so this is how such a job still resolves the project's default
+   * (Production) rather than receiving no variables. Service-scoped: there is no
+   * session, so `organization_id` is the boundary. Optional so a test that pins
+   * deploy behaviour need not model environments; an absent port means "resolve
+   * from the job payload only", never a fabricated environment.
+   */
+  listEnvironmentsForService?(
+    organizationId: OrganizationId,
+    projectId: string,
+  ): Promise<readonly StoredEnvironment[]>;
+}
+
+/** The environment fields a build needs, as the worker reads them. */
+export interface StoredEnvironment {
+  readonly id: string;
+  readonly kind: "production" | "preview" | "custom";
+  readonly isDefault: boolean;
 }
 
 /**
@@ -148,6 +170,13 @@ export interface ExecuteDeploymentInput {
   readonly kind: "production" | "preview";
   /** The stable preview target key, or null for a production deploy. */
   readonly previewKey: string | null;
+  /**
+   * The environment this build belongs to, from the job payload, or null.
+   *
+   * Null means the job predates `0024`; the executor then resolves the project's
+   * default environment so the build still receives a variable set.
+   */
+  readonly environmentId: string | null;
 }
 
 export interface DeploymentExecutionResult {
@@ -195,7 +224,26 @@ export interface EnvVarSync {
     ctx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
     applicationRef: ProviderRef,
     projectId: string,
+    environmentId: string,
   ): Promise<void>;
+}
+
+/**
+ * The project's default environment, read on the service role, or null.
+ *
+ * Used only for a job that carries no environment id (enqueued before `0024`).
+ * A store that cannot list environments, or a project with none, yields null:
+ * the sync is then skipped rather than pushing an unscoped variable set, which
+ * is the honest choice — no environment means no correct set to send.
+ */
+async function defaultEnvironmentIdFor(
+  deps: DeploymentExecutorDeps,
+  organizationId: OrganizationId,
+  projectId: string,
+): Promise<string | null> {
+  if (typeof deps.writes.listEnvironmentsForService !== "function") return null;
+  const environments = await deps.writes.listEnvironmentsForService(organizationId, projectId);
+  return (environments.find((environment) => environment.isDefault) ?? environments[0])?.id ?? null;
 }
 
 /**
@@ -330,7 +378,17 @@ export async function executeDeployment(
   // configured on the function by its own engine; pushing Coolify variables onto
   // a Lambda function's ref would be the wrong engine entirely.
   if (deps.envVars && engine.model === "container") {
-    await deps.envVars.sync(adapterCtx, application, input.projectId);
+    // The environment selects which variable set the build receives. A job that
+    // carries none (enqueued before `0024`) resolves the project's default, so an
+    // in-flight job still gets a coherent set rather than an empty one. A project
+    // with no resolvable environment skips the sync: there is nothing to scope
+    // the variables to, and pushing them all would be the wrong set.
+    const environmentId =
+      input.environmentId ??
+      (await defaultEnvironmentIdFor(deps, input.organizationId, input.projectId));
+    if (environmentId) {
+      await deps.envVars.sync(adapterCtx, application, input.projectId, environmentId);
+    }
   }
 
   // A serverless deploy needs a built artifact; the container engine builds for

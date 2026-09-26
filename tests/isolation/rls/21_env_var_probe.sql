@@ -57,15 +57,25 @@ insert into projects (id, organization_id, name, slug, created_by) values
 -- A variable for A and one for B. `value_encrypted` is a stand-in for the API's
 -- AES-256-GCM ciphertext: the probe cares that whatever is stored cannot be read
 -- by a client.
+--
+-- Since `0025` a variable belongs to an environment, and `0024` creates each
+-- project's Production and Preview rows through a trigger on `projects`, so the
+-- ids are looked up rather than hard-coded.
 insert into project_env_vars
-  (id, organization_id, project_id, key, value_encrypted, value_prefix, is_build_time, updated_by)
-values
-  ('aaaaaaaa-0000-0000-0000-0000000000e1', 'aaaaaaaa-0000-0000-0000-00000000000a',
-   'aaaaaaaa-0000-0000-0000-0000000000a1', 'DATABASE_URL', 'v1:AAAA:BBBB:CCCC', 'a1b2', true,
-   '11111111-1111-1111-1111-111111111111'),
-  ('bbbbbbbb-0000-0000-0000-0000000000e2', 'bbbbbbbb-0000-0000-0000-00000000000b',
-   'bbbbbbbb-0000-0000-0000-0000000000b1', 'DATABASE_URL', 'v1:DDDD:EEEE:FFFF', 'c3d4', false,
-   '44444444-4444-4444-4444-444444444444');
+  (id, organization_id, project_id, environment_id, key, value_encrypted, value_prefix, is_build_time, updated_by)
+select 'aaaaaaaa-0000-0000-0000-0000000000e1', 'aaaaaaaa-0000-0000-0000-00000000000a',
+   'aaaaaaaa-0000-0000-0000-0000000000a1', e.id, 'DATABASE_URL', 'v1:AAAA:BBBB:CCCC', 'a1b2', true,
+   '11111111-1111-1111-1111-111111111111'
+  from environments e
+ where e.project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and e.kind = 'production';
+
+insert into project_env_vars
+  (id, organization_id, project_id, environment_id, key, value_encrypted, value_prefix, is_build_time, updated_by)
+select 'bbbbbbbb-0000-0000-0000-0000000000e2', 'bbbbbbbb-0000-0000-0000-00000000000b',
+   'bbbbbbbb-0000-0000-0000-0000000000b1', e.id, 'DATABASE_URL', 'v1:DDDD:EEEE:FFFF', 'c3d4', false,
+   '44444444-4444-4444-4444-444444444444'
+  from environments e
+ where e.project_id = 'bbbbbbbb-0000-0000-0000-0000000000b1' and e.kind = 'production';
 
 -- ===========================================================================
 -- Probe 1: a member reads A's key inventory, never B's, and never a value
@@ -133,14 +143,18 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
 do $$
+declare env_a uuid;
 begin
+  select id into env_a from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'production';
+
   -- A client cannot set the engine handle on INSERT.
   begin
     insert into project_env_vars
-      (organization_id, project_id, key, value_encrypted, value_prefix, updated_by, engine_ref)
+      (organization_id, project_id, environment_id, key, value_encrypted, value_prefix, updated_by, engine_ref)
     values
       ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1',
-       'FORGED', 'v1:X', 'ffff', '11111111-1111-1111-1111-111111111111', 'env-uuid-forged');
+       env_a, 'FORGED', 'v1:X', 'ffff', '11111111-1111-1111-1111-111111111111', 'env-uuid-forged');
     raise exception 'INTEGRITY FAIL: a client set engine_ref on insert';
   exception
     when insufficient_privilege then
@@ -170,24 +184,26 @@ set role authenticated;
 select set_config('request.jwt.claim.sub', '33333333-3333-3333-3333-333333333333', false);
 
 do $$
+declare env_a uuid; env_b uuid;
 begin
+  select id into env_a from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'production';
+  select id into env_b from environments
+   where project_id = 'bbbbbbbb-0000-0000-0000-0000000000b1' and kind = 'production';
+
   insert into project_env_vars
-    (organization_id, project_id, key, value_encrypted, value_prefix, updated_by)
+    (organization_id, project_id, environment_id, key, value_encrypted, value_prefix, updated_by)
   values
     ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1',
-     'FEATURE_FLAG', 'v1:GGGG', 'e5f6', '33333333-3333-3333-3333-333333333333');
-end;
-$$;
+     env_a, 'FEATURE_FLAG', 'v1:GGGG', 'e5f6', '33333333-3333-3333-3333-333333333333');
 
--- ... but never into an organization she does not belong to.
-do $$
-begin
+  -- ... but never into an organization she does not belong to.
   begin
     insert into project_env_vars
-      (organization_id, project_id, key, value_encrypted, value_prefix, updated_by)
+      (organization_id, project_id, environment_id, key, value_encrypted, value_prefix, updated_by)
     values
       ('bbbbbbbb-0000-0000-0000-00000000000b', 'bbbbbbbb-0000-0000-0000-0000000000b1',
-       'BACKDOOR', 'v1:HHHH', 'g7h8', '33333333-3333-3333-3333-333333333333');
+       env_b, 'BACKDOOR', 'v1:HHHH', 'g7h8', '33333333-3333-3333-3333-333333333333');
     raise exception 'ISOLATION FAIL: a member wrote a variable into another tenant';
   exception
     when insufficient_privilege then
@@ -199,28 +215,75 @@ $$;
 reset role;
 
 -- ===========================================================================
--- Probe 4: one row per project per key
+-- Probe 4: one row per project per environment per key
+--
+-- The uniqueness that `0015` placed on `(project_id, key)` now includes the
+-- environment (`0025`): the same key may hold a Preview value and a Production
+-- value — the point of the feature — but still only one value within either.
 -- ===========================================================================
 
 set role authenticated;
 select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
 
 do $$
+declare env_prod uuid; env_prev uuid;
 begin
+  select id into env_prod from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'production';
+  select id into env_prev from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'preview';
+
+  -- A duplicate within one environment is refused: one key is one variable.
   begin
     insert into project_env_vars
-      (organization_id, project_id, key, value_encrypted, value_prefix, updated_by)
+      (organization_id, project_id, environment_id, key, value_encrypted, value_prefix, updated_by)
     values
       ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1',
-       'DATABASE_URL', 'v1:IIII', 'i9j0', '11111111-1111-1111-1111-111111111111');
-    raise exception 'SCHEMA FAIL: a duplicate (project_id, key) row was accepted';
+       env_prod, 'DATABASE_URL', 'v1:IIII', 'i9j0', '11111111-1111-1111-1111-111111111111');
+    raise exception 'SCHEMA FAIL: a duplicate (project_id, environment_id, key) row was accepted';
   exception
     when unique_violation then
-      null; -- expected: the unique constraint is what keeps one key one variable
+      null; -- expected: the unique index keeps one key one variable per environment
   end;
+
+  -- The same key in the other environment is accepted — that is the feature.
+  insert into project_env_vars
+    (organization_id, project_id, environment_id, key, value_encrypted, value_prefix, updated_by)
+  values
+    ('aaaaaaaa-0000-0000-0000-00000000000a', 'aaaaaaaa-0000-0000-0000-0000000000a1',
+     env_prev, 'DATABASE_URL', 'v1:JJJJ', 'k1l2', '11111111-1111-1111-1111-111111111111');
 end;
 $$;
 
 reset role;
+
+-- ===========================================================================
+-- Probe 5: an environment is created with its project
+--
+-- `0024` gives every project a Production and a Preview row through a trigger,
+-- so a project cannot exist without the environments a variable is scoped to.
+-- ===========================================================================
+
+do $$
+declare
+  prod int;
+  prev int;
+  total int;
+begin
+  select count(*) into prod from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'production';
+  select count(*) into prev from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1' and kind = 'preview';
+  select count(*) into total from environments
+   where project_id = 'aaaaaaaa-0000-0000-0000-0000000000a1';
+
+  if prod <> 1 or prev <> 1 then
+    raise exception 'SCHEMA FAIL: project A has % production / % preview environments (expected 1/1)', prod, prev;
+  end if;
+  if total <> 2 then
+    raise exception 'SCHEMA FAIL: project A has % environments (expected exactly 2)', total;
+  end if;
+end;
+$$;
 
 \echo 'env var probe passed: the value is unreadable, the engine handle is engine-owned, and scope holds'

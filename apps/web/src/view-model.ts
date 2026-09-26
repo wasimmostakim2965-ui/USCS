@@ -1327,15 +1327,63 @@ export interface EnvVarSummary {
   readonly key: string;
   readonly valuePrefix: string;
   readonly isBuildTime: boolean;
+  /**
+   * The environment the variable is scoped to.
+   *
+   * Vercel's model: the same key holds a different value per environment, so a
+   * page that grouped only by key would hide which environment a row belongs to.
+   */
+  readonly environmentId: string;
   readonly updatedAt: string;
 }
 
-/** The project's environment variables. */
+/**
+ * One of a project's environments, as the browser sees it.
+ *
+ * The two platform environments exist for every project (`0024`), so a picker
+ * built from this never has to invent Production or Preview. `kind` is the
+ * stable vocabulary; `name` is what a customer reads.
+ */
+export interface EnvironmentSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly kind: "production" | "preview" | "custom";
+  readonly isDefault: boolean;
+}
+
+/**
+ * A project's environments, production first.
+ *
+ * The order is the server's (`kind asc, name asc`), so the picker's first entry
+ * is Production — the environment a plain save lands in — without the page
+ * re-sorting a list it did not order.
+ */
+export async function loadEnvironments(
+  client: ApiClient,
+  projectId: string,
+): Promise<Section<EnvironmentSummary>> {
+  const response = await client.call<readonly EnvironmentSummary[]>("environments.list", {
+    projectId,
+  });
+  return sectionFrom("Environments", response);
+}
+
+/**
+ * The project's environment variables, optionally for one environment.
+ *
+ * An absent `environmentId` lists every environment's variables, which is what a
+ * page that groups by environment wants; a present one is the server's own
+ * filter, so the page never filters a list it was not meant to see.
+ */
 export async function loadEnvVars(
   client: ApiClient,
   projectId: string,
+  environmentId?: string,
 ): Promise<Section<EnvVarSummary>> {
-  const response = await client.call<readonly EnvVarSummary[]>("env.list", { projectId });
+  const response = await client.call<readonly EnvVarSummary[]>("env.list", {
+    projectId,
+    ...(environmentId ? { environmentId } : {}),
+  });
   return sectionFrom("Environment variables", response);
 }
 

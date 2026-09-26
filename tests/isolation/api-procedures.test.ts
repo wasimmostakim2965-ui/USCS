@@ -285,6 +285,7 @@ describe("the registered procedure table", () => {
       "env.list",
       "env.remove",
       "env.set",
+      "environments.list",
       "git.connect",
       "git.deployNow",
       "git.disconnect",

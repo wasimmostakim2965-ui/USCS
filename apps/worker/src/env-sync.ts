@@ -26,6 +26,7 @@ export interface EnvSyncStore {
   readonly listEnvVarsForService: (
     organizationId: OrganizationId,
     projectId: string,
+    environmentId: string,
   ) => Promise<
     readonly {
       readonly key: string;
@@ -36,6 +37,7 @@ export interface EnvSyncStore {
   readonly setEnvVarEngineRef: (input: {
     readonly organizationId: OrganizationId;
     readonly projectId: string;
+    readonly environmentId: string;
     readonly key: string;
     readonly engineRef: string;
     readonly provider: string | null;
@@ -61,14 +63,19 @@ export function buildEnvVarSync(deps: EnvSyncDeps): {
     ctx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
     applicationRef: ProviderRef,
     projectId: string,
+    environmentId: string,
   ): Promise<void>;
 } | null {
   if (!deps.cipher) return null;
   const cipher = deps.cipher;
 
   return {
-    async sync(ctx, applicationRef, projectId): Promise<void> {
-      const stored = await deps.store.listEnvVarsForService(ctx.organizationId, projectId);
+    async sync(ctx, applicationRef, projectId, environmentId): Promise<void> {
+      const stored = await deps.store.listEnvVarsForService(
+        ctx.organizationId,
+        projectId,
+        environmentId,
+      );
       if (stored.length === 0) return;
 
       const existing = await deps.hosting.listEnvVars(ctx, applicationRef);
@@ -98,6 +105,7 @@ export function buildEnvVarSync(deps: EnvSyncDeps): {
           await deps.store.setEnvVarEngineRef({
             organizationId: ctx.organizationId,
             projectId,
+            environmentId,
             key: variable.key,
             engineRef: result.value.engineRef ?? "",
             provider: applicationRef.provider,

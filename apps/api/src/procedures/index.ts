@@ -138,6 +138,11 @@ import {
   type RemoveEnvVarInput,
   type SetEnvVarInput,
 } from "./env-vars.js";
+import {
+  listEnvironments,
+  type EnvironmentDeps,
+  type ListEnvironmentsInput,
+} from "./environments.js";
 import { readUsage, readBudgets, saveBudget, removeBudget, type BillingDeps } from "./billing.js";
 import { readObservability, type ObservabilityDeps } from "./observability.js";
 import type { RequestContext } from "../context.js";
@@ -258,6 +263,7 @@ export function buildProcedures(
     cipher: extras.secretCipher ?? null,
     ...(extras.now ? { now: extras.now } : {}),
   };
+  const environmentDeps: EnvironmentDeps = { store };
 
   return [
     {
@@ -422,6 +428,11 @@ export function buildProcedures(
       name: "env.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listEnvVars(ctx, envVarDeps, inputOf<ListEnvVarsInput>(input)),
+    },
+    {
+      name: "environments.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listEnvironments(ctx, environmentDeps, inputOf<ListEnvironmentsInput>(input)),
     },
     {
       name: "env.set",
@@ -767,9 +778,16 @@ export const ROUTE_SHAPES = {
   },
   "git.disconnect": { projectId: "ProjectId", linkId: "string" },
   "git.deployNow": { projectId: "ProjectId", idempotencyKey: "string?" },
-  "env.list": { projectId: "ProjectId" },
-  "env.set": { projectId: "ProjectId", key: "string", value: "string", isBuildTime: "boolean?" },
-  "env.remove": { projectId: "ProjectId", key: "string" },
+  "env.list": { projectId: "ProjectId", environmentId: "EnvironmentId?" },
+  "environments.list": { projectId: "ProjectId" },
+  "env.set": {
+    projectId: "ProjectId",
+    key: "string",
+    value: "string",
+    isBuildTime: "boolean?",
+    environmentId: "EnvironmentId?",
+  },
+  "env.remove": { projectId: "ProjectId", key: "string", environmentId: "EnvironmentId?" },
   "audit.list": { organizationId: "OrganizationId" },
   "domains.list": { organizationId: "OrganizationId", projectId: "ProjectId?" },
   "domains.create": {

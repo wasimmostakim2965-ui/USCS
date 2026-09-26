@@ -43,6 +43,16 @@ export interface DeploymentJobPayload {
    */
   readonly staged: boolean;
   /**
+   * The environment this build belongs to.
+   *
+   * A deployment is scoped to an environment the way Vercel's is: a preview
+   * build is a Preview deployment, a production build a Production one, and the
+   * environment is what selects which set of environment variables the build
+   * receives (`0025`). It is a request attribute, carried on the job so the
+   * worker resolves the same environment the API recorded.
+   */
+  readonly environmentId: string | null;
+  /**
    * A stable key for a preview target — `pr-42` or `branch-feature-x` — so the
    * same branch reuses its application across pushes instead of creating a new
    * one per delivery. Null for a production deployment.
