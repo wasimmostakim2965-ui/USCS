@@ -18,6 +18,7 @@ import {
 } from "@cloud-wai/contracts";
 import type {
   AdapterContext,
+  BuildEngine,
   DatabaseAdapter,
   DeploymentState,
   DomainVerifier,
@@ -148,6 +149,30 @@ export function serverlessNotConfigured(engine: string, hint?: string): Serverle
     getDeployment: miss,
     deleteFunction: miss,
     getLogs: miss,
+  };
+}
+
+/**
+ * The honest build engine for a deployment with no builder configured.
+ *
+ * It exists so a build request reports `not_configured` rather than producing a
+ * fabricated artifact, and so a serverless project can distinguish "no builder
+ * is wired" from "the build failed" (ADR-0018).
+ */
+export function buildNotConfigured(engine: string, hint?: string): BuildEngine {
+  const miss = <T>(): Promise<AdapterResult<T>> =>
+    Promise.resolve(
+      err(
+        "not_configured",
+        `${engine} is not configured in this deployment.${hint ? ` ${hint}` : ""}`,
+      ),
+    );
+  return {
+    __notConfigured: true as const,
+    build: miss,
+    getArtifact: miss,
+    cancelBuild: miss,
+    getBuildLogs: miss,
   };
 }
 

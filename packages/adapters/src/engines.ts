@@ -10,6 +10,7 @@
  * and local development do.
  */
 import {
+  buildNotConfigured,
   databaseNotConfigured,
   fakeDatabase,
   fakeDomainVerifier,
@@ -25,6 +26,8 @@ import {
   createLambdaServerless,
   createPostgresDatabase,
   createMinioStorage,
+  createRailpackBuildEngine,
+  type BuildEngine,
   type CompileInput,
   type CoolifyCredentials,
   type DatabaseAdapter,
@@ -92,6 +95,14 @@ export interface EngineConfig {
    * verified by a TXT challenge, not by a CNAME the deployment cannot inspect.
    */
   readonly edgeHostname?: string | undefined;
+  /**
+   * Per-organization build-engine credentials, keyed by organization id.
+   *
+   * Absent means the honest `not_configured` build engine is wired, so a build
+   * request reports that state rather than fabricating an artifact.
+   */
+  readonly buildCredentials?:
+    Readonly<Record<string, { baseUrl: string; token: string }>> | undefined;
   /** Use in-memory engines. Only for tests and local development. */
   readonly useFakes?: boolean | undefined;
   /**
@@ -116,6 +127,16 @@ export interface Engines {
   readonly serverless: ServerlessAdapter;
   readonly database: DatabaseAdapter;
   readonly storage: StorageAdapter;
+  /**
+   * The build engine, when this deployment has a builder.
+   *
+   * It turns a Git source into a deployable artifact. It is the layer Vercel puts
+   * at the centre of its architecture, and the one port this platform was
+   * missing: without it a serverless project had no artifact and could only
+   * report `not_configured` for a missing build rather than a missing credential
+   * (ADR-0018).
+   */
+  readonly build: BuildEngine;
   readonly securityEdge: SecurityEdgeAdapter;
   /**
    * Confirms a hostname points at this deployment. Not an "engine" in the
@@ -208,6 +229,23 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     }
   }
 
+  // Per-organization build engine. A builder is reached like Coolify is: an
+  // endpoint plus a token scoped to one organization's builder.
+  const buildUrls: Record<string, string> = {};
+  const buildTokens: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!value || value.trim() === "") continue;
+    const url = key.match(/^BUILD_ENGINE_URL__(.+)$/);
+    if (url) buildUrls[url[1]!] = value;
+    const token = key.match(/^BUILD_ENGINE_TOKEN__(.+)$/);
+    if (token) buildTokens[token[1]!] = value;
+  }
+  const buildCredentials: Record<string, { baseUrl: string; token: string }> = {};
+  for (const org of Object.keys(buildUrls)) {
+    const token = buildTokens[org];
+    if (token) buildCredentials[org] = { baseUrl: buildUrls[org]!, token };
+  }
+
   return {
     coolifyUrl: env.COOLIFY_URL,
     coolifyTokens: tokens,
@@ -215,6 +253,7 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
     serverlessCredentials,
+    buildCredentials,
     securityEdgeConfigured: Boolean(env.SECURITY_EDGE_URL),
     edgeHostname: env.EDGE_HOSTNAME,
     useFakes: env.CLOUD_WAI_USE_FAKE_ENGINES === "true",
@@ -245,6 +284,7 @@ export function buildEngines(config: EngineConfig): Engines {
       serverless: fakeServerless(),
       database: fakeDatabase(),
       storage: storageNotConfigured("minio"),
+      build: buildNotConfigured("railpack", "Fakes do not build; wire a real builder."),
       securityEdge: securityNotConfigured("envoy"),
       // A deterministic lookup: unverified by default, so a test cannot pass a
       // check production would fail.
@@ -319,11 +359,27 @@ export function buildEngines(config: EngineConfig): Engines {
           "Set STORAGE_ENDPOINT and per-organization STORAGE_ACCESS_KEY__<organizationId> / STORAGE_SECRET_KEY__<organizationId>.",
         );
 
+  // The build engine is configured independently of every other engine: a
+  // deployment can build without a container engine and the reverse. Absent
+  // builder credentials, the honest `not_configured` engine is wired, so a build
+  // reports that state rather than producing a fabricated artifact.
+  const buildCredentials = config.buildCredentials ?? {};
+  const build: BuildEngine =
+    Object.keys(buildCredentials).length > 0
+      ? createRailpackBuildEngine({
+          credentials: (organizationId: OrganizationId) => buildCredentials[organizationId] ?? null,
+        })
+      : buildNotConfigured(
+          "railpack",
+          "Set BUILD_ENGINE_URL__<organizationId> and BUILD_ENGINE_TOKEN__<organizationId>.",
+        );
+
   return {
     hosting,
     serverless,
     database,
     storage,
+    build,
     // A caller that built a real edge adapter supplies it; otherwise the honest
     // `not_configured` edge is wired. An injected adapter is used as given — it
     // already knows how to refuse, and a fake would only be reachable if a caller
@@ -394,6 +450,7 @@ export function engineReport(engines: Engines): readonly {
     { engine: "lambda", configured: isConfigured(engines.serverless) },
     { engine: "postgres", configured: isConfigured(engines.database) },
     { engine: "minio", configured: isConfigured(engines.storage) },
+    { engine: "railpack", configured: isConfigured(engines.build) },
     { engine: "envoy", configured: isConfigured(engines.securityEdge) },
     { engine: "dns", configured: isConfigured(engines.domainVerifier) },
   ];

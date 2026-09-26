@@ -11,6 +11,7 @@
 import type { DataStore, Organization, Project } from "@cloud-wai/database";
 import type { ApiKeyId, ExecutionModel, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 import {
+  buildNotConfigured,
   databaseNotConfigured,
   domainVerifierNotConfigured,
   hostingNotConfigured,
@@ -146,6 +147,7 @@ const missingEngines: Engines = {
   serverless: serverlessNotConfigured("lambda"),
   database: databaseNotConfigured("postgres"),
   storage: storageNotConfigured("minio"),
+  build: buildNotConfigured("railpack"),
   securityEdge: securityNotConfigured("envoy"),
   domainVerifier: domainVerifierNotConfigured("dns"),
 };

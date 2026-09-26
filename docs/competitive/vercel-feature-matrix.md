@@ -134,7 +134,7 @@ object we have not built.
 | B3 | Back up a database | `data.backup`; bucket backup refused honestly | **Wired** |
 | B4 | Backup history | `data.backups.list` (`index.ts:302`) | **Wired** |
 | B5 | Restore from a backup (gate 9) | `data.restore` / `data.restores.list` (`apps/api/src/procedures/data.ts`), `data_restores` + RLS (`supabase/migrations/0012_data_restores.sql`), worker `buildRestoreJobHandler`/`buildRestoreApplier` (`apps/worker/src/restore-job.ts`), Dashboard `RestoreResourceModal` (`apps/web/src/pages/database.tsx`); name-confirmation + completed-backup-only refusals | **Wired** (Honest n/c without creds) |
-| B6 | Rotate credentials | adapter `rotateCredentials`; unreachable | **Contract-only (B4)** |
+| B6 | Rotate credentials | adapter `rotateCredentials` (`packages/adapters/src/postgres.ts:256`), `data.rotateCredentials` (`apps/api/src/procedures/data.ts`), registered (`apps/api/src/procedures/index.ts`), Dashboard `RotateCredentialsModal` with name-confirmation (`apps/web/src/pages/database.tsx`); postgres-only, requires a ready resource with an engine handle, and the new secret is never returned | **Wired** (Honest n/c without creds) |
 | B7 | Table editor | route + honest placeholder | **Missing (B2)** — needs table introspection |
 | B8 | SQL editor | route + honest placeholder | **Missing (B2)** |
 | B9 | Authentication (GoTrue surface) | route + honest placeholder | **Missing (B2)** |

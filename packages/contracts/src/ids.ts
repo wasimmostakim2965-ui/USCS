@@ -60,6 +60,14 @@ export const PROVIDER_NAMES = [
    * API are different; an adapter for one must not silently answer for the other.
    */
   "microvm",
+  /**
+   * Source-to-image build engine (Railpack and equivalents).
+   *
+   * Its own provider because a build is neither a hosting nor a serverless
+   * operation: it turns source into an artifact, and both of those engines
+   * consume the result without knowing how it was produced (ADR-0018).
+   */
+  "railpack",
   "fake",
 ] as const;
 
