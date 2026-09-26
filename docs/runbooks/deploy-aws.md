@@ -182,6 +182,44 @@ the SEO behaviour only if it also keeps attack mode off. Turning attack mode on
 without this step challenges every crawler. That is why it is written down here
 rather than left to the operator to infer.
 
+### The edge's obligation to the WAF threshold
+
+The compiled WAF rule reads `TX:BLOCKING_INBOUND_ANOMALY_SCORE` and compares it
+to `tx.inbound_anomaly_score_threshold`, which the same artifact sets in phase 1
+from the customer's risk level. Two things the edge host must get right, or the
+rule is inert and the customer's "block" does not block:
+
+1. **Run the directives after the CRS files that accumulate the score.** The
+   accumulator is written by the CRS rules in phase 2 (`REQUEST-9xx`), and the
+   CRS's own `REQUEST-949-BLOCKING-EVALUATION.conf` is what normally consumes it.
+   This artifact's phase-2 rule must be included after those, so the score is
+   populated when it runs. Include the CRS first, then the policy artifact; a
+   policy included before the rules it scores sees an empty variable and never
+   matches.
+2. **Do not rename the variables.** They are the CRS 4 names, and the pinned
+   ruleset is CRS 4.30.0-dev (ADR-0007). `tx.anomaly_score` is a derived value
+   CRS 4 sets in phase 5, after phase 2 — reading it here is the mistake this
+   contract exists to prevent, and it silently disables the rule rather than
+   failing loudly. The phase-1 `SecAction` overrides the CRS default threshold of
+   5, so the customer's chosen sensitivity wins; a deployment that strips it gets
+   the default, not the customer's value.
+
+If the compiled rule does not fire, an operator sees attacks allowed and the
+customer's action ignored — with no error anywhere. Verify it the way gate 7
+will: send a CRS fixture and confirm the deny, rather than assuming the include
+order is right.
+
+### The edge's obligation to the ASN deny
+
+A deny rule of kind `asn` compiles to `SecRule TX:CLOUD_WAI_ASN "@streq AS15169"`,
+because Coraza has no way to map a source address to the network announcing it.
+The edge host must resolve `REMOTE_ADDR` to an ASN and set `TX:CLOUD_WAI_ASN`
+before the deny rules run. Like the bot confirmation, this is a value Coraza
+cannot produce itself, and like it, an unset variable is not an error: the rule
+simply does not match, and an ASN block the customer configured silently blocks
+nothing. Set it from the edge's own resolver, never from a header. The IP and
+CIDR kinds need none of this — they match `REMOTE_ADDR` directly.
+
 ## 6. Verify the deployment
 
 1. **Liveness, through the load balancer:**

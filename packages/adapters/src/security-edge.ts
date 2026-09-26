@@ -295,9 +295,12 @@ function denyOperator(rule: DenyRule): { target: string; operator: string } {
     case "cidr":
       return { target: "REMOTE_ADDR", operator: `@ipMatch ${rule.value}` };
     case "asn":
-      // Coraza has no ASN primitive; the edge resolves it to an IP set upstream.
-      // The directive is emitted as a collection match so the intent is recorded
-      // and the edge's own ASN resolver is what enforces it.
+      // Coraza has no ASN primitive: it cannot map a source address to the
+      // network that announces it. The edge resolves `REMOTE_ADDR` to an ASN
+      // upstream and writes it to `TX:CLOUD_WAI_ASN`; this directive consumes
+      // that value. The variable name is part of the edge contract in
+      // docs/runbooks/deploy-aws.md — an edge that does not populate it leaves
+      // every ASN deny inert, with no error to show for it.
       return { target: "TX:CLOUD_WAI_ASN", operator: `@streq ${rule.value}` };
     case "user-agent":
       return { target: "REQUEST_HEADERS:User-Agent", operator: `@contains ${rule.value}` };

@@ -462,6 +462,29 @@ describe("the decision ladder", () => {
     expect(validateDenyRule({ kind: "user-agent", value: "Bad;Bot" }).ok).toBe(false);
   });
 
+  it("compiles each deny kind to the variable the edge contract names", () => {
+    // IP and CIDR match REMOTE_ADDR directly. ASN and user-agent depend on a
+    // value the edge supplies; the exact variable name is the contract in
+    // docs/runbooks/deploy-aws.md, so a rename here without the edge is a silent
+    // no-op rather than a loud failure.
+    const compiled = compileEdge({
+      route: route(),
+      denyList: [
+        { kind: "ip", value: "203.0.113.9" },
+        { kind: "cidr", value: "203.0.113.0/24" },
+        { kind: "asn", value: "AS15169" },
+        { kind: "user-agent", value: "EvilScraper" },
+      ],
+    });
+    const directives = compiled.corazaDirectives.filter((d) => d.includes("cloud-wai deny list"));
+    expect(directives).toHaveLength(4);
+    expect(directives[0]).toContain("REMOTE_ADDR");
+    expect(directives[1]).toContain("REMOTE_ADDR");
+    expect(directives[2]).toContain("TX:CLOUD_WAI_ASN");
+    expect(directives[2]).toContain("@streq AS15169");
+    expect(directives[3]).toContain("REQUEST_HEADERS:User-Agent");
+  });
+
   it("allows a trusted source address before the deny list and the challenge", () => {
     const compiled = compileEdge({
       route: route(),
