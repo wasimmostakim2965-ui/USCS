@@ -239,7 +239,11 @@ export function validateRateLimitRule(
   if (!Number.isInteger(rule.limit) || rule.limit < 1 || rule.limit > 1_000_000) {
     return { ok: false, reason: "A rate limit is an integer between 1 and 1000000." };
   }
-  if (!Number.isInteger(rule.windowSeconds) || rule.windowSeconds < 1 || rule.windowSeconds > 86_400) {
+  if (
+    !Number.isInteger(rule.windowSeconds) ||
+    rule.windowSeconds < 1 ||
+    rule.windowSeconds > 86_400
+  ) {
     return { ok: false, reason: "A rate-limit window is 1 to 86400 seconds." };
   }
   if (rule.key === "header") {

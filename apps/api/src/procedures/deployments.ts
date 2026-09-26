@@ -1034,7 +1034,10 @@ export async function rollbackDeployment(
   // serverless project the router reports `not_configured` (a rollback is a
   // container operation), never a Coolify rollback of a project that runs on
   // Lambda.
-  const engine = deploymentEngineFor(deps.engines, target?.executionModel ?? project.executionModel);
+  const engine = deploymentEngineFor(
+    deps.engines,
+    target?.executionModel ?? project.executionModel,
+  );
 
   if (!target?.providerResourceId) {
     engineReason =

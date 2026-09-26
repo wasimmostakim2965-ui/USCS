@@ -353,10 +353,7 @@ describe("the decision ladder", () => {
       ],
       policy,
     });
-    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual([
-      "one.example.com",
-      "two.example.com",
-    ]);
+    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual(["one.example.com", "two.example.com"]);
     // The primary is the first fragment, so a single-route caller reads the
     // same shape it always did.
     expect(compiled.envoyConfig).toEqual(compiled.envoyRoutes[0]);
@@ -427,7 +424,13 @@ describe("the decision ladder", () => {
       route: route(),
       rateLimits: [
         // A header name that is directive syntax must be refused, not escaped.
-        { id: "bad-1", key: "header", headerName: '" \nSecRuleEngine Off', limit: 10, windowSeconds: 60 },
+        {
+          id: "bad-1",
+          key: "header",
+          headerName: '" \nSecRuleEngine Off',
+          limit: 10,
+          windowSeconds: 60,
+        },
         // A header name on a non-header key is a half-specified rule.
         { id: "bad-2", key: "ip", headerName: "x-api-key", limit: 10, windowSeconds: 60 },
         // Zero and out-of-range values are refused.
@@ -442,13 +445,20 @@ describe("the decision ladder", () => {
   });
 
   it("validates a rate-limit rule against its key and bounds", () => {
-    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 60 }).ok).toBe(true);
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 60 }).ok).toBe(
+      true,
+    );
     expect(validateRateLimitRule({ id: "a", key: "global", limit: 1, windowSeconds: 1 }).ok).toBe(
       true,
     );
     expect(
-      validateRateLimitRule({ id: "a", key: "header", headerName: "x-api-key", limit: 1, windowSeconds: 1 })
-        .ok,
+      validateRateLimitRule({
+        id: "a",
+        key: "header",
+        headerName: "x-api-key",
+        limit: 1,
+        windowSeconds: 1,
+      }).ok,
     ).toBe(true);
     // A header key without a header name is refused.
     expect(validateRateLimitRule({ id: "a", key: "header", limit: 1, windowSeconds: 1 }).ok).toBe(
@@ -459,18 +469,30 @@ describe("the decision ladder", () => {
       validateRateLimitRule({ id: "a", key: "ip", headerName: "x", limit: 1, windowSeconds: 1 }).ok,
     ).toBe(false);
     // Bounds.
-    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 0, windowSeconds: 60 }).ok).toBe(false);
-    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 0 }).ok).toBe(false);
-    expect(
-      validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 86_401 }).ok,
-    ).toBe(false);
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 0, windowSeconds: 60 }).ok).toBe(
+      false,
+    );
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 0 }).ok).toBe(
+      false,
+    );
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 86_401 }).ok).toBe(
+      false,
+    );
   });
 
   it("stays deterministic with a rate limit present", () => {
     const input = {
       route: route(),
       policy,
-      rateLimits: [{ id: "rl-1", key: "header" as const, headerName: "x-api-key", limit: 60, windowSeconds: 60 }],
+      rateLimits: [
+        {
+          id: "rl-1",
+          key: "header" as const,
+          headerName: "x-api-key",
+          limit: 60,
+          windowSeconds: 60,
+        },
+      ],
     };
     expect(JSON.stringify(compileEdge(input))).toBe(JSON.stringify(compileEdge(input)));
   });

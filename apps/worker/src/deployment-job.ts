@@ -80,7 +80,11 @@ export function buildDeploymentJobHandler(deps: DeploymentJobDeps): JobHandler {
   return async (payload, ctx) => {
     const input = payload as DeploymentJobPayload;
     const result = await executeDeployment(
-      { engines: deps.engines, writes: deps.writes, ...(deps.envVars ? { envVars: deps.envVars } : {}) },
+      {
+        engines: deps.engines,
+        writes: deps.writes,
+        ...(deps.envVars ? { envVars: deps.envVars } : {}),
+      },
       {
         organizationId: input.organizationId,
         projectId: input.projectId,

@@ -1,0 +1,1051 @@
+{
+  "_source": "boto/botocore service models (botocore/data/*/service-2.json)",
+  "_commit": "86201a3e9c58a61369b8bcf4b658bfd4463fc41f",
+  "_note": "Verbatim HTTP method + request URI for every operation of each service, taken from the pinned botocore commit. Any path or X-Amz-Target the Cloud Wai serverless adapter calls must appear here. Regenerate with `python3 scripts/fetch-aws-routes.py`.",
+  "services": {
+    "lambda": {
+      "apiVersion": "2015-03-31",
+      "protocol": "rest-json",
+      "targetPrefix": null,
+      "operations": [
+        {
+          "name": "AddLayerVersionPermission",
+          "method": "POST",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions/{VersionNumber}/policy"
+        },
+        {
+          "name": "AddPermission",
+          "method": "POST",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/policy"
+        },
+        {
+          "name": "CheckpointDurableExecution",
+          "method": "POST",
+          "requestUri": "/2025-12-01/durable-executions/{DurableExecutionArn}/checkpoint"
+        },
+        {
+          "name": "CreateAlias",
+          "method": "POST",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/aliases"
+        },
+        {
+          "name": "CreateCapacityProvider",
+          "method": "POST",
+          "requestUri": "/2025-11-30/capacity-providers"
+        },
+        {
+          "name": "CreateCodeSigningConfig",
+          "method": "POST",
+          "requestUri": "/2020-04-22/code-signing-configs"
+        },
+        {
+          "name": "CreateEventSourceMapping",
+          "method": "POST",
+          "requestUri": "/2015-03-31/event-source-mappings"
+        },
+        {
+          "name": "CreateFunction",
+          "method": "POST",
+          "requestUri": "/2015-03-31/functions"
+        },
+        {
+          "name": "CreateFunctionUrlConfig",
+          "method": "POST",
+          "requestUri": "/2021-10-31/functions/{FunctionName}/url"
+        },
+        {
+          "name": "DeleteAlias",
+          "method": "DELETE",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/aliases/{Name}"
+        },
+        {
+          "name": "DeleteCapacityProvider",
+          "method": "DELETE",
+          "requestUri": "/2025-11-30/capacity-providers/{CapacityProviderName}"
+        },
+        {
+          "name": "DeleteCodeSigningConfig",
+          "method": "DELETE",
+          "requestUri": "/2020-04-22/code-signing-configs/{CodeSigningConfigArn}"
+        },
+        {
+          "name": "DeleteEventSourceMapping",
+          "method": "DELETE",
+          "requestUri": "/2015-03-31/event-source-mappings/{UUID}"
+        },
+        {
+          "name": "DeleteFunction",
+          "method": "DELETE",
+          "requestUri": "/2015-03-31/functions/{FunctionName}"
+        },
+        {
+          "name": "DeleteFunctionCodeSigningConfig",
+          "method": "DELETE",
+          "requestUri": "/2020-06-30/functions/{FunctionName}/code-signing-config"
+        },
+        {
+          "name": "DeleteFunctionConcurrency",
+          "method": "DELETE",
+          "requestUri": "/2017-10-31/functions/{FunctionName}/concurrency"
+        },
+        {
+          "name": "DeleteFunctionEventInvokeConfig",
+          "method": "DELETE",
+          "requestUri": "/2019-09-25/functions/{FunctionName}/event-invoke-config"
+        },
+        {
+          "name": "DeleteFunctionUrlConfig",
+          "method": "DELETE",
+          "requestUri": "/2021-10-31/functions/{FunctionName}/url"
+        },
+        {
+          "name": "DeleteLayerVersion",
+          "method": "DELETE",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions/{VersionNumber}"
+        },
+        {
+          "name": "DeleteProvisionedConcurrencyConfig",
+          "method": "DELETE",
+          "requestUri": "/2019-09-30/functions/{FunctionName}/provisioned-concurrency"
+        },
+        {
+          "name": "DeleteResourcePolicy",
+          "method": "DELETE",
+          "requestUri": "/2026-07-09/resource-policy/{ResourceArn}"
+        },
+        {
+          "name": "GetAccountSettings",
+          "method": "GET",
+          "requestUri": "/2016-08-19/account-settings"
+        },
+        {
+          "name": "GetAlias",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/aliases/{Name}"
+        },
+        {
+          "name": "GetCapacityProvider",
+          "method": "GET",
+          "requestUri": "/2025-11-30/capacity-providers/{CapacityProviderName}"
+        },
+        {
+          "name": "GetCodeSigningConfig",
+          "method": "GET",
+          "requestUri": "/2020-04-22/code-signing-configs/{CodeSigningConfigArn}"
+        },
+        {
+          "name": "GetDurableExecution",
+          "method": "GET",
+          "requestUri": "/2025-12-01/durable-executions/{DurableExecutionArn}"
+        },
+        {
+          "name": "GetDurableExecutionHistory",
+          "method": "GET",
+          "requestUri": "/2025-12-01/durable-executions/{DurableExecutionArn}/history"
+        },
+        {
+          "name": "GetDurableExecutionState",
+          "method": "GET",
+          "requestUri": "/2025-12-01/durable-executions/{DurableExecutionArn}/state"
+        },
+        {
+          "name": "GetEventSourceMapping",
+          "method": "GET",
+          "requestUri": "/2015-03-31/event-source-mappings/{UUID}"
+        },
+        {
+          "name": "GetFunction",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}"
+        },
+        {
+          "name": "GetFunctionCodeSigningConfig",
+          "method": "GET",
+          "requestUri": "/2020-06-30/functions/{FunctionName}/code-signing-config"
+        },
+        {
+          "name": "GetFunctionConcurrency",
+          "method": "GET",
+          "requestUri": "/2019-09-30/functions/{FunctionName}/concurrency"
+        },
+        {
+          "name": "GetFunctionConfiguration",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/configuration"
+        },
+        {
+          "name": "GetFunctionEventInvokeConfig",
+          "method": "GET",
+          "requestUri": "/2019-09-25/functions/{FunctionName}/event-invoke-config"
+        },
+        {
+          "name": "GetFunctionRecursionConfig",
+          "method": "GET",
+          "requestUri": "/2024-08-31/functions/{FunctionName}/recursion-config"
+        },
+        {
+          "name": "GetFunctionScalingConfig",
+          "method": "GET",
+          "requestUri": "/2025-11-30/functions/{FunctionName}/function-scaling-config"
+        },
+        {
+          "name": "GetFunctionUrlConfig",
+          "method": "GET",
+          "requestUri": "/2021-10-31/functions/{FunctionName}/url"
+        },
+        {
+          "name": "GetLayerVersion",
+          "method": "GET",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions/{VersionNumber}"
+        },
+        {
+          "name": "GetLayerVersionByArn",
+          "method": "GET",
+          "requestUri": "/2018-10-31/layers?find=LayerVersion"
+        },
+        {
+          "name": "GetLayerVersionPolicy",
+          "method": "GET",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions/{VersionNumber}/policy"
+        },
+        {
+          "name": "GetPolicy",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/policy"
+        },
+        {
+          "name": "GetProvisionedConcurrencyConfig",
+          "method": "GET",
+          "requestUri": "/2019-09-30/functions/{FunctionName}/provisioned-concurrency"
+        },
+        {
+          "name": "GetResourcePolicy",
+          "method": "GET",
+          "requestUri": "/2026-07-09/resource-policy/{ResourceArn}"
+        },
+        {
+          "name": "GetRuntimeManagementConfig",
+          "method": "GET",
+          "requestUri": "/2021-07-20/functions/{FunctionName}/runtime-management-config"
+        },
+        {
+          "name": "Invoke",
+          "method": "POST",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/invocations"
+        },
+        {
+          "name": "InvokeAsync",
+          "method": "POST",
+          "requestUri": "/2014-11-13/functions/{FunctionName}/invoke-async"
+        },
+        {
+          "name": "InvokeWithResponseStream",
+          "method": "POST",
+          "requestUri": "/2021-11-15/functions/{FunctionName}/response-streaming-invocations"
+        },
+        {
+          "name": "ListAliases",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/aliases"
+        },
+        {
+          "name": "ListCapacityProviders",
+          "method": "GET",
+          "requestUri": "/2025-11-30/capacity-providers"
+        },
+        {
+          "name": "ListCodeSigningConfigs",
+          "method": "GET",
+          "requestUri": "/2020-04-22/code-signing-configs"
+        },
+        {
+          "name": "ListDurableExecutionsByFunction",
+          "method": "GET",
+          "requestUri": "/2025-12-01/functions/{FunctionName}/durable-executions"
+        },
+        {
+          "name": "ListEventSourceMappings",
+          "method": "GET",
+          "requestUri": "/2015-03-31/event-source-mappings"
+        },
+        {
+          "name": "ListFunctionEventInvokeConfigs",
+          "method": "GET",
+          "requestUri": "/2019-09-25/functions/{FunctionName}/event-invoke-config/list"
+        },
+        {
+          "name": "ListFunctionUrlConfigs",
+          "method": "GET",
+          "requestUri": "/2021-10-31/functions/{FunctionName}/urls"
+        },
+        {
+          "name": "ListFunctionVersionsByCapacityProvider",
+          "method": "GET",
+          "requestUri": "/2025-11-30/capacity-providers/{CapacityProviderName}/function-versions"
+        },
+        {
+          "name": "ListFunctions",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions"
+        },
+        {
+          "name": "ListFunctionsByCodeSigningConfig",
+          "method": "GET",
+          "requestUri": "/2020-04-22/code-signing-configs/{CodeSigningConfigArn}/functions"
+        },
+        {
+          "name": "ListLayerVersions",
+          "method": "GET",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions"
+        },
+        {
+          "name": "ListLayers",
+          "method": "GET",
+          "requestUri": "/2018-10-31/layers"
+        },
+        {
+          "name": "ListProvisionedConcurrencyConfigs",
+          "method": "GET",
+          "requestUri": "/2019-09-30/functions/{FunctionName}/provisioned-concurrency?List=ALL"
+        },
+        {
+          "name": "ListTags",
+          "method": "GET",
+          "requestUri": "/2017-03-31/tags/{Resource}"
+        },
+        {
+          "name": "ListVersionsByFunction",
+          "method": "GET",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/versions"
+        },
+        {
+          "name": "PublishLayerVersion",
+          "method": "POST",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions"
+        },
+        {
+          "name": "PublishVersion",
+          "method": "POST",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/versions"
+        },
+        {
+          "name": "PutFunctionCodeSigningConfig",
+          "method": "PUT",
+          "requestUri": "/2020-06-30/functions/{FunctionName}/code-signing-config"
+        },
+        {
+          "name": "PutFunctionConcurrency",
+          "method": "PUT",
+          "requestUri": "/2017-10-31/functions/{FunctionName}/concurrency"
+        },
+        {
+          "name": "PutFunctionEventInvokeConfig",
+          "method": "PUT",
+          "requestUri": "/2019-09-25/functions/{FunctionName}/event-invoke-config"
+        },
+        {
+          "name": "PutFunctionRecursionConfig",
+          "method": "PUT",
+          "requestUri": "/2024-08-31/functions/{FunctionName}/recursion-config"
+        },
+        {
+          "name": "PutFunctionScalingConfig",
+          "method": "PUT",
+          "requestUri": "/2025-11-30/functions/{FunctionName}/function-scaling-config"
+        },
+        {
+          "name": "PutProvisionedConcurrencyConfig",
+          "method": "PUT",
+          "requestUri": "/2019-09-30/functions/{FunctionName}/provisioned-concurrency"
+        },
+        {
+          "name": "PutResourcePolicy",
+          "method": "PUT",
+          "requestUri": "/2026-07-09/resource-policy/{ResourceArn}"
+        },
+        {
+          "name": "PutRuntimeManagementConfig",
+          "method": "PUT",
+          "requestUri": "/2021-07-20/functions/{FunctionName}/runtime-management-config"
+        },
+        {
+          "name": "RemoveLayerVersionPermission",
+          "method": "DELETE",
+          "requestUri": "/2018-10-31/layers/{LayerName}/versions/{VersionNumber}/policy/{StatementId}"
+        },
+        {
+          "name": "RemovePermission",
+          "method": "DELETE",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/policy/{StatementId}"
+        },
+        {
+          "name": "SendDurableExecutionCallbackFailure",
+          "method": "POST",
+          "requestUri": "/2025-12-01/durable-execution-callbacks/{CallbackId}/fail"
+        },
+        {
+          "name": "SendDurableExecutionCallbackHeartbeat",
+          "method": "POST",
+          "requestUri": "/2025-12-01/durable-execution-callbacks/{CallbackId}/heartbeat"
+        },
+        {
+          "name": "SendDurableExecutionCallbackSuccess",
+          "method": "POST",
+          "requestUri": "/2025-12-01/durable-execution-callbacks/{CallbackId}/succeed"
+        },
+        {
+          "name": "StopDurableExecution",
+          "method": "POST",
+          "requestUri": "/2025-12-01/durable-executions/{DurableExecutionArn}/stop"
+        },
+        {
+          "name": "TagResource",
+          "method": "POST",
+          "requestUri": "/2017-03-31/tags/{Resource}"
+        },
+        {
+          "name": "UntagResource",
+          "method": "DELETE",
+          "requestUri": "/2017-03-31/tags/{Resource}"
+        },
+        {
+          "name": "UpdateAlias",
+          "method": "PUT",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/aliases/{Name}"
+        },
+        {
+          "name": "UpdateCapacityProvider",
+          "method": "PUT",
+          "requestUri": "/2025-11-30/capacity-providers/{CapacityProviderName}"
+        },
+        {
+          "name": "UpdateCodeSigningConfig",
+          "method": "PUT",
+          "requestUri": "/2020-04-22/code-signing-configs/{CodeSigningConfigArn}"
+        },
+        {
+          "name": "UpdateEventSourceMapping",
+          "method": "PUT",
+          "requestUri": "/2015-03-31/event-source-mappings/{UUID}"
+        },
+        {
+          "name": "UpdateFunctionCode",
+          "method": "PUT",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/code"
+        },
+        {
+          "name": "UpdateFunctionConfiguration",
+          "method": "PUT",
+          "requestUri": "/2015-03-31/functions/{FunctionName}/configuration"
+        },
+        {
+          "name": "UpdateFunctionEventInvokeConfig",
+          "method": "POST",
+          "requestUri": "/2019-09-25/functions/{FunctionName}/event-invoke-config"
+        },
+        {
+          "name": "UpdateFunctionUrlConfig",
+          "method": "PUT",
+          "requestUri": "/2021-10-31/functions/{FunctionName}/url"
+        }
+      ]
+    },
+    "logs": {
+      "apiVersion": "2014-03-28",
+      "protocol": "json",
+      "targetPrefix": "Logs_20140328",
+      "operations": [
+        {
+          "name": "AssociateKmsKey",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "AssociateSourceToS3TableIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CancelExportTask",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CancelImportTask",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateDelivery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateExportTask",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateImportTask",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateLogAnomalyDetector",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateLogGroup",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateLogStream",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateLookupTable",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "CreateScheduledQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteAccountPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDataProtectionPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDelivery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDeliveryDestination",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDeliveryDestinationPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDeliverySource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteDestination",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteIndexPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteLogAnomalyDetector",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteLogGroup",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteLogStream",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteLookupTable",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteMetricFilter",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteQueryDefinition",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteResourcePolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteRetentionPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteScheduledQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteSubscriptionFilter",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteSyslogConfiguration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DeleteTransformer",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeAccountPolicies",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeConfigurationTemplates",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeDeliveries",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeDeliveryDestinations",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeDeliverySources",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeDestinations",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeExportTasks",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeFieldIndexes",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeImportTaskBatches",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeImportTasks",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeIndexPolicies",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeLogGroups",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeLogStreams",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeLookupTables",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeMetricFilters",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeQueries",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeQueryDefinitions",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeResourcePolicies",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DescribeSubscriptionFilters",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DisassociateKmsKey",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "DisassociateSourceFromS3TableIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "FilterLogEvents",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetDataProtectionPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetDelivery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetDeliveryDestination",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetDeliveryDestinationPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetDeliverySource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogAnomalyDetector",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogEvents",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogFields",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogGroupFields",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogObject",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLogRecord",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetLookupTable",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetQueryResults",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetScheduledQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetScheduledQueryHistory",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetStorageTierPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "GetTransformer",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListAggregateLogGroupSummaries",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListAnomalies",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListIntegrations",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListLogAnomalyDetectors",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListLogGroups",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListLogGroupsForQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListScheduledQueries",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListSourcesForS3TableIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListSyslogConfigurations",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListTagsForResource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "ListTagsLogGroup",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutAccountPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutBearerTokenAuthentication",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDataProtectionPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDeliveryDestination",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDeliveryDestinationPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDeliverySource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDestination",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutDestinationPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutIndexPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutIntegration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutLogEvents",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutLogGroupDeletionProtection",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutMetricFilter",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutQueryDefinition",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutResourcePolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutRetentionPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutStorageTierPolicy",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutSubscriptionFilter",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutSyslogConfiguration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "PutTransformer",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "StartLiveTail",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "StartQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "StopQuery",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "TagLogGroup",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "TagResource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "TestMetricFilter",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "TestTransformer",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UntagLogGroup",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UntagResource",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UpdateAnomaly",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UpdateDeliveryConfiguration",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UpdateLogAnomalyDetector",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UpdateLookupTable",
+          "method": "POST",
+          "requestUri": "/"
+        },
+        {
+          "name": "UpdateScheduledQuery",
+          "method": "POST",
+          "requestUri": "/"
+        }
+      ]
+    }
+  }
+}

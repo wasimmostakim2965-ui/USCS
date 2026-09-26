@@ -86,10 +86,9 @@ describe("every adapter route exists in the pinned Coolify route table", () => {
       const exists = fixture.routes.some(
         (route) => route.method === call.method && patternFor(route.path).test(call.path),
       );
-      expect(
-        exists,
-        `${call.method} ${call.path} is not in the pinned Coolify route table`,
-      ).toBe(true);
+      expect(exists, `${call.method} ${call.path} is not in the pinned Coolify route table`).toBe(
+        true,
+      );
     }
   };
 
@@ -103,7 +102,8 @@ describe("every adapter route exists in the pinned Coolify route table", () => {
     expect(fixture.routes.some((r) => r.path.includes("rotate-credentials"))).toBe(false);
     expect(
       fixture.routes.some(
-        (r) => r.method === "POST" && /\/databases\/[^/]+\/backups\/[^/]+\/executions$/.test(r.path),
+        (r) =>
+          r.method === "POST" && /\/databases\/[^/]+\/backups\/[^/]+\/executions$/.test(r.path),
       ),
     ).toBe(false);
   });

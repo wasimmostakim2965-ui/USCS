@@ -135,7 +135,8 @@ function makeStore() {
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
   });
-  const refKey = (org: OrganizationId, project: ProjectId, key: string) => `${org}|${project}|${key}`;
+  const refKey = (org: OrganizationId, project: ProjectId, key: string) =>
+    `${org}|${project}|${key}`;
 
   const store = {
     async listOrganizations(userId: UserId) {

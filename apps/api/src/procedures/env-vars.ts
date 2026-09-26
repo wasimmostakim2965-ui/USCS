@@ -51,7 +51,11 @@ const MAX_VALUE_BYTES = 65_536;
 
 type EnvVarWrites = Pick<
   ControlPlaneWrites,
-  "saveEnvVar" | "setEnvVarEngineRef" | "getEnvVarEngineRef" | "deleteEnvVar" | "getProjectDeploymentTarget"
+  | "saveEnvVar"
+  | "setEnvVarEngineRef"
+  | "getEnvVarEngineRef"
+  | "deleteEnvVar"
+  | "getProjectDeploymentTarget"
 >;
 
 const REQUIRED_WRITES = [
@@ -116,10 +120,7 @@ async function applicationRefFor(
   userId: string,
   project: Project,
 ): Promise<ProviderRef | null> {
-  const target = await writesFor(deps).getProjectDeploymentTarget(
-    userId as never,
-    project.id,
-  );
+  const target = await writesFor(deps).getProjectDeploymentTarget(userId as never, project.id);
   if (!target?.providerResourceId) return null;
   return {
     organizationId: project.organizationId,
@@ -240,7 +241,8 @@ export async function setEnvVar(
       engineReason = result.reason;
     }
   } else {
-    engineReason = "This project has no application on the hosting engine yet, so the variable is stored but not yet applied.";
+    engineReason =
+      "This project has no application on the hosting engine yet, so the variable is stored but not yet applied.";
   }
 
   await deps.store.recordAuditEvent({

@@ -178,6 +178,7 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
     url: string,
     body?: unknown,
     service = "lambda",
+    extraHeaders: Record<string, string> = {},
   ): Promise<AdapterResult<{ statusCode: number; value: T }>> => {
     const bodyText = body === undefined ? "" : JSON.stringify(body);
     const signed = signSigV4Request(creds, {
@@ -185,7 +186,7 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
       url,
       region: creds.region,
       service,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...extraHeaders },
       body: bodyText,
       now: now(),
     });
@@ -214,8 +215,9 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
     url: string,
     body?: unknown,
     service = "lambda",
+    extraHeaders: Record<string, string> = {},
   ): Promise<AdapterResult<T>> => {
-    const response = await signedCall<T>(ctx, creds, method, url, body, service);
+    const response = await signedCall<T>(ctx, creds, method, url, body, service, extraHeaders);
     return response.ok ? ok(response.status, response.value.value) : response;
   };
 
@@ -255,6 +257,10 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
       const url = `${(options.endpointFor ?? lambdaEndpoint)(creds.region)}/2015-03-31/functions`;
       const response = await signedCall<LambdaFunctionConfiguration>(ctx, creds, "POST", url, {
         FunctionName: input.name,
+        // Lambda defaults to `Zip`, and a `Zip` package rejects an `ImageUri`
+        // code, so an image artifact that omitted this would fail at AWS for a
+        // reason that looks like our request was malformed.
+        PackageType: input.artifact!.kind === "image" ? "Image" : "Zip",
         Runtime: input.artifact!.kind === "s3" ? input.runtime : undefined,
         Handler: input.artifact!.kind === "s3" ? input.handler : undefined,
         Role: roleArn,
@@ -353,6 +359,10 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
       if (!resolved.ok) return resolved.result;
       const { creds } = resolved;
 
+      // CloudWatch Logs is a JSON-RPC service, not a REST one: the operation is
+      // named in `X-Amz-Target` and the body is `application/x-amz-json-1.1`.
+      // Without the target header the endpoint answers 400 ("missing
+      // X-Amz-Target"), which we would have misread as an engine fault.
       const response = await signedValue<{
         events?: readonly { message?: string }[];
         nextToken?: string;
@@ -360,13 +370,17 @@ export function createLambdaServerless(options: LambdaAdapterOptions): Serverles
         ctx,
         creds,
         "POST",
-        (options.endpointFor ? options.endpointFor(creds.region) : logsEndpoint(creds.region) + "/"),
+        options.endpointFor ? options.endpointFor(creds.region) : logsEndpoint(creds.region) + "/",
         {
           logGroupName: `/aws/lambda/${ref.resourceId}`,
           ...(cursor ? { nextToken: cursor } : {}),
           limit: 200,
         },
         "logs",
+        {
+          "content-type": "application/x-amz-json-1.1",
+          "x-amz-target": "Logs_20140328.FilterLogEvents",
+        },
       );
       if (!response.ok) return response;
 

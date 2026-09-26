@@ -193,7 +193,8 @@ beforeAll(async () => {
         }
         if (req.method === "POST") {
           const key = String(parsed.key ?? "");
-          if (!key) return json(422, { message: "Validation failed.", errors: { key: ["required"] } });
+          if (!key)
+            return json(422, { message: "Validation failed.", errors: { key: ["required"] } });
           const row = {
             uuid: `env-${uuid}-${envVars.size + 1}`,
             key,

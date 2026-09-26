@@ -186,6 +186,20 @@ No phase claims a row **Wired** without a procedure, a page and a test.
    shows preview vs production with `source`.
 5. Tests: signature rejects a forged payload; a push enqueues exactly one job.
 
+### Phase 3.5 — A second execution model: serverless (DONE, ADR-0017)
+
+The brief's "one step above Vercel" needs Vercel's *default* product, not only its
+container product: code that runs on demand with no always-on origin. That is a
+different machine (Lambda does not build from git; it is handed a built artifact),
+so it is a distinct provider and a distinct adapter behind one uniform
+`DeploymentEngine` port, and the project's own choice (`execution_model`) routes
+it. A serverless project is never handed to Coolify; a serverless deploy without
+an artifact reports `not_configured` rather than inventing a build. Routes are
+conformance-checked against botocore's pinned service models, which found two real
+bugs (a missing `X-Amz-Target` on the Logs read; a missing `PackageType` for image
+functions). Status: wired end to end, honestly `not_configured` until AWS
+credentials and a build engine exist. See ADR-0017.
+
 ### Phase 4 — Env vars, hard budget, cancel/restore, edge traffic view
 
 1. Env vars: table + Coolify `/envs` via the adapter; a change that needs a

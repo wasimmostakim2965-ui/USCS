@@ -484,9 +484,7 @@ function makeStore() {
     },
     async deleteTrustedSource(userId: UserId, org: OrganizationId, sourceId: string) {
       if (!isMember(userId, org)) return false;
-      const index = trustedSources.findIndex(
-        (s) => s.id === sourceId && s.organizationId === org,
-      );
+      const index = trustedSources.findIndex((s) => s.id === sourceId && s.organizationId === org);
       if (index < 0) return false;
       trustedSources.splice(index, 1);
       return true;
@@ -512,9 +510,7 @@ function makeStore() {
     },
     async deleteRateLimit(userId: UserId, org: OrganizationId, rateLimitId: string) {
       if (!isMember(userId, org)) return false;
-      const index = rateLimits.findIndex(
-        (r) => r.id === rateLimitId && r.organizationId === org,
-      );
+      const index = rateLimits.findIndex((r) => r.id === rateLimitId && r.organizationId === org);
       if (index < 0) return false;
       rateLimits.splice(index, 1);
       return true;
@@ -1368,7 +1364,13 @@ describe("security.rateLimits through the registered procedures", () => {
     const spurious = await router.route({
       procedure: "security.rateLimits.add",
       accessToken: TOKEN_ALICE,
-      input: { organizationId: ORG_A, key: "ip", headerName: "x-api-key", limit: 10, windowSeconds: 60 },
+      input: {
+        organizationId: ORG_A,
+        key: "ip",
+        headerName: "x-api-key",
+        limit: 10,
+        windowSeconds: 60,
+      },
     });
     expect(spurious.ok).toBe(false);
     expect(rateLimits).toHaveLength(1);
@@ -1543,10 +1545,7 @@ describe("security.events.list through the registered procedures", () => {
   it("never returns another tenant's rows, even for a caller who belongs to both", async () => {
     const { store, securityEvents } = makeStore();
     const router = routerWith(store, unconfiguredEngines());
-    securityEvents.push(
-      seedEvent(ORG_A, { id: "a-only" }),
-      seedEvent(ORG_B, { id: "b-only" }),
-    );
+    securityEvents.push(seedEvent(ORG_A, { id: "a-only" }), seedEvent(ORG_B, { id: "b-only" }));
 
     // Dave belongs to A and B. Asking for B must return only B's rows.
     const res = await router.route({

@@ -810,10 +810,7 @@ export async function listSecurityEvents(
 
   const store = deps.store;
   if (typeof store.listSecurityEvents !== "function") {
-    throw new ApiError(
-      "engine_unavailable",
-      "This deployment cannot read edge decisions yet.",
-    );
+    throw new ApiError("engine_unavailable", "This deployment cannot read edge decisions yet.");
   }
   const reads = store as unknown as SecurityEventReads;
   const events = await reads.listSecurityEvents(ctx.principal.userId, organizationId, limit);

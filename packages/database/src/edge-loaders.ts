@@ -123,10 +123,7 @@ export function createSecurityEdgeLoaders(
 
   return {
     async loadRoute(ref): Promise<EdgeRoute | null> {
-      const domain = await store.findDomainByHostnameForService(
-        ref.organizationId,
-        ref.resourceId,
-      );
+      const domain = await store.findDomainByHostnameForService(ref.organizationId, ref.resourceId);
       if (!domain || !domain.verified) return null;
       return routeFor(domain.hostname, ref.organizationId);
     },
@@ -149,8 +146,9 @@ export function createSecurityEdgeLoaders(
       const trustedSources: TrustedSource[] = trusted
         // A trusted source's grammar is IP or CIDR only; a row of any other kind
         // is dropped rather than emitted, matching the compiler's refusal.
-        .filter((source): source is typeof source & { kind: "ip" | "cidr" } =>
-          source.kind === "ip" || source.kind === "cidr",
+        .filter(
+          (source): source is typeof source & { kind: "ip" | "cidr" } =>
+            source.kind === "ip" || source.kind === "cidr",
         )
         .map((source) => ({ kind: source.kind, value: source.value }));
       // A header-keyed limit carries its header name; the others carry none, so
@@ -158,9 +156,7 @@ export function createSecurityEdgeLoaders(
       const rateLimits: RateLimitRule[] = limits.map((limit) => ({
         id: limit.id,
         key: limit.key,
-        ...(limit.key === "header" && limit.headerName
-          ? { headerName: limit.headerName }
-          : {}),
+        ...(limit.key === "header" && limit.headerName ? { headerName: limit.headerName } : {}),
         limit: limit.limit,
         windowSeconds: limit.windowSeconds,
       }));

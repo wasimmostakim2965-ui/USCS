@@ -15,6 +15,9 @@
 | [0011](0011-data-engines-and-security-edge.md) | Data engines and the security edge: policy to engine syntax | accepted |
 | [0012](0012-release-gate-evidence.md) | Release-gate evidence, and why some gates stay open | accepted |
 | [0013](0013-competitive-positioning.md) | Competitive positioning: what Cloud Wai does that Vercel does not | accepted |
+| [0015](0015-aws-hosting.md) | AWS hosting: a load-balanced single host, defined as code | accepted |
+| [0016](0016-vercel-feature-parity.md) | Vercel feature-by-feature parity: what is wired, what is honest, what is missing | accepted |
+| [0017](0017-project-execution-model.md) | A project's execution model: container or serverless | accepted |
 
 Source of truth for this project:
 

@@ -288,8 +288,7 @@ export function buildEngines(config: EngineConfig): Engines {
   const serverless: ServerlessAdapter =
     Object.keys(awsCredentials).length > 0
       ? createLambdaServerless({
-          credentials: (organizationId: OrganizationId) =>
-            awsCredentials[organizationId] ?? null,
+          credentials: (organizationId: OrganizationId) => awsCredentials[organizationId] ?? null,
         })
       : serverlessNotConfigured(
           "lambda",

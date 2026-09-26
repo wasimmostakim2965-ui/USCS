@@ -144,9 +144,7 @@ export function createPostgresDatabase(options: PostgresAdapterOptions): Databas
    */
   const placementFrom = (
     creds: CoolifyCredentials,
-  ):
-    | { ok: true; body: Record<string, string | boolean> }
-    | { ok: false; reason: string } => {
+  ): { ok: true; body: Record<string, string | boolean> } | { ok: false; reason: string } => {
     const projectUuid = creds.projectUuid?.trim();
     const serverUuid = creds.serverUuid?.trim();
     const environmentName = creds.environmentName?.trim();
@@ -207,10 +205,7 @@ export function createPostgresDatabase(options: PostgresAdapterOptions): Databas
     if (!withFile?.filename) {
       return {
         ok: false,
-        result: err(
-          "degraded",
-          "The engine has no restorable backup file for this database yet.",
-        ),
+        result: err("degraded", "The engine has no restorable backup file for this database yet."),
       };
     }
     return { ok: true, filename: withFile.filename };

@@ -98,7 +98,12 @@ describe("the worker environment reconciler", () => {
     }
     // The handle the engine issued is what a later delete addresses.
     expect(refs).toEqual([
-      { organizationId: ORG_A, projectId: "proj-a", key: "DATABASE_URL", engineRef: "env-DATABASE_URL" },
+      {
+        organizationId: ORG_A,
+        projectId: "proj-a",
+        key: "DATABASE_URL",
+        engineRef: "env-DATABASE_URL",
+      },
     ]);
   });
 
@@ -182,7 +187,16 @@ describe("the worker environment reconciler", () => {
     // A listing that fails means the engine is unreachable; the sync must not
     // guess and push. The stored row is already safe in the table.
     await expect(
-      sync.sync(ctx, { organizationId: ORG_A, provider: "coolify", resourceType: "application", resourceId: "app-1" }, "proj-a"),
+      sync.sync(
+        ctx,
+        {
+          organizationId: ORG_A,
+          provider: "coolify",
+          resourceType: "application",
+          resourceId: "app-1",
+        },
+        "proj-a",
+      ),
     ).resolves.toBeUndefined();
     expect(refs).toHaveLength(0);
   });

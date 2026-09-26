@@ -322,7 +322,10 @@ describe("loaders", () => {
       ok: true,
       status: 200,
       notConfigured: true,
-      error: { code: "engine_unavailable", message: "This deployment cannot record trusted sources yet." },
+      error: {
+        code: "engine_unavailable",
+        message: "This deployment cannot record trusted sources yet.",
+      },
     });
 
     const section = await loadTrustedSources(client, "org-a");

@@ -95,7 +95,7 @@ object we have not built.
 | P20 | Web Analytics / Speed Insights | none | **Missing** |
 | P21 | Runtime logs / log drains | none (deployment logs only, P5) | **Missing** |
 | P22 | Cron Jobs | none | **Missing** |
-| P23 | Functions / serverless | none (our unit is a container via Coolify) | **Missing (out of model)** |
+| P23 | Functions / serverless | a project's execution model is `container` or `serverless` (`projects.execution_model`, migration `0017`); the serverless engine is a distinct provider (`lambda`/`microvm`) behind `ServerlessAdapter` (SigV4-signed, per-org credentials) reached through the one `DeploymentEngine` port (`execution-router.ts`). A serverless deploy requires a built artifact and refuses without one; a serverless project is never handed to Coolify. Routes conformance-checked against botocore's pinned service models (`tests/fixtures/lambda-routes.json`, `tests/engines/lambda-routes.test.ts`) | **Wired (Honest n/c)** — no AWS credentials or build engine configured here, so a serverless deploy reports `not_configured` end to end |
 | P24 | Edge Config | none | **Missing (out of model)** |
 | P25 | Feature flags | none | **Missing** |
 | P26 | Deployment states (Queued→Building→Ready→Error→Canceled) | `EngineStatus` vocabulary + `mapQueueStatus`/`mapDeploymentStatus` (`coolify.ts:67-115`) | **Wired** |

@@ -866,9 +866,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toTrustedSource);
     },
 
-    async listRateLimitsForService(
-      organizationId: OrganizationId,
-    ): Promise<readonly RateLimit[]> {
+    async listRateLimitsForService(organizationId: OrganizationId): Promise<readonly RateLimit[]> {
       const found = await rows("listRateLimitsForService", {
         method: "GET",
         path: `/security_rate_limits?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,

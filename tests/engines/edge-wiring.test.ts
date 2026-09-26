@@ -71,7 +71,12 @@ function storeOver(tables: Record<string, Row[]>) {
   return { store, requests };
 }
 
-const domainRow = (org: string, hostname: string, verified: boolean, verifiedAt: string | null) => ({
+const domainRow = (
+  org: string,
+  hostname: string,
+  verified: boolean,
+  verifiedAt: string | null,
+) => ({
   id: `dom-${hostname}`,
   organization_id: org,
   project_id: null,
@@ -114,9 +119,7 @@ const ENV = {
 describe("security edge environment config", () => {
   it("is null without a URL, a private origin, or a token", () => {
     expect(securityEdgeConfigFromEnv({})).toBeNull();
-    expect(
-      securityEdgeConfigFromEnv({ SECURITY_EDGE_URL: "https://edge.test" }),
-    ).toBeNull();
+    expect(securityEdgeConfigFromEnv({ SECURITY_EDGE_URL: "https://edge.test" })).toBeNull();
     expect(
       securityEdgeConfigFromEnv({
         SECURITY_EDGE_URL: "https://edge.test",
@@ -293,10 +296,7 @@ describe("security edge loaders", () => {
     const compiled = compileEdge(input!);
     // One firewall, both domains: the directives are shared and the fragments
     // tell the edge to serve each host from the same private origin.
-    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual([
-      "one.example.com",
-      "two.example.com",
-    ]);
+    expect(compiled.envoyRoutes.map((r) => r.host)).toEqual(["one.example.com", "two.example.com"]);
     expect(compiled.envoyRoutes.every((r) => r.privateOrigin === "10.0.1.5")).toBe(true);
     expect(compiled.envoyRoutes.every((r) => r.wafEnabled)).toBe(true);
   });

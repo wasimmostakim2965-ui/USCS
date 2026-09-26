@@ -78,7 +78,13 @@ beforeAll(async () => {
       }
       if (url.endsWith("/configuration")) {
         res.statusCode = 200;
-        res.end(JSON.stringify({ FunctionName: "my-fn", State: "Active", LastUpdateStatus: "Successful" }));
+        res.end(
+          JSON.stringify({
+            FunctionName: "my-fn",
+            State: "Active",
+            LastUpdateStatus: "Successful",
+          }),
+        );
         return;
       }
       if (url.endsWith("/url")) {

@@ -204,7 +204,13 @@ export async function startWorker(
   const store = createSupabaseControlPlaneStore({ client, newId });
   const engines = buildDeploymentEngines(env, store);
   const queue = new SqlJobQueue(client);
-  const { handlers, apply } = buildWorkerWiring(store, engines, newId, () => new Date(), secretCipherFromEnv(env));
+  const { handlers, apply } = buildWorkerWiring(
+    store,
+    engines,
+    newId,
+    () => new Date(),
+    secretCipherFromEnv(env),
+  );
 
   const worker = new InProcessWorker({
     queue,

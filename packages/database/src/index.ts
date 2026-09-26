@@ -155,7 +155,7 @@ export interface DataStore {
    *
    * Membership-scoped like every read. The value ciphertext is deliberately
    * absent from this shape and from the client SELECT grant, so a list response
-   * can never contain a secret — it names the keys and whether each is
+   * can never contain a secret ï¿½ it names the keys and whether each is
    * build-time.
    */
   listEnvVars(userId: UserId, projectId: ProjectId): Promise<readonly ProjectEnvVar[]>;
@@ -285,7 +285,7 @@ export interface ControlPlaneWrites {
    * The organization's verified domains, oldest first.
    *
    * The edge compiles one artifact per policy, and that artifact must carry a
-   * route fragment for *every* hostname the organization serves — one firewall,
+   * route fragment for *every* hostname the organization serves ï¿½ one firewall,
    * covering all of the organization's domains. Returning only the oldest (the
    * previous behaviour) meant a second verified domain was silently unprotected:
    * it was neither routed nor inspected. The order is deterministic (oldest
@@ -350,10 +350,7 @@ export interface ControlPlaneWrites {
   /**
    * The organization's rate limits, newest first. Membership-scoped.
    */
-  listRateLimits(
-    userId: UserId,
-    organizationId: OrganizationId,
-  ): Promise<readonly RateLimit[]>;
+  listRateLimits(userId: UserId, organizationId: OrganizationId): Promise<readonly RateLimit[]>;
 
   /** Set a rate limit. The key/header pairing is enforced by the API and the table. */
   createRateLimit(input: RateLimitCreateInput): Promise<RateLimit>;
@@ -542,7 +539,7 @@ export interface ControlPlaneWrites {
    *
    * The value arrives already encrypted by the caller (`SecretCipher`), so this
    * method never sees a plaintext secret and a store can never become the place
-   * one leaks — the same rule `createGitLink` follows. The key is normalised by
+   * one leaks ï¿½ the same rule `createGitLink` follows. The key is normalised by
    * the caller to the engine's shape.
    *
    * `engine_ref` is written by a separate service-role call once the adapter has
@@ -574,7 +571,7 @@ export interface ControlPlaneWrites {
    * The engine handle for one variable, or null.
    *
    * Member-scoped: a remove needs the handle so it can delete the engine's copy
-   * first. It returns only the handle — never the ciphertext — so the request
+   * first. It returns only the handle ï¿½ never the ciphertext ï¿½ so the request
    * path cannot recover a value it does not need.
    */
   getEnvVarEngineRef(
@@ -884,7 +881,7 @@ export interface SecurityRuleCreateInput {
  * The opposite intent to a `SecurityRule`: this address is *allowed* before the
  * deny list and before any challenge, so a customer's own webhook senders and CI
  * runners keep working while attack mode is up. Only address literals are
- * stored — never a hostname, whose resolution is attacker-influenced.
+ * stored ï¿½ never a hostname, whose resolution is attacker-influenced.
  */
 export interface TrustedSource {
   readonly id: string;
@@ -942,7 +939,7 @@ export interface RateLimitCreateInput {
  *
  * This is the edge's observation, not a client's assertion, and the table is
  * append-only for every non-service role (see `0010`). The control plane reads
- * it to answer "what did the edge do with this traffic" — the view that makes a
+ * it to answer "what did the edge do with this traffic" ï¿½ the view that makes a
  * block attributable rather than a mystery.
  */
 export interface SecurityEvent {

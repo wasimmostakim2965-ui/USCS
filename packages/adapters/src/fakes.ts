@@ -408,11 +408,16 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
         // Coolify answers a rollback with the *application* handle when it has
         // no deployment uuid to give (see the real adapter), so the caller can
         // read the state back through the handle it already holds.
-        return ok("succeeded", { jobId: deploymentRef.resourceId, providerRef: input.applicationRef });
+        return ok("succeeded", {
+          jobId: deploymentRef.resourceId,
+          providerRef: input.applicationRef,
+        });
       }),
 
     getLogs: (ctx, ref, _cursor): Promise<AdapterResult<LogPage>> =>
-      gate(() => ok("succeeded", { lines: applications.get(ref.resourceId)?.logs ?? [], cursor: null })),
+      gate(() =>
+        ok("succeeded", { lines: applications.get(ref.resourceId)?.logs ?? [], cursor: null }),
+      ),
 
     listEnvVars: (ctx, ref) =>
       gate(() => {

@@ -2300,8 +2300,8 @@ function EnvVarModal({
           {outcome.engineReason ? <p className="small muted">{outcome.engineReason}</p> : null}
           {outcome.redeployRequired ? (
             <p className="small muted">
-              This is a build-time variable, so it takes effect on the next deployment. Redeploy
-              the project to apply it to the running output.
+              This is a build-time variable, so it takes effect on the next deployment. Redeploy the
+              project to apply it to the running output.
             </p>
           ) : null}
         </div>
@@ -2418,8 +2418,7 @@ function RemoveEnvVarModal({
       <div className="stack">
         <p>
           Remove <span className="mono">{variable?.key}</span> from this project and from the
-          hosting engine. A build-time variable stops affecting the build after the next
-          deployment.
+          hosting engine. A build-time variable stops affecting the build after the next deployment.
         </p>
         {error ? (
           <p className="field__error" role="alert">
@@ -2777,7 +2776,10 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 key: "value",
                 header: "Address",
                 render: (item) => (
-                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 360 }}>
+                  <span
+                    className="mono small truncate"
+                    style={{ display: "inline-block", maxWidth: 360 }}
+                  >
                     {item.value}
                   </span>
                 ),
@@ -2970,7 +2972,10 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                 key: "request",
                 header: "Request",
                 render: (item) => (
-                  <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 300 }}>
+                  <span
+                    className="mono small truncate"
+                    style={{ display: "inline-block", maxWidth: 300 }}
+                  >
                     {item.method ?? "—"} {item.path ?? ""}
                   </span>
                 ),
@@ -3817,12 +3822,7 @@ function AddTrustedSourceModal({
         </Field>
         <Field label="Note (optional)" hint="What this address is, for the next operator.">
           {(id) => (
-            <TextInput
-              id={id}
-              value={note}
-              onChange={setNote}
-              placeholder="GitHub webhooks"
-            />
+            <TextInput id={id} value={note} onChange={setNote} placeholder="GitHub webhooks" />
           )}
         </Field>
         <p className="muted small">
@@ -4044,16 +4044,25 @@ function AddRateLimitModal({
             hint="The header whose value is budgeted, e.g. x-api-key. Letters, digits and dashes only."
           >
             {(id) => (
-              <TextInput id={id} value={headerName} onChange={setHeaderName} placeholder="x-api-key" />
+              <TextInput
+                id={id}
+                value={headerName}
+                onChange={setHeaderName}
+                placeholder="x-api-key"
+              />
             )}
           </Field>
         ) : null}
-        <Field label="Allowance" hint="Requests allowed in the window. 60 per minute is invisible to a visitor.">
-          {(id) => (
-            <TextInput id={id} value={limit} onChange={setLimit} placeholder="60" />
-          )}
+        <Field
+          label="Allowance"
+          hint="Requests allowed in the window. 60 per minute is invisible to a visitor."
+        >
+          {(id) => <TextInput id={id} value={limit} onChange={setLimit} placeholder="60" />}
         </Field>
-        <Field label="Window (seconds)" hint="How long the allowance lasts before it resets. 60 to 86400.">
+        <Field
+          label="Window (seconds)"
+          hint="How long the allowance lasts before it resets. 60 to 86400."
+        >
           {(id) => (
             <TextInput id={id} value={windowSeconds} onChange={setWindowSeconds} placeholder="60" />
           )}

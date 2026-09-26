@@ -256,7 +256,8 @@ describe("Postgres adapter", () => {
     const bare = createPostgresDatabase({
       credentials: () => ({ baseUrl, token: TOKEN_A, ...placement }),
       fetchImpl: (input, init) => {
-        const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (url.includes("/executions")) {
           return Promise.resolve(
             new Response(JSON.stringify({ executions: [] }), {

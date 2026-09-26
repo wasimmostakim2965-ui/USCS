@@ -448,10 +448,7 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       if (!response.ok) return response;
 
       const rows = Array.isArray(response.value.value) ? response.value.value : [];
-      return ok(
-        "succeeded",
-        rows.map(toEnvVarState),
-      );
+      return ok("succeeded", rows.map(toEnvVarState));
     },
 
     /**
@@ -513,7 +510,10 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
 
       const updated = response.value.value ?? {};
       if (typeof updated["key"] !== "string" || updated["key"] === "") {
-        return err("degraded", "Coolify accepted the environment variable update but returned no key.");
+        return err(
+          "degraded",
+          "Coolify accepted the environment variable update but returned no key.",
+        );
       }
       return ok("succeeded", toEnvVarState(updated));
     },

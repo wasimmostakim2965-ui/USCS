@@ -87,10 +87,7 @@ describe("AWS SigV4 — properties the adapter depends on", () => {
       now: new Date("2015-08-30T12:36:00Z"),
     };
     const without = signSigV4Request(CREDENTIALS, base);
-    const withToken = signSigV4Request(
-      { ...CREDENTIALS, sessionToken: "TOKEN" },
-      { ...base },
-    );
+    const withToken = signSigV4Request({ ...CREDENTIALS, sessionToken: "TOKEN" }, { ...base });
     expect(without.headers["x-amz-security-token"]).toBeUndefined();
     expect(withToken.headers["x-amz-security-token"]).toBe("TOKEN");
     // The token is part of what is signed, so its presence changes the signature.

@@ -71,7 +71,10 @@ describe("deploymentEngineFor", () => {
 
   it("reports the engine's own reason when serverless is unconfigured", async () => {
     const engine = deploymentEngineFor(
-      { hosting: fakeHosting(), serverless: serverlessNotConfigured("lambda", "Set AWS credentials.") },
+      {
+        hosting: fakeHosting(),
+        serverless: serverlessNotConfigured("lambda", "Set AWS credentials."),
+      },
       "serverless",
     );
     const result = await engine.deploy(ctx, ref);
@@ -84,7 +87,10 @@ describe("deploymentEngineFor", () => {
 
   it("gives a container project the not-configured reason when the container engine is absent", async () => {
     const engine = deploymentEngineFor(
-      { hosting: hostingNotConfigured("coolify", "Set COOLIFY_URL."), serverless: fakeServerless() },
+      {
+        hosting: hostingNotConfigured("coolify", "Set COOLIFY_URL."),
+        serverless: fakeServerless(),
+      },
       "container",
     );
     const result = await engine.deploy(ctx, ref);

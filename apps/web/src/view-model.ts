@@ -892,10 +892,9 @@ export async function loadRateLimits(
   client: ApiClient,
   organizationId: string,
 ): Promise<Section<RateLimitSummary>> {
-  const response = await client.call<readonly RateLimitSummary[]>(
-    "security.rateLimits.list",
-    { organizationId },
-  );
+  const response = await client.call<readonly RateLimitSummary[]>("security.rateLimits.list", {
+    organizationId,
+  });
   return sectionFrom("Rate limits", response);
 }
 

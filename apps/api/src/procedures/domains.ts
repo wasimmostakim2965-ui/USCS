@@ -264,7 +264,10 @@ export async function verifyDomain(
       event: published.ok ? "domain.route_published" : "domain.route_publish_failed",
       targetType: "domain",
       targetId: domain.id,
-      metadata: { hostname: domain.hostname, status: published.ok ? "succeeded" : published.status },
+      metadata: {
+        hostname: domain.hostname,
+        status: published.ok ? "succeeded" : published.status,
+      },
     });
   }
 

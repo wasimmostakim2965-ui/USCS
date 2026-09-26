@@ -214,11 +214,7 @@ export async function updateProject(
   }
   requireCapability(ctx, existing.organizationId, "project:update");
 
-  if (
-    input.name === undefined &&
-    input.slug === undefined &&
-    input.executionModel === undefined
-  ) {
+  if (input.name === undefined && input.slug === undefined && input.executionModel === undefined) {
     throw new ApiError(
       "invalid_input",
       "Nothing to update: provide a name, a slug or an execution model.",

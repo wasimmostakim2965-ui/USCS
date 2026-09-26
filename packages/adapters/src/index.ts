@@ -195,7 +195,10 @@ export interface HostingAdapter extends NotConfiguredBrand {
    * time, never what their secret values are. A deployment reads this to know
    * what it will inject; the dashboard shows keys, not secrets.
    */
-  listEnvVars(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<readonly EnvVarState[]>>;
+  listEnvVars(
+    ctx: AdapterContext,
+    ref: ProviderRef,
+  ): Promise<AdapterResult<readonly EnvVarState[]>>;
   /**
    * Create one environment variable.
    *
