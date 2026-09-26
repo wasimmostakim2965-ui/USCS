@@ -2466,6 +2466,10 @@ function EnvVarModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<SetEnvVarOutcome | null>(null);
+  const [redeploying, setRedeploying] = useState(false);
+  const [redeployOutcome, setRedeployOutcome] = useState<string | null>(null);
+  const [redeployError, setRedeployError] = useState<string | null>(null);
+  const [redeployKey] = useState(newRequestId);
 
   const editing = existing !== null;
 
@@ -2490,7 +2494,29 @@ function EnvVarModal({
     setValue("");
     setError(null);
     setOutcome(null);
+    setRedeployOutcome(null);
+    setRedeployError(null);
     onClose();
+  };
+
+  // A build-time variable only reaches a running build through a new deployment,
+  // so the note that says so carries the action rather than sending the operator
+  // to another page to find it. It reuses the connected repository (the same
+  // `git.deployNow` the Git page calls), and reports the queued deployment or the
+  // reason there is nothing to deploy — it never claims a build started.
+  const redeploy = async () => {
+    setRedeploying(true);
+    setRedeployError(null);
+    setRedeployOutcome(null);
+    const response = await deployFromLink(client, projectId, redeployKey);
+    setRedeploying(false);
+    if (!response.ok || !response.data) {
+      setRedeployError(
+        response.error?.message ?? "The redeploy could not be requested. Is a repository connected?",
+      );
+      return;
+    }
+    setRedeployOutcome(response.data.deployment.id);
   };
 
   return (
@@ -2528,10 +2554,29 @@ function EnvVarModal({
           </p>
           {outcome.engineReason ? <p className="small muted">{outcome.engineReason}</p> : null}
           {outcome.redeployRequired ? (
-            <p className="small muted">
-              This is a build-time variable, so it takes effect on the next deployment. Redeploy the
-              project to apply it to the running output.
-            </p>
+            <div className="stack">
+              <p className="small muted">
+                This is a build-time variable, so it takes effect on the next deployment. Redeploy
+                the project to apply it to the running output.
+              </p>
+              {redeployOutcome ? (
+                <p className="small" role="status">
+                  A redeployment was queued. Its status is the hosting engine&apos;s to report, on the
+                  Deployments page.
+                </p>
+              ) : (
+                <>
+                  <Button onClick={() => void redeploy()} busy={redeploying} size="sm">
+                    Redeploy now
+                  </Button>
+                  {redeployError ? (
+                    <p className="small" role="alert">
+                      {redeployError}
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </div>
           ) : null}
         </div>
       ) : (

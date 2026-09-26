@@ -613,6 +613,73 @@ describe("project environment variables", () => {
     expect(screen.queryByText("s3cret")).toBeNull();
   });
 
+  it("offers a real redeploy when a build-time save needs one", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "env.list") {
+        return { ok: true, status: 200, data: vars };
+      }
+      if (procedure === "env.set") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            variable: { ...vars[0]!, key: "API_TOKEN", valuePrefix: "ffff" },
+            applied: "engine",
+            redeployRequired: true,
+            engineReason: null,
+          },
+        };
+      }
+      if (procedure === "git.deployNow") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            deployment: {
+              id: "d-77",
+              status: "pending",
+              url: null,
+              kind: "production",
+              isCurrent: false,
+              createdAt: "2026-01-05T00:00:00.000Z",
+              gitBranch: "main",
+              gitCommit: null,
+              pullRequest: null,
+              failureReason: null,
+            },
+            replayed: false,
+            engineReason: null,
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/env");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add variable" }));
+    await user.type(await screen.findByLabelText("Key"), "API_TOKEN");
+    await user.type(await screen.findByLabelText("Value"), "s3cret");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    // The build-time note carries the action, so the operator does not have to
+    // leave the page to find the only thing that makes the change take effect.
+    await user.click(await screen.findByRole("button", { name: "Redeploy now" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/A redeployment was queued/i)).toBeTruthy(),
+    );
+    expect(JSON.stringify(calls)).toContain("git.deployNow");
+    // It says the deployment was queued, never that it succeeded.
+    expect(screen.queryByText(/deployed successfully/i)).toBeNull();
+  });
+
   it("removes a variable and reports the engine's refusal instead of pretending", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {
