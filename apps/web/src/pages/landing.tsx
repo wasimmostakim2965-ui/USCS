@@ -108,6 +108,22 @@ export function LandingPage({
   };
 
   const [domainQuery, setDomainQuery] = useState("");
+  const [domainAnswer, setDomainAnswer] = useState<string | null>(null);
+
+  // The lookup is not configured, so the honest result is about the *query*, not
+  // an invented availability. The shape is checked so the answer can say which
+  // problem it is: something that is not a hostname, or a hostname whose
+  // availability no configured registrar can report.
+  const DOMAIN_SHAPE =
+    /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+  const submitDomainSearch = (query: string) => {
+    const candidate = query.trim().toLowerCase();
+    setDomainAnswer(
+      DOMAIN_SHAPE.test(candidate)
+        ? `Registrar lookup is not configured, so Cloud Wai cannot report whether ${candidate} is available.`
+        : `“${query.trim()}” is not a hostname, so there is nothing to look up. Try a name like your-company.com.`,
+    );
+  };
 
   return (
     <div className="landing">
@@ -131,10 +147,7 @@ export function LandingPage({
           role="search"
           onSubmit={(event) => {
             event.preventDefault();
-            document.getElementById("domain-search-note")?.scrollIntoView({
-              behavior: "smooth",
-              block: "nearest",
-            });
+            submitDomainSearch(domainQuery);
           }}
         >
           <label className="landing__search-label" htmlFor="landing-domain-search">
@@ -164,6 +177,11 @@ export function LandingPage({
           Search is here; registrar lookup is not. Domain registration needs a provider this
           deployment has not configured, so this box will not invent an availability result.
         </p>
+        {domainAnswer !== null ? (
+          <p className="landing__search-note" role="status">
+            {domainAnswer}
+          </p>
+        ) : null}
         <div className="landing__cta">
           <Button variant="primary" onClick={onEnterDashboard}>
             {signedIn ? "Open the dashboard" : "Sign in"}

@@ -433,8 +433,31 @@ describe("the public landing page", () => {
     // availability answer, and the note says why.
     await userEvent.type(box, "acme.com");
     expect(screen.getByText(/registrar lookup is not/i)).toBeTruthy();
+    // Submitting produces a real, honest result about the query — not a scroll to
+    // text that was already on screen, and not an invented availability.
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByText(/cannot report whether acme\.com is available/i)).toBeTruthy();
     // Still no API call — a landing-page search cannot verify a domain.
     expect((box as HTMLInputElement).value).toBe("acme.com");
+  });
+
+  it("tells the visitor when the search text is not a hostname", async () => {
+    const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
+    const { default: userEvent } = await import("@testing-library/user-event");
+
+    window.history.replaceState(null, "", "#/");
+    render(
+      <ToastProvider>
+        <App session={signedOutSession()} apiBaseUrl={url} />
+      </ToastProvider>,
+    );
+
+    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
+    await userEvent.type(box, "not a domain");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    // An honest answer about the input, rather than a lookup that would have to
+    // invent a result for something that is not a hostname.
+    expect(await screen.findByText(/is not a hostname/i)).toBeTruthy();
   });
 
   it("still shows the sign-in form on a deep link a signed-out visitor cannot reach", async () => {
