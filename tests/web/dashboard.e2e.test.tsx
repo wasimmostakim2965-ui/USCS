@@ -1231,6 +1231,68 @@ describe("requesting and rolling back a deployment", () => {
   });
 });
 
+describe("exporting the activity log", () => {
+  it("offers a CSV export of exactly the rows shown, and says it is the recent slice", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "audit.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "a-1",
+              event: "deployment.enqueued",
+              actorEmail: "a@example.com",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    // jsdom has no download machinery, so capture what the page hands the
+    // browser instead: the blob it creates and the filename it names.
+    const created: Blob[] = [];
+    const original = URL.createObjectURL;
+    const originalClick = HTMLAnchorElement.prototype.click;
+    let downloadName = "";
+    URL.createObjectURL = (blob: Blob) => {
+      created.push(blob);
+      return "blob:cloud-wai";
+    };
+    URL.revokeObjectURL = () => undefined;
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloadName = this.download;
+    };
+
+    try {
+      renderApp(url, "#/orgs/org-1/audit");
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole("button", { name: "Export CSV" }));
+
+      expect(created).toHaveLength(1);
+      // jsdom's Blob has no `.text()`, so read it the way a browser would.
+      const csv = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(created[0]!);
+      });
+      expect(csv).toContain("deployment.enqueued");
+      expect(downloadName).toMatch(/^cloud-wai-activity-\d{4}-\d{2}-\d{2}\.csv$/);
+      // It says the file is the recent slice, not the whole history.
+      expect(screen.getByText(/not the full history/i)).toBeTruthy();
+    } finally {
+      URL.createObjectURL = original;
+      HTMLAnchorElement.prototype.click = originalClick;
+    }
+  });
+});
+
 describe("page titles", () => {
   it("names the current page in the document title", async () => {
     const url = await startApi((procedure) => {

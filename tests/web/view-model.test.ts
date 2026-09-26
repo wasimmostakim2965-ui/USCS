@@ -16,6 +16,7 @@ import {
   loadTrustedSources,
   cloneUrlFor,
   loadGitDeploySource,
+  auditCsv,
   sectionFrom,
 } from "@cloud-wai/web";
 import {
@@ -465,6 +466,34 @@ describe("the connected-repository prefill and deploy-now loaders", () => {
     expect(cloneUrlFor("gitlab", "acme/site")).toBe("https://gitlab.com/acme/site.git");
     expect(cloneUrlFor("bitbucket", "acme/site")).toBe("https://bitbucket.org/acme/site.git");
     expect(cloneUrlFor("generic", "acme/site")).toBeNull();
+  });
+});
+
+describe("the activity CSV export", () => {
+  it("quotes every field and doubles an embedded quote, so a value cannot shift a column", () => {
+    const csv = auditCsv([
+      {
+        id: "a-1",
+        event: 'user.login, "admin"',
+        actorEmail: "a@example.com",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    expect(csv).toBe(
+      '"id","event","actor","created_at"\r\n' +
+        '"a-1","user.login, ""admin""","a@example.com","2026-01-01T00:00:00.000Z"',
+    );
+  });
+
+  it("renders a missing actor as an empty cell rather than the string null", () => {
+    const csv = auditCsv([
+      { id: "a-2", event: "system.tick", actorEmail: "", createdAt: "2026-01-02T00:00:00.000Z" },
+    ]);
+    expect(csv).toContain('"system.tick","","2026-01-02T00:00:00.000Z"');
+  });
+
+  it("emits only the header for an empty organization, never a fabricated row", () => {
+    expect(auditCsv([])).toBe('"id","event","actor","created_at"');
   });
 });
 

@@ -903,6 +903,23 @@ export async function loadAudit(
 }
 
 /**
+ * Render audit rows as CSV.
+ *
+ * It exports exactly the rows the caller passes — the same rows the table shows,
+ * which is the newest slice the API returns — so the file never claims to be the
+ * whole history. Every field is quoted and internal quotes doubled (RFC 4180), so
+ * an event name or an email containing a comma or a quote cannot shift a column.
+ */
+export function auditCsv(events: readonly AuditSummary[]): string {
+  const cell = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+  const header = ["id", "event", "actor", "created_at"].map(cell).join(",");
+  const lines = events.map((event) =>
+    [event.id, event.event, event.actorEmail ?? "", event.createdAt].map(cell).join(","),
+  );
+  return [header, ...lines].join("\r\n");
+}
+
+/**
  * Load the customer's deny list.
  *
  * Unlike the engine-backed sections, a deployment that predates the deny list

@@ -65,7 +65,7 @@ object we have not built.
 | W10 | Webhooks (account-level) | none | **Missing** |
 | W11 | Notifications (email/push/SMS) | none | **Missing** |
 | W12 | 2FA enforcement / SAML SSO | none | **Missing** |
-| W13 | Audit-log export / CSV / drains | none | **Missing** |
+| W13 | Audit-log export / CSV / drains | `auditCsv` (`apps/web/src/view-model.ts`) renders the rows `audit.list` returns (org-scoped, membership-checked, append-only) as RFC-4180 CSV; `ActivityPage` (`apps/web/src/pages/pages.tsx`) offers an Export CSV button that downloads exactly the shown slice and says it is the recent 200, not the full history. No drains/push yet | **Partial** (CSV export wired; scheduled drains still missing) |
 | W14 | Domain registration / claim | landing search box, registrar `not_configured` (`apps/web/src/pages/landing.tsx:120-160`) | **Honest n/c** |
 | W15 | CLI | none | **Missing** |
 

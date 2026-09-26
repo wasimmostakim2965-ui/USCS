@@ -36,6 +36,7 @@ import type { Route } from "../routes.js";
 import {
   loadApiKeys,
   loadAudit,
+  auditCsv,
   loadBudgets,
   loadDeployments,
   loadDeploymentLogs,
@@ -4707,6 +4708,19 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
     "Recent activity",
   );
 
+  // Export the rows already on screen. It is the newest slice the API returns
+  // (200 rows), not the whole history, and the button says so — a file that
+  // silently stopped at the cap while looking complete would be a lie.
+  const exportCsv = (items: readonly AuditSummary[]) => {
+    const blob = new Blob([auditCsv(items)], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `cloud-wai-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <PageShell
       title="Activity"
@@ -4718,25 +4732,36 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
           onRetry={reload}
           emptyMessage="Nothing recorded yet."
           renderReady={(items) => (
-            <Table
-              items={items}
-              rowKey={(item) => item.id}
-              filterText={(item) => `${item.event} ${item.actorEmail ?? ""}`}
-              filterLabel="Filter activity"
-              columns={[
-                {
-                  key: "event",
-                  header: "Event",
-                  render: (item) => <span className="mono small">{item.event}</span>,
-                },
-                { key: "actor", header: "Actor", render: (item) => item.actorEmail ?? "—" },
-                {
-                  key: "when",
-                  header: "When",
-                  render: (item) => <Timestamp value={item.createdAt} />,
-                },
-              ]}
-            />
+            <div className="stack">
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <Button size="sm" onClick={() => exportCsv(items)} disabled={items.length === 0}>
+                  Export CSV
+                </Button>
+              </div>
+              <Table
+                items={items}
+                rowKey={(item) => item.id}
+                filterText={(item) => `${item.event} ${item.actorEmail ?? ""}`}
+                filterLabel="Filter activity"
+                columns={[
+                  {
+                    key: "event",
+                    header: "Event",
+                    render: (item) => <span className="mono small">{item.event}</span>,
+                  },
+                  { key: "actor", header: "Actor", render: (item) => item.actorEmail ?? "—" },
+                  {
+                    key: "when",
+                    header: "When",
+                    render: (item) => <Timestamp value={item.createdAt} />,
+                  },
+                ]}
+              />
+              <p className="muted small" style={{ margin: 0 }}>
+                The export contains the {items.length} most recent entries shown here, not the full
+                history.
+              </p>
+            </div>
           )}
         />
       </Card>
