@@ -62,6 +62,12 @@ pnpm format:check   # check formatting
 
 - `pnpm` 9.x is expected. Docker is needed for `verify:rls`; without it, run
   `pnpm verify` (build + typecheck + tests).
+- **The web tests render built output, not source.** `tests/web/*` import
+  `@cloud-wai/web`, which resolves to `apps/web/dist`. A `tsc -b` at the root
+  can decide the package is up to date while your edit is unbuilt, and the test
+  then asserts against the previous build. After editing anything under
+  `apps/web/src`, rebuild before trusting a green run:
+  `./node_modules/.bin/tsc -b apps/web --force`, or run `verify` from clean.
 - The database store talks to Supabase over HTTP; tests use in-memory stores and
   never require a live database.
 - Engine adapters default to an honest `not_configured` implementation whenever

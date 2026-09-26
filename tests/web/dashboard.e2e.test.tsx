@@ -235,6 +235,43 @@ describe("the dashboard against a live control plane", () => {
     expect(screen.getByText("Build exited 1")).toBeTruthy();
   });
 
+  it("makes a deployment URL something to visit, not text to copy", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      if (procedure === "deployments.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "d-1",
+              status: "succeeded",
+              url: "https://web-app.example.test",
+              failureReason: null,
+              isCurrent: true,
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    // A real anchor, so middle-click and "copy link address" work. It must point
+    // at the deployment's own origin, and carry noopener: the opened page is a
+    // customer's site, not ours, and must not be able to reach window.opener.
+    const link = await screen.findByRole("link", { name: "https://web-app.example.test" });
+    expect(link.getAttribute("href")).toBe("https://web-app.example.test");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
   it("keeps an unverified domain visually distinct from a verified one", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

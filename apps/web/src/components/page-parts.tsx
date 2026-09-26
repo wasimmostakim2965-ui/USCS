@@ -43,6 +43,35 @@ export function Link({
   );
 }
 
+/**
+ * A link that opens a deployed site in a new tab.
+ *
+ * A deployment's URL is the thing a customer most wants to act on, so it is a
+ * real anchor rather than text to copy: middle-click and "copy link address"
+ * behave the way a browser user expects, and the tab it opens is the site
+ * itself, not this dashboard.
+ *
+ * It is deliberately not an in-app `Link`: a deployment URL points at the
+ * customer's own application, on another origin. Routing it in-app would either
+ * fail or silently keep the operator inside the dashboard.
+ *
+ * `rel="noopener noreferrer"` is required, not decorative — without `noopener`
+ * the opened page can reach back through `window.opener`.
+ */
+export function VisitLink({
+  url,
+  label = "Visit",
+}: {
+  readonly url: string;
+  readonly label?: string;
+}) {
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" title={url}>
+      {label}
+    </a>
+  );
+}
+
 /** A short, stable timestamp. Absolute date in the title for precision. */
 export function Timestamp({ value }: { readonly value: string }) {
   const date = new Date(value);

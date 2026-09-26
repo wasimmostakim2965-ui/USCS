@@ -95,7 +95,13 @@ import {
   type UsageTotalSummary,
   type VerifiedBotSummary,
 } from "../view-model.js";
-import { ApiKeyStateBadge, Link, Timestamp, VerifiedBadge } from "../components/page-parts.js";
+import {
+  ApiKeyStateBadge,
+  Link,
+  Timestamp,
+  VerifiedBadge,
+  VisitLink,
+} from "../components/page-parts.js";
 
 /* ------------------------------------------------------------------ cards */
 
@@ -151,7 +157,7 @@ function DeploymentColumns(): readonly Column<DeploymentSummary>[] {
       render: (item) =>
         item.url ? (
           <span className="mono small truncate" style={{ display: "inline-block", maxWidth: 320 }}>
-            {item.url}
+            <VisitLink url={item.url} label={item.url} />
           </span>
         ) : (
           <span className="faint">—</span>
@@ -493,6 +499,11 @@ export function ProjectOverviewPage({
   const live = deploymentItems.filter((item) => item.status === "succeeded").length;
   const unconfigured = deploymentItems.filter((item) => item.status === "not_configured").length;
   const model = projectItem?.executionModel;
+  // The address the project's domains currently serve: the one deployment marked
+  // current that also has a URL. Vercel puts this at the top of the project, and
+  // it is the answer to "where is my site", so it belongs in the header rather
+  // than only in the table below.
+  const liveUrl = deploymentItems.find((item) => item.isCurrent && item.url)?.url ?? null;
 
   return (
     <PageShell
@@ -502,7 +513,19 @@ export function ProjectOverviewPage({
           ? `Slug ${projectItem.slug} · ${model === "serverless" ? "Serverless" : "Container"} execution`
           : undefined
       }
-      actions={<Link to={{ name: "deployments", organizationId, projectId }}>Deployments →</Link>}
+      actions={
+        <div className="row">
+          {liveUrl ? (
+            <Button
+              variant="primary"
+              onClick={() => window.open(liveUrl, "_blank", "noopener,noreferrer")}
+            >
+              Visit site
+            </Button>
+          ) : null}
+          <Link to={{ name: "deployments", organizationId, projectId }}>Deployments →</Link>
+        </div>
+      }
       breadcrumb={
         <nav className="breadcrumb" aria-label="Breadcrumb">
           <Link to={{ name: "projects", organizationId }}>Projects</Link>
@@ -513,6 +536,17 @@ export function ProjectOverviewPage({
     >
       {project.section.state.kind === "error" || project.section.state.kind === "degraded" ? (
         <SectionView<ProjectSummary> section={project.section} onRetry={project.reload} />
+      ) : null}
+
+      {liveUrl ? (
+        <p className="small muted" style={{ marginBottom: "var(--space-4)" }}>
+          Serving at <VisitLink url={liveUrl} label={liveUrl.replace(/^https?:\/\//, "")} />
+        </p>
+      ) : deployments.section.state.kind === "ready" && deploymentItems.length > 0 ? (
+        <p className="small muted" style={{ marginBottom: "var(--space-4)" }}>
+          No deployment is live yet. Promote a succeeded build on the Deployments page, or connect a
+          domain, to give this project an address.
+        </p>
       ) : null}
 
       <div className="grid grid--stats" style={{ marginBottom: "var(--space-6)" }}>
@@ -758,6 +792,15 @@ export function DeploymentsPage({
               header: "",
               render: (item) => (
                 <div className="row">
+                  {item.url ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.open(item.url!, "_blank", "noopener,noreferrer")}
+                    >
+                      Visit
+                    </Button>
+                  ) : null}
                   <Button variant="ghost" size="sm" onClick={() => setViewingLogs(item)}>
                     Logs
                   </Button>
@@ -1107,9 +1150,21 @@ function NewDeploymentModal({
             {result.deployment.url ? (
               <>
                 <dt>URL</dt>
-                <dd className="mono small">{result.deployment.url}</dd>
+                <dd className="mono small">
+                  <VisitLink url={result.deployment.url} />
+                  <span className="faint"> · </span>
+                  {result.deployment.url}
+                </dd>
               </>
-            ) : null}
+            ) : (
+              <>
+                <dt>URL</dt>
+                <dd className="small muted">
+                  No URL was issued. Connect a domain on the Domains page, or check the engine's
+                  state — a deployment that did not run has no address to visit.
+                </dd>
+              </>
+            )}
           </dl>
           {result.engineReason ? (
             <p className="small muted" role="status">
