@@ -55,6 +55,7 @@ import {
   listDataResources,
   listDomains,
   revokeApiKey,
+  type ConsoleLinkResolver,
   type SettingsDeps,
 } from "./settings.js";
 import {
@@ -71,6 +72,7 @@ import {
   listDataBackups,
   listDataRestores,
   provisionDataResource,
+  readDataLogs,
   restoreDataResource,
   rotateDataCredentials,
   type BackupDataInput,
@@ -78,6 +80,7 @@ import {
   type ListBackupsInput,
   type ListRestoresInput,
   type ProvisionDataInput,
+  type ReadDataLogsInput,
   type RestoreDataInput,
   type RotateCredentialsInput,
 } from "./data.js";
@@ -179,6 +182,12 @@ export interface ProcedureExtras {
   readonly secretCipher?: SecretCipher | null;
   /** Injected so a webhook secret is deterministic in tests. */
   readonly newSecret?: (() => string) | undefined;
+  /**
+   * Resolves a data resource's engine-console link from the deployment's own
+   * engine configuration. Absent means `data.list` carries null links, which the
+   * dashboard shows as "not configured" rather than a broken URL.
+   */
+  readonly consoleLink?: ConsoleLinkResolver | undefined;
 }
 
 export function buildProcedures(
@@ -202,6 +211,7 @@ export function buildProcedures(
     store,
     newId,
     ...(extras.now ? { now: extras.now } : {}),
+    ...(extras.consoleLink ? { consoleLink: extras.consoleLink } : {}),
   };
   const domainDeps: DomainDeps = {
     store,
@@ -453,6 +463,11 @@ export function buildProcedures(
       name: "data.rotateCredentials",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         rotateDataCredentials(ctx, dataDeps, inputOf<RotateCredentialsInput>(input)),
+    },
+    {
+      name: "data.logs",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        readDataLogs(ctx, dataDeps, inputOf<ReadDataLogsInput>(input)),
     },
     {
       name: "security.policy.get",
@@ -740,6 +755,7 @@ export const ROUTE_SHAPES = {
     resourceId: "DataResourceId",
     confirmName: "string",
   },
+  "data.logs": { organizationId: "OrganizationId", resourceId: "DataResourceId" },
   "security.policy.get": { organizationId: "OrganizationId" },
   "security.policy.save": {
     organizationId: "OrganizationId",
@@ -802,3 +818,4 @@ export const ROUTE_SHAPES = {
 } as const;
 
 export type { Organization, Project };
+export type { ConsoleLinkResolver } from "./settings.js";

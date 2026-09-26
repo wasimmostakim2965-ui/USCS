@@ -503,6 +503,16 @@ export interface DataResourceSummary {
   readonly projectId?: string | null;
   /** Mirrors the `data_resource_state` enum. The server, never the client, writes it. */
   readonly state: "provisioning" | "ready" | "restoring" | "failed" | "not_configured";
+  /**
+   * The engine console's own pages for this resource, resolved by the server.
+   *
+   * Null means the deployment has no tenant-reachable console for this resource
+   * — which the Database sub-pages report as "not configured" rather than
+   * rendering a link that would 404. The browser never builds this URL itself:
+   * the engine's URL grammar lives in the adapter layer, so the two cannot drift.
+   * Keys are the console's section names (`overview`, `logs`, `terminal`, …).
+   */
+  readonly engineConsole?: Readonly<Record<string, string>> | null;
 }
 
 /** A provision or backup answer, with the engine's own words when it refused. */
@@ -552,6 +562,21 @@ export interface DataBackupSummary {
   readonly providerResourceId: string | null;
   readonly createdAt: string;
   readonly finishedAt: string | null;
+}
+
+/**
+ * A database's log, as the engine answered.
+ *
+ * `engineReason` is null when the engine answered and the reason string when it
+ * refused, so the page shows "the engine could not be read" as an engine state
+ * rather than as a failure of the dashboard. `lines` is empty in that case; it
+ * is never a placeholder. `cursor` is null because the database log endpoint has
+ * no pagination.
+ */
+export interface DataLogSummary {
+  readonly engineReason: string | null;
+  readonly lines: readonly string[];
+  readonly cursor: string | null;
 }
 
 export interface SecurityPolicySummary {
@@ -755,6 +780,41 @@ export async function loadDataRestores(
     resourceId,
   });
   return sectionFrom("Restores", response);
+}
+
+/**
+ * Load a database's engine log.
+ *
+ * The lines are the engine's own container output. An unconfigured or
+ * unreachable engine answers with an honest `engineReason` and no lines, and
+ * that is what the page renders — there is no path here that invents output.
+ * A not-configured response is normalized to the same shape as a refusal so the
+ * page has one state to render, not two.
+ */
+export async function loadDataLogs(
+  client: ApiClient,
+  organizationId: string,
+  resourceId: string,
+): Promise<DataLogSummary> {
+  const response = await client.call<DataLogSummary>("data.logs", {
+    organizationId,
+    resourceId,
+  });
+  if (response.notConfigured) {
+    return {
+      engineReason: response.error?.message ?? "The database engine is not configured.",
+      lines: [],
+      cursor: null,
+    };
+  }
+  if (!response.ok || !response.data) {
+    return {
+      engineReason: response.error?.message ?? "The log could not be loaded.",
+      lines: [],
+      cursor: null,
+    };
+  }
+  return response.data;
 }
 
 /** Load an organization's API keys. The secret is never in this list. */

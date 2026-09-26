@@ -14,13 +14,33 @@ import { requireCapability, roleFor } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { ApiKeySummary, DataResource, DataStore, Domain } from "@cloud-wai/database";
 import type { ApiKeyId, OrganizationId, ProjectId, UserId } from "@cloud-wai/contracts";
+import type { EngineConsoleLinks } from "@cloud-wai/adapters";
 import type { RequestContext } from "../context.js";
+
+/**
+ * Resolves a resource's engine-console links, or null.
+ *
+ * The URL shape belongs to the adapter layer (`engineConsoleUrl`), and the
+ * credentials it needs are the deployment's, so this is injected rather than
+ * read here: a procedure must not reach into engine configuration, and a test
+ * that has no console can pass nothing and get honest nulls.
+ */
+export type ConsoleLinkResolver = (input: {
+  readonly organizationId: OrganizationId;
+  readonly resource: DataResource;
+}) => EngineConsoleLinks | null;
 
 export interface SettingsDeps {
   readonly store: DataStore;
   /** Injected so a key id is a Cloud Wai UUID, not a provider or test artifact. */
   readonly newId: () => string;
   readonly now?: () => Date;
+  /**
+   * When wired, `data.list` carries each resource's engine-console link so the
+   * dashboard can send an operator to the engine's own screen. Absent means no
+   * links — the dashboard says so rather than rendering a broken one.
+   */
+  readonly consoleLink?: ConsoleLinkResolver | undefined;
 }
 
 /**
@@ -44,13 +64,30 @@ export async function listDomains(
   return domains.filter((domain) => domain.projectId == null || domain.projectId === projectId);
 }
 
+/**
+ * A data resource as the API returns it.
+ *
+ * `engineConsole` is resolved server-side from the deployment's own engine
+ * configuration, so the browser never learns a console origin or a tenant's
+ * engine identifiers beyond the links it is given. It is null whenever links
+ * cannot be stood behind — no console configured, a bucket, or a resource the
+ * engine has not named yet.
+ */
+export interface DataResourceView extends DataResource {
+  readonly engineConsole: EngineConsoleLinks | null;
+}
+
 export async function listDataResources(
   ctx: RequestContext,
   deps: SettingsDeps,
   organizationId: OrganizationId,
-): Promise<readonly DataResource[]> {
+): Promise<readonly DataResourceView[]> {
   requireCapability(ctx, organizationId, "data:read");
-  return deps.store.listDataResources(ctx.principal.userId, organizationId);
+  const resources = await deps.store.listDataResources(ctx.principal.userId, organizationId);
+  return resources.map((resource) => ({
+    ...resource,
+    engineConsole: deps.consoleLink?.({ organizationId, resource }) ?? null,
+  }));
 }
 
 export async function listApiKeys(

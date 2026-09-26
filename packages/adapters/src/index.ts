@@ -240,6 +240,19 @@ export interface DatabaseAdapter extends NotConfiguredBrand {
     input: { backupRef: ProviderRef; targetRef: ProviderRef },
   ): Promise<AdapterResult<OperationRef>>;
   destroy(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
+  /**
+   * Read a database's container log.
+   *
+   * This is the engine's log for the resource it runs, not a SQL or query log:
+   * Cloud Wai never connects to the tenant database (ADR-0011, Option A), so
+   * this is the one database log that exists without entering the data plane.
+   * The endpoint has no cursor, so a page's cursor is null rather than invented.
+   */
+  getLogs(
+    ctx: AdapterContext,
+    ref: ProviderRef,
+    cursor?: string,
+  ): Promise<AdapterResult<LogPage>>;
 }
 
 export interface StorageAdapter extends NotConfiguredBrand {
@@ -314,3 +327,4 @@ export * from "./conformance.js";
 export * from "./fakes.js";
 export * from "./queue.js";
 export * from "./domain-verification.js";
+export * from "./engine-console.js";

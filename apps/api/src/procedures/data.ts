@@ -17,7 +17,7 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
-import type { Engines, JobQueue } from "@cloud-wai/adapters";
+import type { Engines, JobQueue, LogPage } from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
   DataBackup,
@@ -673,4 +673,80 @@ export async function rotateDataCredentials(
   });
 
   return { resource, engineReason };
+}
+
+export interface ReadDataLogsInput {
+  readonly organizationId: OrganizationId;
+  readonly resourceId: DataResourceId;
+}
+
+/** A database's log, with the engine's own refusal when it could not be read. */
+export interface ReadDataLogsResult {
+  readonly resource: DataResource;
+  /** Null when the engine answered; the reason string when it did not. */
+  readonly engineReason: string | null;
+  readonly lines: readonly string[];
+  /** The engine's page cursor, or null — the database log endpoint has none. */
+  readonly cursor: string | null;
+}
+
+/**
+ * Read a resource's log through the database engine.
+ *
+ * This is the container log of the database the engine runs, not a SQL log:
+ * Cloud Wai never connects to the tenant database (ADR-0011, Option A), so this
+ * is the one database log that exists without entering the data plane. A bucket
+ * has no such log here — its storage engine serves it — so it is refused rather
+ * than routed to the database adapter as though a bucket were a database.
+ *
+ * A refusal from the engine is returned as `engineReason` with empty lines, not
+ * thrown: an unconfigured or unreachable engine is a state the page shows, not
+ * an error the caller must catch.
+ */
+export async function readDataLogs(
+  ctx: RequestContext,
+  deps: DataDeps,
+  input: ReadDataLogsInput,
+): Promise<ReadDataLogsResult> {
+  requireCapability(ctx, input.organizationId, "data:read");
+
+  const writes = writesFor(deps);
+  const resource = await writes.getDataResource(ctx.principal.userId, input.resourceId);
+  if (!resource || resource.organizationId !== input.organizationId) {
+    throw new ApiError("not_found", "Data resource not found.");
+  }
+  if (!resource.providerResourceId) {
+    throw new ApiError(
+      "conflict",
+      "This resource has no engine handle yet, so it has no log to read.",
+    );
+  }
+  if (resource.kind !== "postgres") {
+    throw new ApiError(
+      "engine_unavailable",
+      "Reading an object-storage bucket's log is not available in this build yet.",
+    );
+  }
+
+  const ref: ProviderRef = {
+    organizationId: resource.organizationId,
+    provider: (resource.provider ?? "postgres") as ProviderRef["provider"],
+    resourceType: "database",
+    resourceId: resource.providerResourceId,
+  };
+
+  const page = await deps.engines.database.getLogs(
+    {
+      organizationId: resource.organizationId,
+      idempotencyKey: `logs-${resource.id}`,
+      timeoutMs: ADAPTER_TIMEOUT_MS,
+    },
+    ref,
+  );
+
+  if (!page.ok) {
+    return { resource, engineReason: page.reason, lines: [], cursor: null };
+  }
+  const value = page.value as LogPage;
+  return { resource, engineReason: null, lines: value.lines, cursor: value.cursor };
 }

@@ -13,11 +13,14 @@
  * and offers no control that pretends otherwise. Nothing here reports success
  * for work the platform has not performed.
  */
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import {
   Button,
   Card,
+  DegradedState,
+  EmptyState,
   Field,
+  LoadingSkeleton,
   Modal,
   ready,
   SectionShell,
@@ -30,6 +33,7 @@ import { useSection } from "../react/hooks.js";
 import type { DatabaseSection } from "../routes.js";
 import {
   loadDataBackups,
+  loadDataLogs,
   loadDataResources,
   loadDataRestores,
   type BackupDataSummary,
@@ -40,7 +44,7 @@ import {
   type RestoreDataSummary,
   type RotateCredentialsSummary,
 } from "../view-model.js";
-import { DataStateBadge, Timestamp } from "../components/page-parts.js";
+import { DataStateBadge, Timestamp, VisitLink } from "../components/page-parts.js";
 
 import { databaseSectionTitle } from "../navigation.js";
 
@@ -53,53 +57,352 @@ import { databaseSectionTitle } from "../navigation.js";
  * Storage page — harmless only while Storage was the single flagged section, and
  * a silent bug the first time another one was flipped.
  *
- * Overview and Storage are real: both read the same `data.list` rows and both
- * provision through the engine. The rest need an engine operation this build's
- * adapter interface does not expose yet — introspecting tables, running SQL,
- * listing auth users — so they stay honest placeholders rather than screens
- * wired to a fake.
+ * Every sub-page is now real. Overview, Storage and Logs read the control plane
+ * directly (`data.list`, `data.logs`). The remaining sub-pages — Table Editor,
+ * SQL Editor, Authentication, API, Roles — describe a concern whose *engine*
+ * screen exists but whose operation Cloud Wai does not proxy: ADR-0011 keeps the
+ * control plane out of the tenant data plane, so it holds no tenant database
+ * connection and issues no SQL. Those pages therefore hand the operator to the
+ * engine's own console for that concern, through the deep link the server
+ * resolved, instead of pretending to be a query console or a fake editor.
  */
-const SECTION_COMPONENT: Partial<
-  Record<
-    DatabaseSection,
-    (props: { readonly organizationId: string; readonly projectId: string }) => ReactElement
-  >
+const SECTION_COMPONENT: Record<
+  DatabaseSection,
+  (props: { readonly organizationId: string; readonly projectId: string }) => ReactElement
 > = {
   overview: DatabaseOverview,
+  tables: DatabaseTables,
+  sql: DatabaseSql,
+  auth: DatabaseAuth,
   storage: DatabaseStorage,
-};
-/**
- * What a section that is not built yet actually needs.
- *
- * Naming the missing engine operation is the honest form of "coming soon": it
- * says the route is real, the plan is real, and exactly which engine capability
- * is absent, rather than implying the feature is a styling task.
- */
-const NOT_YET_REASON: Partial<Record<DatabaseSection, string>> = {
-  tables:
-    "Browsing and editing rows needs a table-introspection operation on the database engine, which this build's adapter interface does not expose yet.",
-  sql: "Running SQL needs a query-execution operation on the database engine, which this build's adapter interface does not expose yet.",
-  auth: "Users, sessions and providers need an auth-user listing operation on the database engine, which this build's adapter interface does not expose yet.",
-  api: "The REST endpoint list is generated from the schema, so it needs the same table-introspection operation the Table Editor does.",
-  roles:
-    "Roles and extensions need a role-introspection operation on the database engine, which this build's adapter interface does not expose yet.",
-  logs: "Database and API logs need a log-stream operation on the database engine, which this build's adapter interface does not expose yet.",
-  settings:
-    "Engine-level settings need a configuration operation on the database engine, which this build's adapter interface does not expose yet.",
+  api: DatabaseApi,
+  roles: DatabaseRoles,
+  logs: DatabaseLogs,
+  settings: DatabaseSettings,
 };
 
-function NotYetBuilt({ section }: { readonly section: DatabaseSection }) {
+/**
+ * A Database sub-page whose concern lives on the engine's own console.
+ *
+ * The shape is the same for each: an honest statement of what the control plane
+ * does *not* proxy for this concern, and one link per ready database to the
+ * engine screen that owns it. When no console is configured the link is absent
+ * and the page says so — it never renders a dead link, and it never fabricates a
+ * screen of its own that would imply the platform performed work it did not.
+ *
+ * `consoleSection` is a key into the links the server resolved, not a path: the
+ * engine's URL grammar stays in the adapter layer, so a route rename cannot
+ * silently produce a 404 in the dashboard.
+ */
+function ConsoleHandoff({
+  organizationId,
+  projectId,
+  title,
+  hint,
+  explanation,
+  consoleSection,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+  readonly title: string;
+  readonly hint: string;
+  readonly explanation: string;
+  readonly consoleSection: string;
+}) {
+  const { client } = useApp();
+  const resources = useSection(
+    () => loadDataResources(client, organizationId),
+    [client, organizationId],
+    title,
+  );
+
+  const databases =
+    resources.section.state.kind === "ready"
+      ? resources.section.state.items.filter(
+          (item) =>
+            item.kind === "postgres" &&
+            item.state === "ready" &&
+            (item.projectId == null || item.projectId === projectId),
+        )
+      : [];
+
   return (
-    <Card>
-      <div className="banner" role="status">
-        <strong>{databaseSectionTitle(section)} is not available in this build yet.</strong>
-        <span>
-          {NOT_YET_REASON[section] ??
-            "The route exists so a link to it is honest, and the section is planned."}{" "}
-          It is not wired to a fake in the meantime.
-        </span>
-      </div>
-    </Card>
+    <>
+      {/* The page header already carries the section title, so this states the
+          handoff itself rather than repeating the heading. */}
+      <SectionShell title="Where this is managed" hint={hint}>
+        <Card>
+          <p className="muted small">{explanation}</p>
+        </Card>
+      </SectionShell>
+
+      <SectionShell title="Engine console" hint="The engine's own screen for this concern">
+        <SectionView<DataResourceSummary>
+          section={ready(title, databases)}
+          columns={[
+            { key: "name", header: "Database", render: (item) => item.name },
+            {
+              key: "console",
+              header: "Engine console",
+              render: (item) => {
+                const url = item.engineConsole?.[consoleSection];
+                // A ready database with no console link is a deployment fact:
+                // no tenant-reachable console is configured. It says so rather
+                // than offering a link that would not resolve.
+                return url ? (
+                  <VisitLink url={url} label="Open in engine console" />
+                ) : (
+                  <span className="small muted">No engine console configured</span>
+                );
+              },
+            },
+          ]}
+          rowKey={(item) => item.id}
+          onRetry={resources.reload}
+          emptyMessage="No ready database in this project. This concern is served by the engine's console once a database is ready."
+        />
+      </SectionShell>
+    </>
+  );
+}
+
+function DatabaseTables(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="Table Editor"
+      hint="Rows are managed in the engine's own console"
+      explanation="Cloud Wai does not connect to a tenant database and does not issue SQL (ADR-0011, Option A), so it does not proxy a table browser. Rows are inspected and edited in the engine's console for the database — the terminal there is where SQL is run against it."
+      consoleSection="terminal"
+    />
+  );
+}
+
+function DatabaseSql(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="SQL Editor"
+      hint="SQL runs in the engine's own console"
+      explanation="SQL is executed against the database inside the engine, never through the control plane: Cloud Wai holds no tenant data-plane credentials. The engine console's terminal is where a query is run against this database."
+      consoleSection="terminal"
+    />
+  );
+}
+
+function DatabaseAuth(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="Authentication"
+      hint="Identity for applications built on this database"
+      explanation="Application-level authentication belongs to the app that uses this database, not to the engine that hosts it, and not to this control plane — which holds no tenant data-plane credentials (ADR-0011). The engine console shows the database itself; auth providers are configured where the app is deployed."
+      consoleSection="overview"
+    />
+  );
+}
+
+function DatabaseApi(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="API"
+      hint="The engine's own API surface for this database"
+      explanation="Cloud Wai does not generate a REST layer over tenant tables — that would require the data-plane access ADR-0011 forbids. The database's own engine API and its configuration are on the engine console."
+      consoleSection="overview"
+    />
+  );
+}
+
+function DatabaseRoles(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="Roles & Extensions"
+      hint="Database roles, extensions and limits"
+      explanation="Roles and extensions are database-level concerns inside the engine, and inspecting them needs the data-plane access ADR-0011 forbids. The engine console is where they are inspected; the control plane records the resource and its credentials rotation, not the engine's role catalogue."
+      consoleSection="overview"
+    />
+  );
+}
+
+function DatabaseSettings(props: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  return (
+    <ConsoleHandoff
+      {...props}
+      title="Settings"
+      hint="Engine-level configuration for this database"
+      explanation="Engine-level settings — environment variables, resource limits, health checks — belong to the engine's own resource record, which the control plane does not hold (ADR-0011). The console is where they are changed; Cloud Wai's control plane holds the resource's identity and lifecycle, not the engine's configuration surface."
+      consoleSection="environment-variables"
+    />
+  );
+}
+
+/**
+ * The database's log, read through the engine.
+ *
+ * This is the one database view that is a real control-plane read: `data.logs`
+ * asks the database adapter for the resource's container log, which the engine
+ * serves without Cloud Wai entering the data plane. The page shows the engine's
+ * own lines, and an unconfigured or unreachable engine renders as its own state
+ * rather than as an empty log that would read like "nothing is happening".
+ */
+function DatabaseLogs({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client } = useApp();
+  const resources = useSection(
+    () => loadDataResources(client, organizationId),
+    [client, organizationId],
+    "Database logs",
+  );
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const databases =
+    resources.section.state.kind === "ready"
+      ? resources.section.state.items.filter(
+          (item) =>
+            item.kind === "postgres" &&
+            item.state === "ready" &&
+            (item.projectId == null || item.projectId === projectId),
+        )
+      : [];
+
+  const active = databases.find((item) => item.id === selected) ?? databases[0] ?? null;
+
+  return (
+    <>
+      <SectionShell title="Database log" hint="The engine's own container output for this database">
+        {active && databases.length > 1 ? (
+          <Card title="Database">
+            <p className="small muted">The log shown is this database's own.</p>
+            <div className="row" style={{ flexWrap: "wrap", gap: "var(--space-2)" }}>
+              {databases.map((item) => (
+                <Button
+                  key={item.id}
+                  size="sm"
+                  variant={item.id === active.id ? "primary" : "ghost"}
+                  aria-pressed={item.id === active.id}
+                  onClick={() => setSelected(item.id)}
+                >
+                  {item.name}
+                </Button>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+
+        {active ? (
+          <DatabaseLogPanel
+            key={active.id}
+            organizationId={organizationId}
+            resource={active}
+          />
+        ) : (
+          <Card>
+            <EmptyState
+              title="No database to read a log from"
+              message="A database must be ready before the engine has a log for it. Provision a database on the Overview page."
+            />
+          </Card>
+        )}
+      </SectionShell>
+    </>
+  );
+}
+
+/**
+ * One database's log.
+ *
+ * `key`-ed by the resource so switching databases remounts the panel and the
+ * previous database's lines never linger under a new heading. The three states
+ * are distinct: loading, the engine refusing (its own reason), and the engine
+ * answering (its lines, or an honest empty tail).
+ */
+function DatabaseLogPanel({
+  organizationId,
+  resource,
+}: {
+  readonly organizationId: string;
+  readonly resource: DataResourceSummary;
+}) {
+  const { client } = useApp();
+  const [nonce, setNonce] = useState(0);
+  const [state, setState] = useState<
+    | { readonly kind: "loading" }
+    | { readonly kind: "refused"; readonly reason: string }
+    | { readonly kind: "loaded"; readonly lines: readonly string[]; readonly cursor: string | null }
+  >({ kind: "loading" });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void loadDataLogs(client, organizationId, resource.id).then((logs) => {
+      if (cancelled) return;
+      if (logs.engineReason && logs.lines.length === 0) {
+        setState({ kind: "refused", reason: logs.engineReason });
+        return;
+      }
+      setState({ kind: "loaded", lines: logs.lines, cursor: logs.cursor });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, organizationId, resource.id, nonce]);
+
+  return (
+    <SectionShell
+      title={resource.name}
+      hint="Read through the database engine"
+      actions={
+        <Button size="sm" onClick={() => setNonce((n) => n + 1)}>
+          Refresh
+        </Button>
+      }
+    >
+      {state.kind === "loading" ? <LoadingSkeleton title="Database log" rows={5} /> : null}
+      {state.kind === "refused" ? (
+        <DegradedState title="Database log" reason={state.reason} />
+      ) : null}
+      {state.kind === "loaded" ? (
+        state.lines.length === 0 ? (
+          <Card>
+            <EmptyState
+              title="No log output"
+              message="The engine returned no log lines for this database. That is the engine's answer, not a missing view."
+            />
+          </Card>
+        ) : (
+          <Card flush>
+            <pre className="log" aria-label={`Log for ${resource.name}`}>
+              {state.lines.join("\n")}
+            </pre>
+          </Card>
+        )
+      ) : null}
+    </SectionShell>
   );
 }
 
@@ -1030,11 +1333,7 @@ export function DatabasePage({
         </div>
       </header>
 
-      {Body ? (
-        <Body organizationId={organizationId} projectId={projectId} />
-      ) : (
-        <NotYetBuilt section={section} />
-      )}
+      <Body organizationId={organizationId} projectId={projectId} />
     </div>
   );
 }

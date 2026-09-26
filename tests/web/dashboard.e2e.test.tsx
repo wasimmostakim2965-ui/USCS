@@ -2128,22 +2128,191 @@ describe("the Database drill-in", () => {
     expect(active.getAttribute("aria-current")).toBe("page");
   });
 
-  it("says a sub-section is not built yet instead of rendering a blank page", async () => {
+  it("hands a non-proxied sub-section to the engine console instead of a blank page", async () => {
     const url = await startApi(reachable());
     renderApp(url, "#/orgs/org-1/projects/p-1/database/auth");
 
     expect(await screen.findByRole("heading", { name: "Authentication" })).toBeTruthy();
-    expect(
-      await screen.findByText(/Authentication is not available in this build yet/),
-    ).toBeTruthy();
-    // The placeholder names the missing engine capability rather than implying
-    // the section is a styling task.
-    expect(await screen.findByText(/auth-user listing operation/)).toBeTruthy();
-    // And it is not another section's body: dispatching by a bare "implemented"
-    // flag once rendered the Storage view for every flagged section, which is
-    // invisible until a second section is enabled.
+    // The page states what the control plane does not proxy, and why, rather
+    // than implying the section is a styling task.
+    expect(await screen.findByText(/ADR-0011/)).toBeTruthy();
+    // It is not another section's body: dispatching by a bare "implemented" flag
+    // once rendered the Storage view for every flagged section.
     expect(screen.queryByRole("button", { name: "Provision resource" })).toBeNull();
     expect(screen.queryByText(/Connection details/)).toBeNull();
+  });
+
+  it("links a ready database to the engine console's own screen for the concern", async () => {
+    const responder = reachable();
+    const consoleLinks = {
+      overview: "https://coolify.example.com/project/p1/environment/e1/database/db1",
+      "environment-variables":
+        "https://coolify.example.com/project/p1/environment/e1/database/db1/environment-variables",
+      logs: "https://coolify.example.com/project/p1/environment/e1/database/db1/logs",
+      terminal: "https://coolify.example.com/project/p1/environment/e1/database/db1/terminal",
+    };
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "d-1",
+              name: "orders",
+              kind: "postgres",
+              state: "ready",
+              projectId: "p-1",
+              engineConsole: consoleLinks,
+            },
+            {
+              id: "d-2",
+              name: "provisioning-db",
+              kind: "postgres",
+              state: "provisioning",
+              projectId: "p-1",
+              engineConsole: null,
+            },
+          ],
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/sql");
+
+    expect(await screen.findByRole("heading", { name: "SQL Editor" })).toBeTruthy();
+    // The SQL Editor concern is the engine's terminal, so the link is that
+    // section's URL — not the database's overview.
+    const link = (await screen.findByRole("link", {
+      name: "Open in engine console",
+    })) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(consoleLinks.terminal);
+    // It opens the engine's origin, not this dashboard, so it must be a real
+    // anchor with opener isolation.
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    // A database the engine has not finished provisioning is not offered: it has
+    // no console screen yet.
+    expect(screen.queryByText("provisioning-db")).toBeNull();
+  });
+
+  it("says no engine console is configured rather than rendering a dead link", async () => {
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "d-1",
+              name: "orders",
+              kind: "postgres",
+              state: "ready",
+              projectId: "p-1",
+              engineConsole: null,
+            },
+          ],
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/roles");
+
+    expect(await screen.findByRole("heading", { name: "Roles & Extensions" })).toBeTruthy();
+    expect(await screen.findByText("No engine console configured")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open in engine console" })).toBeNull();
+  });
+
+  it("shows a database's log read through the engine", async () => {
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" },
+          ],
+        };
+      }
+      if (procedure === "data.logs") {
+        expect(input).toMatchObject({ organizationId: "org-1", resourceId: "d-1" });
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: { id: "d-1" },
+            engineReason: null,
+            lines: ["2026-09-24 LOG: database system is ready", "2026-09-24 LOG: checkpoint complete"],
+            cursor: null,
+          },
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/logs");
+
+    expect(await screen.findByRole("heading", { name: "Logs" })).toBeTruthy();
+    // The lines are the engine's own output, rendered verbatim.
+    const log = await screen.findByLabelText("Log for orders");
+    expect(log.textContent).toContain("database system is ready");
+    expect(log.textContent).toContain("checkpoint complete");
+  });
+
+  it("renders an unconfigured database engine as its own state, not an empty log", async () => {
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" },
+          ],
+        };
+      }
+      if (procedure === "data.logs") {
+        return {
+          ok: false,
+          status: 503,
+          error: { code: "not_configured", message: "The database engine is not configured." },
+          notConfigured: true,
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/logs");
+
+    expect(await screen.findByRole("heading", { name: "Logs" })).toBeTruthy();
+    // "Not configured" is a deployment fact, shown as such — never as an empty
+    // log that would read like the database produced no output.
+    expect(await screen.findByText(/Database log — not configured/)).toBeTruthy();
+    expect(screen.queryByLabelText("Log for orders")).toBeNull();
+  });
+
+  it("does not ask the engine for a log when no database is ready", async () => {
+    const calls: string[] = [];
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      calls.push(procedure);
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { id: "d-1", name: "orders", kind: "postgres", state: "provisioning", projectId: "p-1" },
+          ],
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/logs");
+
+    expect(await screen.findByText("No database to read a log from")).toBeTruthy();
+    // A database that is not ready has no engine handle, so the page must not
+    // fire a log read that the server would refuse.
+    expect(calls).not.toContain("data.logs");
   });
 
   it("makes the Database Storage section a real bucket view, not a placeholder", async () => {

@@ -1,0 +1,27 @@
+{
+  "_source": "coollabsio/coolify routes/web.php",
+  "_commit": "7c86e53422ad7c4f19c5821621c71403b9173f62",
+  "_note": "Verbatim Coolify *console* (web UI) route table at the pinned commit, database resource scope. The console deep-link builder must emit only paths present here.",
+  "databaseRoutes": [
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/environment-variables",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/servers",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/import-backup",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/persistent-storage",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/healthcheck",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/webhooks",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/resource-limits",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/resource-operations",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/metrics",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/tags",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/danger",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/logs",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/terminal",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups/{backup_uuid}",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups/{backup_uuid}/s3",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups/{backup_uuid}/retention",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups/{backup_uuid}/executions",
+    "/project/{project_uuid}/environment/{environment_uuid}/database/{database_uuid}/backups/{backup_uuid}/danger"
+  ]
+}

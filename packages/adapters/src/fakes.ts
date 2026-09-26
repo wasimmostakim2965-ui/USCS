@@ -113,6 +113,7 @@ export function databaseNotConfigured(engine: string, hint?: string): DatabaseAd
     backup: miss,
     restore: miss,
     destroy: miss,
+    getLogs: miss,
   };
 }
 
@@ -565,5 +566,15 @@ export function fakeDatabase(options: FakeEngineOptions = {}): DatabaseAdapter {
         created.delete(ctx.idempotencyKey);
         return ok("succeeded", undefined);
       }),
+
+    getLogs: (_ctx, ref) =>
+      gate(() =>
+        [...created.values()].some((c) => c.resourceId === ref.resourceId)
+          ? ok("succeeded", {
+              lines: [`${label}: log line for ${ref.resourceId}`],
+              cursor: null,
+            })
+          : err("not_configured", `${label} has no database ${ref.resourceId}.`),
+      ),
   };
 }

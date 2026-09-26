@@ -234,6 +234,7 @@ describe("the registered procedure table", () => {
       "data.backup",
       "data.backups.list",
       "data.list",
+      "data.logs",
       "data.provision",
       "data.restore",
       "data.restores.list",
@@ -315,6 +316,7 @@ describe("the registered procedure table", () => {
       "domains.verify": { organizationId: ORG_A, domainId: "d-1" as DomainId },
       "domains.remove": { organizationId: ORG_A, domainId: "d-1" as DomainId },
       "data.list": { organizationId: ORG_A },
+      "data.logs": { organizationId: ORG_A, resourceId: "r-1" },
       "data.restore": {
         organizationId: ORG_A,
         resourceId: "r-1",

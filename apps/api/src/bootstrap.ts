@@ -26,8 +26,9 @@ import {
   type SessionVerifier,
 } from "@cloud-wai/auth";
 import type { Engines, JobQueue } from "@cloud-wai/adapters";
+import { createEngineConsoleLinker } from "@cloud-wai/adapters";
 import { randomUUID } from "node:crypto";
-import { buildProcedures } from "./procedures/index.js";
+import { buildProcedures, type ConsoleLinkResolver } from "./procedures/index.js";
 import { buildRouter } from "./router.js";
 import type { GitHookHandler, HttpServer } from "./server.js";
 import { receiveGitDelivery } from "./git-hook.js";
@@ -46,6 +47,11 @@ export interface ApiDeploymentDeps {
   readonly queue?: JobQueue;
   /** The cipher for webhook secrets. Null means git linking is not configured. */
   readonly secretCipher?: SecretCipher | null;
+  /**
+   * Resolves a resource's engine-console link. Omitted means no links: the
+   * Database section says a console is not configured rather than guessing a URL.
+   */
+  readonly consoleLink?: ConsoleLinkResolver | undefined;
 }
 
 /** Build a router over a real store and verifier. */
@@ -55,6 +61,7 @@ export function createDeployment(deps: ApiDeploymentDeps): Deployment {
     newId: deps.newId,
     ...(deps.queue ? { queue: deps.queue } : {}),
     ...(deps.secretCipher ? { secretCipher: deps.secretCipher } : {}),
+    ...(deps.consoleLink ? { consoleLink: deps.consoleLink } : {}),
   });
   const router = buildRouter({ verifier: deps.verifier, memberships: deps.store }, procedures);
   return { router, engines: deps.engines };
@@ -159,7 +166,20 @@ export async function start(
   // secret. The receiver uses the same cipher to recompute the delivery HMAC.
   const secretCipher = secretCipherFromEnv(env);
 
-  const deployment = createDeployment({ store, verifier, engines, newId, queue, secretCipher });
+  // The engine console's deep link. Absent configuration means `data.list`
+  // carries null links and the Database section says so; the URL is built by the
+  // adapter layer from the same placement the engine call uses.
+  const consoleLink = createEngineConsoleLinker(env);
+
+  const deployment = createDeployment({
+    store,
+    verifier,
+    engines,
+    newId,
+    queue,
+    secretCipher,
+    ...(consoleLink ? { consoleLink } : {}),
+  });
 
   const { listen } = await import("./server.js");
   const allowedOrigins = options.allowedOrigins ?? allowedOriginsFromEnv(env);

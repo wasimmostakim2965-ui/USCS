@@ -27,7 +27,7 @@ import {
   type OperationRef,
   type ProviderRef,
 } from "@cloud-wai/contracts";
-import type { AdapterContext, DatabaseAdapter } from "./index.js";
+import type { AdapterContext, DatabaseAdapter, LogPage } from "./index.js";
 import type { CoolifyCredentials } from "./coolify.js";
 import { request, type HttpClientOptions } from "./http.js";
 
@@ -336,6 +336,33 @@ export function createPostgresDatabase(options: PostgresAdapterOptions): Databas
       const response = await call<unknown>(ctx, resolved.creds, "DELETE", dbPath(ref.resourceId));
       if (!response.ok) return response;
       return ok("succeeded", undefined);
+    },
+
+    /**
+     * Read the database's log through the engine.
+     *
+     * `GET /api/v1/databases/{uuid}/logs` is in the pinned upstream route table;
+     * it returns the running container's output, which is the resource's own
+     * log. It has no cursor, so the page cursor is null rather than a fabricated
+     * one — the same rule the hosting adapter's `getLogs` follows.
+     */
+    async getLogs(ctx, ref) {
+      const resolved = credentialsFor<LogPage>(ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const response = await call<{ logs?: string }>(
+        ctx,
+        resolved.creds,
+        "GET",
+        `${dbPath(ref.resourceId)}/logs?lines=100`,
+      );
+      if (!response.ok) return response;
+
+      const body = response.value.value ?? {};
+      return ok("succeeded", {
+        lines: body.logs ? body.logs.split("\n") : [],
+        cursor: null,
+      });
     },
   };
 }
