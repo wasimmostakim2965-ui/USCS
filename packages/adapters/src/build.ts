@@ -21,7 +21,7 @@
  * `not_configured`. It never invents an artifact.
  */
 import type { AdapterResult, OperationRef, ProviderRef } from "@cloud-wai/contracts";
-import type { AdapterContext, LogPage, NotConfiguredBrand } from "./index.js";
+import type { AdapterContext, LogPage, NotConfiguredBrand, ServerlessArtifact } from "./index.js";
 
 /**
  * Where a build gets its source.
@@ -58,6 +58,14 @@ export type BuildSource =
 export interface BuildArtifact {
   /** An OCI image a container runtime can pull, when the build produced one. */
   readonly image?: string | undefined;
+  /**
+   * The object-storage bucket holding this build's output, when it produced
+   * files rather than an image.
+   *
+   * It is reported by the builder rather than assumed from configuration: a
+   * platform-chosen bucket name would be a claim the engine never made.
+   */
+  readonly bucket?: string | undefined;
   /** Static output, staged in object storage for the CDN. */
   readonly staticPrefix?: string | undefined;
   /**
@@ -94,6 +102,29 @@ export interface BuildRequest {
 /** The build packs a builder may accept. Mirrors the hosting adapter's own list. */
 export const BUILD_PACK_NAMES = ["railpack", "nixpacks", "buildpacks", "dockerfile"] as const;
 export type BuildPackName = (typeof BUILD_PACK_NAMES)[number];
+
+/**
+ * Turn a build artifact into the code a serverless engine can publish.
+ *
+ * This is the bridge the router was missing: it is what lets a serverless
+ * project receive real code instead of `not_configured`. It is a pure mapping
+ * with no fallback — an artifact that carries neither an image nor a function
+ * bundle yields `null`, because a serverless deploy of nothing is not a deploy.
+ *
+ * An image wins over a bundle when both are present: an image is self-contained
+ * and carries its own runtime, so publishing it cannot pick up the wrong runtime
+ * the way a bare zip can.
+ */
+export function toServerlessArtifact(artifact: BuildArtifact): ServerlessArtifact | null {
+  if (artifact.image) return { kind: "image", uri: artifact.image };
+  const functions = artifact.functions;
+  const firstKey = functions ? Object.keys(functions)[0] : undefined;
+  const key = firstKey !== undefined && functions ? functions[firstKey] : undefined;
+  if (key !== undefined && artifact.bucket) {
+    return { kind: "s3", bucket: artifact.bucket, key };
+  }
+  return null;
+}
 
 /**
  * A build engine.

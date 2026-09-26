@@ -144,7 +144,7 @@ function missingArtifact(action: string): Promise<AdapterResult<never>> {
     err(
       "not_configured",
       `This project runs serverless, and ${action} needs a built artifact (an S3 object or an ECR image). ` +
-        `No build engine is configured to produce one, so the step is not performed rather than faked.`,
+        `None reached the deploy, so the step is not performed rather than faked.`,
     ),
   );
 }

@@ -24,7 +24,8 @@ import type {
   ProviderRef,
 } from "@cloud-wai/contracts";
 import type { Engines } from "@cloud-wai/adapters";
-import { deploymentEngineFor, type DeploymentEngine } from "@cloud-wai/adapters";
+import { deploymentEngineFor, runBuildStep, type DeploymentEngine } from "@cloud-wai/adapters";
+import type { ServerlessArtifact } from "@cloud-wai/adapters";
 
 export interface DeploymentTarget {
   readonly provider: string | null;
@@ -275,10 +276,38 @@ export async function executeDeployment(
     await deps.envVars.sync(adapterCtx, application, input.projectId);
   }
 
-  const deployed = await engine.deploy(adapterCtx, application);
+  // A serverless deploy needs a built artifact; the container engine builds for
+  // itself from the git repository, so the step runs only where it is required.
+  // This is what stops a serverless deploy from reporting a missing build it can
+  // now actually perform (ADR-0018).
+  let artifact: ServerlessArtifact | undefined;
+  if (engine.model === "serverless") {
+    const built = await runBuildStep(
+      { build: deps.engines.build },
+      {
+        organizationId: input.organizationId,
+        idempotencyKey: `${input.idempotencyKey}:build`,
+        timeoutMs: input.timeoutMs,
+        repository: input.gitRepository,
+        branch: input.gitBranch,
+        buildPack: input.buildPack,
+      },
+    );
+    if (!built.ok) {
+      return {
+        status: "failed",
+        url: null,
+        providerResourceId: application?.resourceId ?? null,
+        deploymentResourceId: null,
+        reason: built.reason,
+      };
+    }
+    artifact = built.artifact;
+  }
+
+  const deployed = await engine.deploy(adapterCtx, application, artifact);
   return confirm(deps, engine, adapterCtx, deployed, application.resourceId);
 }
-
 async function rollback(
   deps: DeploymentExecutorDeps,
   engine: DeploymentEngine,

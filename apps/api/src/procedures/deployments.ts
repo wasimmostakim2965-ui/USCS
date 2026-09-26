@@ -27,8 +27,8 @@ import type {
   ProviderRef,
   UserId,
 } from "@cloud-wai/contracts";
-import type { BuildPack, Engines, JobQueue } from "@cloud-wai/adapters";
-import { deploymentEngineFor } from "@cloud-wai/adapters";
+import type { BuildPack, Engines, JobQueue, ServerlessArtifact } from "@cloud-wai/adapters";
+import { deploymentEngineFor, runBuildStep } from "@cloud-wai/adapters";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
 import type { AuditEvent, ControlPlaneWrites, DataStore, Deployment } from "@cloud-wai/database";
 import type { RequestContext } from "../context.js";
@@ -862,7 +862,37 @@ export async function requestDeployment(
   }
 
   if (application) {
-    const deployed = await engine.deploy(adapterCtx, application);
+    // A serverless deploy needs a built artifact; the container engine builds for
+    // itself, so the step runs only where it is required. Both the synchronous
+    // path here and the worker's durable path call the same shared step, so the
+    // two cannot diverge on how a build is run (ADR-0018).
+    let artifact: ServerlessArtifact | undefined;
+    if (engine.model === "serverless") {
+      const built = await runBuildStep(
+        { build: deps.engines.build },
+        {
+          organizationId: project.organizationId,
+          idempotencyKey: `${idempotencyKey}:build`,
+          timeoutMs: adapterCtx.timeoutMs,
+          repository: gitRepository ?? null,
+          branch: gitBranch ?? null,
+          buildPack: input.buildPack ?? null,
+        },
+      );
+      if (!built.ok) {
+        // No artifact means nothing to deploy. Deploying anyway would publish
+        // whatever the function last held and report it as this build's result.
+        engineReason = built.reason;
+        nextStatus = "failed";
+      } else {
+        artifact = built.artifact;
+      }
+    }
+
+    const deployed: AdapterResult<{ providerRef: ProviderRef }> =
+      artifact === undefined && engine.model === "serverless"
+        ? { ok: false, status: "failed", reason: engineReason ?? "The build produced no artifact." }
+        : await engine.deploy(adapterCtx, application, artifact);
     if (!deployed.ok) {
       engineReason = deployed.reason;
       nextStatus = deployed.status;
