@@ -158,9 +158,10 @@ aws ec2 reboot-instances --instance-ids "$(terraform output -raw instance_id)"
 ### The edge's obligation to the verified-bot allow
 
 The compiled policy allows a crawler only when **two** conditions hold: the
-`User-Agent` matches, and `tx.cloud_wai_bot_confirm` equals the operator's
-suffix. Coraza cannot do a reverse-DNS lookup, so the edge host must populate
-that variable before the WAF runs, and it must do it honestly:
+`User-Agent` matches, and `tx.cloud_wai_bot_confirm` ends with the operator's
+suffix **at a DNS label boundary**. Coraza cannot do a reverse-DNS lookup, so the
+edge host must populate that variable before the WAF runs, and it must do it
+honestly:
 
 1. Reverse-resolve `REMOTE_ADDR` and require the PTR name to sit under the
    operator's suffix **at a DNS label boundary** (so `googlebot.com.attacker.net`
@@ -168,7 +169,14 @@ that variable before the WAF runs, and it must do it honestly:
 2. Forward-resolve that exact PTR name and require it to return the original
    address. A PTR record alone is trivially forged; this second step is what
    makes the claim trustworthy.
-3. Only then set `tx.cloud_wai_bot_confirm` to the matched suffix.
+3. Only then set `tx.cloud_wai_bot_confirm` to the **forward-confirmed hostname**
+   (e.g. `crawl-66-249-66-1.googlebot.com`), not to the suffix.
+
+Step 3 matters as much as the rest: the compiled member matches the variable as a
+label-boundary suffix (`@rx (^|\.)googlebot\.com$`), because the confirmed name is
+always longer than the suffix the operator configured. Setting the variable to
+the bare suffix would still match, but recording the actual confirmed hostname is
+what makes the decision auditable.
 
 Set it from the DNS answer, **never** from an inbound header: a header is
 attacker-controlled, and a value the attacker chooses would make the second
@@ -181,6 +189,28 @@ Because the allow is a real Coraza chain, a deployment that sets nothing keeps
 the SEO behaviour only if it also keeps attack mode off. Turning attack mode on
 without this step challenges every crawler. That is why it is written down here
 rather than left to the operator to infer.
+
+### The edge's obligation to the challenge skip
+
+Attack mode is enforced by Envoy, which serves the interstitial. Envoy runs
+*before* the WAF, so the Coraza markers (`tx.cloud_wai_trusted`,
+`tx.cloud_wai_bot`) cannot tell it whom to skip — they are set too late. Each
+route fragment therefore names the exemptions directly:
+
+- `skipChallengeAddresses` — the validated address literals the customer trusts
+  (their webhook senders and CI runners). Match these against the connection's
+  remote address, exactly as the WAF does. Without this, turning attack mode on
+  locks out the customer's own integrations.
+- `skipChallengeForVerifiedBots` — a flag, not a list. When true, the edge must
+  skip the interstitial for a request whose crawler identity it has itself
+  confirmed by the reverse-then-forward DNS check above. Do **not** substitute a
+  `User-Agent` pattern here: Envoy cannot do the DNS confirmation, so a UA match
+  alone would let a scraper that sets `User-Agent: Googlebot` skip the
+  interstitial — the bypass the WAF chain exists to close.
+
+Both fields are emitted in every mode (the address list is populated whenever
+trusted sources exist), so a fragment is self-describing even when
+`challengeBrowsers` is false.
 
 ### The edge's obligation to the WAF threshold
 

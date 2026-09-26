@@ -248,6 +248,16 @@ describe("security edge loaders", () => {
       { id: "rl-1", key: "ip", limit: 60, windowSeconds: 60 },
       { id: "rl-2", key: "header", headerName: "x-api-key", limit: 1000, windowSeconds: 3600 },
     ]);
+
+    // The trusted source must reach the *fragment* too, not only the WAF
+    // directives. The policy is in attack mode, and Envoy serves the interstitial,
+    // so a trusted address that only the WAF knows about would still be
+    // challenged — the customer's own webhook sender locked out by their own
+    // attack mode.
+    const compiled = compileEdge(input!);
+    expect(compiled.envoyConfig.challengeBrowsers).toBe(true);
+    expect(compiled.envoyConfig.skipChallengeAddresses).toEqual(["203.0.113.0/24"]);
+    expect(compiled.envoyConfig.skipChallengeForVerifiedBots).toBe(true);
     expect(input?.route.host).toBe("app.example.com");
   });
 

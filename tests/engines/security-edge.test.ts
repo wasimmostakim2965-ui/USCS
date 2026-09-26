@@ -627,6 +627,35 @@ describe("the decision ladder", () => {
     );
   });
 
+  it("carries the trusted addresses into the fragment, so attack mode skips them", () => {
+    // Envoy serves the interstitial, so a trusted webhook sender must be named in
+    // the fragment itself; the WAF's transaction variable is set too late to help.
+    const compiled = compileEdge({
+      route: route(),
+      policy,
+      protection: "attack",
+      trustedSources: [
+        { kind: "ip", value: "198.51.100.7" },
+        { kind: "cidr", value: "203.0.113.0/24" },
+        // A value the validator refuses must not reach the fragment, so the two
+        // layers cannot disagree about whom they trust.
+        { kind: "ip", value: "not-an-ip" },
+      ],
+    });
+    expect(compiled.envoyConfig.skipChallengeAddresses).toEqual(["198.51.100.7", "203.0.113.0/24"]);
+    // Every host carries the same list, because the trust is per organization.
+    expect(compiled.envoyRoutes.every((r) => r.skipChallengeAddresses.length === 2)).toBe(true);
+    // The crawler skip is a flag, not a UA list: a UA pattern here would let a
+    // scraper that claims to be Googlebot skip the interstitial.
+    expect(compiled.envoyConfig.skipChallengeForVerifiedBots).toBe(true);
+  });
+
+  it("emits an empty skip list and no crawler skip when nothing is trusted or attacking", () => {
+    const compiled = compileEdge({ route: route(), policy });
+    expect(compiled.envoyConfig.skipChallengeAddresses).toEqual([]);
+    expect(compiled.envoyConfig.skipChallengeForVerifiedBots).toBe(false);
+  });
+
   it("lets a deployment add its own bots without removing the curated ones", () => {
     const compiled = compileEdge({
       route: route(),

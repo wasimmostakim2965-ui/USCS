@@ -151,15 +151,19 @@ so an existing bookmark does not 404.
   as a confirmed crawler — the exact spoof the chain exists to reject, and (with
   the new deny guard) a bypass. The marker is now on the member.
 
-- **The Envoy fragment does not carry the trusted addresses or the bot list.**
-  `EnvoyRouteFragment` has `challengeBrowsers` but no field listing the
-  addresses and bots that should skip the challenge. Envoy serves the
-  interstitial, so without that list it cannot know whom to skip, and turning
-  attack mode on challenges a customer's own webhook sender. The Coraza markers
-  (`tx.cloud_wai_trusted`, `tx.cloud_wai_bot`) do not reach Envoy: they are
-  transaction variables inside the WAF, set after Envoy has already decided
-  whether to challenge. Closing this means extending the fragment contract and
-  the edge that consumes it — not a comment.
+- **The Envoy fragment carries the trusted addresses and a crawler flag, but the
+  edge that consumes them does not exist here.** `EnvoyRouteFragment` now has
+  `skipChallengeAddresses` (the validated address literals) and
+  `skipChallengeForVerifiedBots` (a flag, deliberately not a User-Agent list).
+  The compiler emits both, and the production loader's trusted sources reach the
+  fragment — a test pins that end to end. What is *not* done is the edge-side
+  application: an Envoy host must read those fields and skip the interstitial
+  accordingly. Until it does, turning attack mode on still challenges a
+  customer's own webhook sender, because the WAF markers
+  (`tx.cloud_wai_trusted`, `tx.cloud_wai_bot`) are set after Envoy has already
+  decided. The crawler skip is a flag rather than a UA list because Envoy cannot
+  do the forward-confirmed DNS check; handing it a UA pattern would reopen the
+  spoof the WAF chain closes.
 
 ## Phase status
 

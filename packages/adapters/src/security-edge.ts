@@ -459,6 +459,31 @@ export interface EnvoyRouteFragment {
    * (a bot check / interstitial); the WAF only inspects what passes.
    */
   readonly challengeBrowsers: boolean;
+  /**
+   * Source addresses that must never see the interstitial.
+   *
+   * The Coraza `allow-trusted-ip` marker cannot serve this purpose: it is a
+   * transaction variable inside the WAF, set after Envoy has already decided
+   * whether to challenge. Envoy is the component that serves the interstitial,
+   * so it needs the addresses itself. They are address literals (never a name,
+   * which would have to be resolved and could be forged), so Envoy matches them
+   * on the connection's remote address exactly as the WAF does — which is what
+   * stops attack mode from locking out a customer's own webhook sender or CI
+   * runner. Empty when nothing is trusted.
+   */
+  readonly skipChallengeAddresses: readonly string[];
+  /**
+   * Whether the edge must skip the challenge for a crawler it has itself
+   * confirmed.
+   *
+   * This is a flag and not a User-Agent list on purpose. Envoy cannot perform
+   * the reverse-DNS / forward-confirmation check, and a UA pattern in the
+   * fragment would let a scraper that sets `User-Agent: Googlebot` skip the
+   * interstitial — the bypass the WAF chain exists to close. The edge already
+   * does that confirmation to populate `tx.cloud_wai_bot_confirm`; when this is
+   * true it must apply the same answer here, before serving the challenge.
+   */
+  readonly skipChallengeForVerifiedBots: boolean;
 }
 
 export interface CompiledEdge {
@@ -687,6 +712,12 @@ export function compileEdge(input: CompileInput): CompiledEdge {
   // inspects all three.
   const allRoutes = [route, ...(input.routes ?? [])];
   const seen = new Set<string>();
+  // Only the validated address literals reach the fragment: a value that would
+  // not be a legal IP/CIDR is dropped here exactly as it is dropped from the WAF
+  // directive, so the two layers cannot disagree about whom they trust.
+  const skipChallengeAddresses = (input.trustedSources ?? [])
+    .filter((source) => validateTrustedSource(source).ok)
+    .map((source) => source.value);
   const envoyRoutes: EnvoyRouteFragment[] = [];
   for (const one of allRoutes) {
     if (seen.has(one.host)) continue;
@@ -698,6 +729,10 @@ export function compileEdge(input: CompileInput): CompiledEdge {
       privateOrigin: one.origin,
       wafEnabled: policy !== undefined,
       challengeBrowsers: attackMode,
+      skipChallengeAddresses,
+      // Only meaningful while the edge is challenging; the flag is still emitted
+      // in every mode so a fragment is self-describing.
+      skipChallengeForVerifiedBots: attackMode,
     });
   }
 
