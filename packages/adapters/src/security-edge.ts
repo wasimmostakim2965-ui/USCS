@@ -319,7 +319,7 @@ function denyOperator(rule: DenyRule): { target: string; operator: string } {
  * express "the reverse name is under this suffix AND resolves back to this
  * address". The edge does that check; this variable carries its answer.
  */
-export const BOT_CONFIRM_VARIABLE = "tx.cloud_wai_bot_confirm";
+export const BOT_CONFIRM_VARIABLE = "cloud_wai_bot_confirm";
 
 /**
  * Render a verified-bot allow as a real two-rule Coraza chain.
@@ -339,7 +339,7 @@ export const BOT_CONFIRM_VARIABLE = "tx.cloud_wai_bot_confirm";
 function verifiedBotDirectives(id: number, bot: VerifiedBot): { starter: string; member: string } {
   return {
     starter: `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,setvar:tx.cloud_wai_bot=${id},msg:'cloud-wai verified bot: ${bot.name}'"`,
-    member: `SecRule ${BOT_CONFIRM_VARIABLE} "@streq ${bot.confirmSuffix}" "t:none"`,
+    member: `SecRule TX:${BOT_CONFIRM_VARIABLE} "@streq ${bot.confirmSuffix}" "t:none"`,
   };
 }
 
@@ -564,14 +564,27 @@ export function compileEdge(input: CompileInput): CompiledEdge {
 
   // 4. Deny list. Each value was validated before it reached here; a value that
   //    would not match its grammar never becomes a directive.
+  //
+  //    Each deny is a two-rule chain whose member fails when the trusted marker
+  //    is set, so a trusted address really is "never blocked" — otherwise the
+  //    allow step above would mark it and this rule would deny it anyway, and the
+  //    operator's own webhook sender would be blocked by a rule they added to
+  //    block someone else. The marker is only ever set by the trusted-source step
+  //    from a validated address literal, so it cannot be claimed by a header.
   for (const rule of input.denyList ?? []) {
     const valid = validateDenyRule(rule);
     if (!valid.ok) continue; // never emit a directive from an unvalidated value
     const { target, operator } = denyOperator(rule);
     const id = nextId++;
-    const directive = `SecRule ${target} "${operator}" "id:${id},phase:1,deny,status:403,log,msg:'cloud-wai deny list: ${rule.kind}'"`;
-    directives.push(directive);
-    ladder.push({ id, stage: "block-deny-list", action: "block", directive });
+    const starter = `SecRule ${target} "${operator}" "id:${id},phase:1,deny,status:403,log,msg:'cloud-wai deny list: ${rule.kind}',chain"`;
+    const member = `SecRule TX:cloud_wai_trusted "!@streq 1" "t:none"`;
+    directives.push(starter, member);
+    ladder.push({
+      id,
+      stage: "block-deny-list",
+      action: "block",
+      directive: `${starter}\n${member}`,
+    });
   }
 
   // 5. Rate limits. After the allow steps on purpose: a verified bot, an

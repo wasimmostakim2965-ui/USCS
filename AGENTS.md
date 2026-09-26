@@ -123,6 +123,29 @@ so an existing bookmark does not 404.
   create, so this is deliberate; if it is ever made durable, enqueue it the same
   way and move its test with it.
 
+- **The allow steps do not exempt a request from the WAF's inspection.** Every
+  allow step (verified bot, internal, trusted source) emits `pass` and sets a
+  marker variable, because Coraza's disruptive `allow` would end inspection for
+  the whole transaction — and a request from a verified crawler can still carry
+  an attack, so ending inspection on it is the wrong trade. The consequence is
+  that an allow step alone does not stop the WAF from denying the request for
+  some other reason. Two cases are handled explicitly: a trusted address is
+  exempt from the deny list (each deny chain fails when `cloud_wai_trusted` is
+  set), so "trusted" means never blocked. What is *not* handled is a verified
+  bot that also trips a deny rule — the bot marker is not consulted by the deny
+  chains, and the bot allow is only a `pass`. If that case ever matters, add the
+  same guard keyed on `cloud_wai_bot`, with a test that pins it.
+
+- **The Envoy fragment does not carry the trusted addresses or the bot list.**
+  `EnvoyRouteFragment` has `challengeBrowsers` but no field listing the
+  addresses and bots that should skip the challenge. Envoy serves the
+  interstitial, so without that list it cannot know whom to skip, and turning
+  attack mode on challenges a customer's own webhook sender. The Coraza markers
+  (`tx.cloud_wai_trusted`, `tx.cloud_wai_bot`) do not reach Envoy: they are
+  transaction variables inside the WAF, set after Envoy has already decided
+  whether to challenge. Closing this means extending the fragment contract and
+  the edge that consumes it — not a comment.
+
 ## Phase status
 
 ADR-0006 numbers phases 0–8 (superseding the earlier 0–6). See the `feat(phase-N)`

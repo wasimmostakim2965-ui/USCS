@@ -379,6 +379,78 @@ describe("the decision ladder", () => {
     expect(compiled.corazaDirectives.some((d) => d.includes("SecRuleEngine Off"))).toBe(false);
   });
 
+  it("lets a trusted source win when it is also in the deny list", () => {
+    // "Trusted" means never blocked. Without the guard on the deny chain, an
+    // operator's own webhook sender — an address they trusted and then swept up
+    // in a broader block — would be denied by the very rule the allow step is
+    // meant to outrank.
+    //
+    // This asserts on `corazaDirectives`, the config the edge loads, not on the
+    // `ladder` summary: the two are built separately, and a ladder that reads
+    // correctly while the emitted rules do something else is the exact failure
+    // this file keeps finding.
+    const compiled = compileEdge({
+      route: route(),
+      trustedSources: [{ kind: "ip", value: "198.51.100.7" }],
+      denyList: [{ kind: "ip", value: "198.51.100.7" }],
+    });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const denyIndex = lines.findIndex((line) => line.includes("cloud-wai deny list"));
+    expect(denyIndex).toBeGreaterThan(-1);
+    expect(lines[denyIndex]).toContain("chain");
+    // The member immediately follows and fails when the trusted marker is set.
+    const member = lines[denyIndex + 1];
+    expect(member).toContain("TX:cloud_wai_trusted");
+    expect(member).toContain("!@streq 1");
+    expect(member).not.toMatch(/id:\d+/);
+  });
+
+  it("does not let the trusted guard be claimed without the allow step", () => {
+    // The marker is set only by the trusted-source step, from an address literal.
+    // With no trusted sources, no request can set it, so the deny guard is inert
+    // and an ordinary deny still blocks.
+    const compiled = compileEdge({
+      route: route(),
+      denyList: [{ kind: "ip", value: "203.0.113.9" }],
+    });
+    expect(compiled.corazaDirectives.some((d) => d.includes("setvar:tx.cloud_wai_trusted"))).toBe(
+      false,
+    );
+    const deny = compiled.corazaDirectives.find((d) => d.includes("cloud-wai deny list"));
+    expect(deny).toContain("deny,status:403");
+  });
+
+  it("balances every chain in the emitted config, bot and deny alike", () => {
+    // One compile with every chain-producing input at once, checked on the real
+    // output: each starter is followed by exactly one member, and no member
+    // carries the actions Coraza forbids there.
+    const compiled = compileEdge({
+      route: route(),
+      policy,
+      trustedSources: [{ kind: "ip", value: "198.51.100.7" }],
+      denyList: [
+        { kind: "ip", value: "203.0.113.9" },
+        { kind: "user-agent", value: "EvilScraper" },
+      ],
+    });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const starters = lines.filter((line) => line.includes(",chain"));
+    expect(starters.length).toBeGreaterThan(0);
+    for (const [index, line] of lines.entries()) {
+      if (!line.includes(",chain")) continue;
+      const member = lines[index + 1];
+      expect(member, `chain starter at ${index} has no member`).toBeDefined();
+      // The member reads a transaction variable, never a request header: the
+      // allow must not be claimable from attacker-controlled input.
+      expect(member.toLowerCase()).toContain("tx:");
+      expect(member.toLowerCase()).not.toContain("request_headers");
+      expect(member).not.toMatch(/id:\d+/);
+      expect(member).not.toContain("phase:");
+      // The next starter must not be this chain's member.
+      expect(member).not.toContain(",chain");
+    }
+  });
+
   it("validates each deny rule kind against its grammar", () => {
     expect(validateDenyRule({ kind: "ip", value: "10.0.0.1" }).ok).toBe(true);
     expect(validateDenyRule({ kind: "ip", value: "not-an-ip" }).ok).toBe(false);
