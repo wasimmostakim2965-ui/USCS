@@ -47,6 +47,8 @@ import {
   loadGitDeploySource,
   loadOrganization,
   loadOrganizationMembers,
+  updateMemberRole,
+  removeMember,
   loadObservability,
   loadOrganizations,
   loadProject,
@@ -5706,7 +5708,7 @@ function RevokeApiKeyModal({
 /* ------------------------------------------------------------------ settings */
 
 export function SettingsPage({ organizationId }: { readonly organizationId: string }) {
-  const { client } = useApp();
+  const { client, session } = useApp();
   const organization = useSection(
     () => loadOrganization(client, organizationId),
     [client, organizationId],
@@ -5722,6 +5724,31 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Members",
   );
+
+  const [editing, setEditing] = useState<OrganizationMemberSummary | null>(null);
+  const [removing, setRemoving] = useState<OrganizationMemberSummary | null>(null);
+
+  const currentUserId = session.current()?.userId ?? null;
+  const memberRows =
+    members.section.state.kind === "ready" ? members.section.state.items : [];
+  const myRole = memberRows.find((m) => m.userId === currentUserId)?.role ?? null;
+  const isOwner = myRole === "owner";
+  const canInvite = isOwner || myRole === "admin";
+
+  // The dashboard mirrors the server's rank rules so a control is only offered
+  // where it could succeed. It is a courtesy, not the guard: the procedure and
+  // the policy both re-check, and a refusal is surfaced if they disagree.
+  const canChangeRole = (item: OrganizationMemberSummary) =>
+    canInvite && item.userId !== currentUserId && (isOwner || item.role !== "owner");
+  const canRemove = (item: OrganizationMemberSummary) => {
+    if (item.userId === currentUserId) {
+      // Leaving is always allowed, except when you are the last owner.
+      return item.role === "owner"
+        ? memberRows.filter((m) => m.role === "owner").length > 1
+        : true;
+    }
+    return canInvite && (isOwner || item.role !== "owner");
+  };
 
   const org =
     organization.section.state.kind === "ready" ? organization.section.state.items[0] : undefined;
@@ -5774,7 +5801,12 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                     key: "member",
                     header: "Member",
                     render: (item) => (
-                      <span>{item.displayName ?? item.email ?? "Not yet signed in"}</span>
+                      <span>
+                        {item.displayName ?? item.email ?? "Not yet signed in"}
+                        {item.userId === currentUserId ? (
+                          <span className="faint small"> (you)</span>
+                        ) : null}
+                      </span>
                     ),
                   },
                   {
@@ -5790,12 +5822,49 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                   {
                     key: "role",
                     header: "Role",
-                    render: (item) => <StatusBadge label={roleLabel(item.role)} tone="neutral" />,
+                    render: (item) => (
+                      <StatusBadge label={roleLabel(item.role)} tone="neutral" />
+                    ),
                   },
                   {
                     key: "since",
                     header: "Added",
                     render: (item) => <Timestamp value={item.createdAt} />,
+                  },
+                  {
+                    key: "actions",
+                    header: "",
+                    render: (item) => (
+                      <div className="row">
+                        <Button
+                          size="sm"
+                          disabled={!canChangeRole(item)}
+                          title={
+                            item.userId === currentUserId
+                              ? "You cannot change your own role."
+                              : item.role === "owner" && !isOwner
+                                ? "Only an owner can change an owner's role."
+                                : undefined
+                          }
+                          onClick={() => setEditing(item)}
+                        >
+                          Change role
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          disabled={!canRemove(item)}
+                          title={
+                            item.role === "owner" && !isOwner && item.userId !== currentUserId
+                              ? "Only an owner can remove an owner."
+                              : undefined
+                          }
+                          onClick={() => setRemoving(item)}
+                        >
+                          {item.userId === currentUserId ? "Leave" : "Remove"}
+                        </Button>
+                      </div>
+                    ),
                   },
                 ]}
               />
@@ -5803,8 +5872,9 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
           />
         </Card>
         <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
-          Inviting, changing and removing members is not wired in this build. The list above is real
-          membership data; the controls would be here once the invite procedure exists.
+          {canInvite
+            ? "Changing a role and removing a member take effect immediately. A member can always remove themselves, which is how you leave an organization. The last owner cannot be demoted or removed, and nobody can change their own role — promotion needs a second party."
+            : "Your role can see this list but not change it. Changing roles and removing members needs the admin role; leaving the organization is always available to you."}
         </p>
       </SectionShell>
 
@@ -5859,7 +5929,211 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
           </ul>
         </Card>
       </SectionShell>
+
+      <ChangeMemberRoleModal
+        organizationId={organizationId}
+        member={editing}
+        canGrantOwner={isOwner}
+        onClose={() => setEditing(null)}
+        onChanged={() => {
+          setEditing(null);
+          members.reload();
+        }}
+      />
+      <RemoveMemberModal
+        organizationId={organizationId}
+        member={removing}
+        self={removing !== null && removing.userId === currentUserId}
+        onClose={() => setRemoving(null)}
+        onRemoved={() => {
+          setRemoving(null);
+          members.reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Change a member's role.
+ *
+ * Only the roles the caller could actually grant are offered: an admin sees
+ * admin/member/viewer, an owner additionally sees owner. The server is the
+ * authority — this modal narrows the choice, it does not replace the guard.
+ */
+function ChangeMemberRoleModal({
+  organizationId,
+  member,
+  canGrantOwner,
+  onClose,
+  onChanged,
+}: {
+  readonly organizationId: string;
+  readonly member: OrganizationMemberSummary | null;
+  readonly canGrantOwner: boolean;
+  readonly onClose: () => void;
+  readonly onChanged: () => void;
+}) {
+  const { client } = useApp();
+  const [role, setRole] = useState<OrganizationMemberSummary["role"]>("member");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const roles: readonly OrganizationMemberSummary["role"][] = canGrantOwner
+    ? ["owner", "admin", "member", "viewer"]
+    : ["admin", "member", "viewer"];
+
+  // The picker opens on the member's current role, so a no-op submit is visible.
+  useEffect(() => {
+    if (member) {
+      setRole(member.role);
+      setError(null);
+    }
+  }, [member]);
+
+  const submit = async () => {
+    if (!member) return;
+    setBusy(true);
+    setError(null);
+    const response = await updateMemberRole(client, {
+      organizationId,
+      memberId: member.userId,
+      role,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The role could not be changed.");
+      return;
+    }
+    onChanged();
+  };
+
+  return (
+    <Modal
+      title="Change role"
+      open={member !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button
+            variant="primary"
+            onClick={() => void submit()}
+            busy={busy}
+            disabled={!member || member.role === role}
+          >
+            Save role
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          {member?.displayName ?? member?.email ?? "This member"} is currently{" "}
+          <strong>{member ? roleLabel(member.role) : ""}</strong>. The change takes effect
+          immediately; the new role decides what they can see and do in this organization.
+        </p>
+        <fieldset className="stack" style={{ border: 0, margin: 0, padding: 0 }}>
+          <legend className="small muted">New role</legend>
+          {roles.map((option) => (
+            <label key={option} className="row small" style={{ gap: "var(--space-2)" }}>
+              <input
+                type="radio"
+                name="member-role"
+                checked={role === option}
+                onChange={() => setRole(option)}
+              />
+              <span>{roleLabel(option)}</span>
+            </label>
+          ))}
+        </fieldset>
+        {error ? (
+          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Remove a member, or leave the organization.
+ *
+ * The wording changes when the target is the caller: "Leave" is a normal
+ * action, and saying so is the difference between a scary dialog and an honest
+ * one. The last owner cannot be removed, and the server says so if it is tried.
+ */
+function RemoveMemberModal({
+  organizationId,
+  member,
+  self,
+  onClose,
+  onRemoved,
+}: {
+  readonly organizationId: string;
+  readonly member: OrganizationMemberSummary | null;
+  readonly self: boolean;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+  }, [member]);
+
+  const submit = async () => {
+    if (!member) return;
+    setBusy(true);
+    setError(null);
+    const response = await removeMember(client, { organizationId, memberId: member.userId });
+    setBusy(false);
+    if (!response.ok || !response.data?.removed) {
+      setError(response.error?.message ?? "The member could not be removed.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title={self ? "Leave organization" : "Remove member"}
+      open={member !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={() => void submit()} busy={busy} disabled={!member}>
+            {self ? "Leave" : "Remove"}
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          {self ? (
+            <>
+              You will lose access to this organization and everything in it. This takes effect
+              immediately and cannot be undone — an owner would have to add you back.
+            </>
+          ) : (
+            <>
+              {member?.displayName ?? member?.email ?? "This member"} will lose access to this
+              organization immediately. The membership row is deleted; their other organizations are
+              unaffected.
+            </>
+          )}
+        </p>
+        {error ? (
+          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 

@@ -258,7 +258,7 @@ export interface ButtonProps {
   readonly size?: "default" | "sm";
   readonly disabled?: boolean;
   readonly busy?: boolean;
-  readonly title?: string;
+  readonly title?: string | undefined;
   readonly type?: "button" | "submit";
   readonly ariaLabel?: string;
 }

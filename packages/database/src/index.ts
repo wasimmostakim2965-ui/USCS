@@ -91,6 +91,32 @@ export interface DataStore {
     userId: UserId,
     organizationId: OrganizationId,
   ): Promise<readonly OrganizationMember[]>;
+  /**
+   * Change a member's role.
+   *
+   * Scoped to the caller's own membership like every read, so the store cannot
+   * be used to reach across a tenant. Rank is *not* enforced here — that is the
+   * policy's job and the API's guard — this returns null when the row is absent
+   * or invisible, exactly like the other scoped writes.
+   */
+  updateOrganizationMemberRole(input: {
+    userId: UserId;
+    organizationId: OrganizationId;
+    memberId: UserId;
+    role: OrgRole;
+  }): Promise<OrganizationMember | null>;
+  /**
+   * Remove a member from an organization.
+   *
+   * Scoped and rank-checked the same way as a role change. The last owner is
+   * refused by the policy (and the API guard), so a caller cannot empty an
+   * organization of everyone who can manage it.
+   */
+  removeOrganizationMember(input: {
+    userId: UserId;
+    organizationId: OrganizationId;
+    memberId: UserId;
+  }): Promise<boolean>;
   listProjects(userId: UserId, organizationId: OrganizationId): Promise<readonly Project[]>;
   getProject(userId: UserId, projectId: ProjectId): Promise<Project | null>;
   createProject(input: {

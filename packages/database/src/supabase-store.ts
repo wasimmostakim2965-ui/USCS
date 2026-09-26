@@ -554,6 +554,39 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toOrganizationMember);
     },
 
+    async updateOrganizationMemberRole(input: {
+      userId: UserId;
+      organizationId: OrganizationId;
+      memberId: UserId;
+      role: OrgRole;
+    }): Promise<OrganizationMember | null> {
+      // `organization_members.user_id=eq.<caller>` is the tenant re-check: the
+      // same embedding every scoped read uses, so a caller with no membership
+      // here matches nothing and the write is a no-op rather than a leak. The
+      // row's own `user_id` is the *target*, so it is filtered separately.
+      const updated = await rows("updateOrganizationMemberRole", {
+        method: "PATCH",
+        path: `/organization_members?select=*,profiles(email,display_name)&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organization_members.user_id=eq.${q(input.userId)}`,
+        prefer: "return=representation",
+        body: { role: input.role },
+      });
+      const row = updated[0];
+      return row ? toOrganizationMember(row) : null;
+    },
+
+    async removeOrganizationMember(input: {
+      userId: UserId;
+      organizationId: OrganizationId;
+      memberId: UserId;
+    }): Promise<boolean> {
+      const removed = await rows("removeOrganizationMember", {
+        method: "DELETE",
+        path: `/organization_members?select=user_id&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organization_members.user_id=eq.${q(input.userId)}`,
+        prefer: "return=representation",
+      });
+      return removed.length > 0;
+    },
+
     async listProjects(
       userId: UserId,
       organizationId: OrganizationId,

@@ -10,6 +10,7 @@
  */
 import type { DataStore, Organization, Project } from "@cloud-wai/database";
 import type { ApiKeyId, ExecutionModel, OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { OrgRole } from "@cloud-wai/authorization";
 import {
   buildNotConfigured,
   databaseNotConfigured,
@@ -31,6 +32,8 @@ import {
   listOrganizationMembers,
   listOrganizations,
   listProjects,
+  removeOrganizationMember,
+  updateOrganizationMemberRole,
   updateProject,
   type OrgDeps,
 } from "./organizations.js";
@@ -280,6 +283,24 @@ export function buildProcedures(
           ctx,
           orgDeps,
           inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "organizations.members.updateRole",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        updateOrganizationMemberRole(
+          ctx,
+          orgDeps,
+          inputOf<{ organizationId: OrganizationId; memberId: string; role: OrgRole }>(input),
+        ),
+    },
+    {
+      name: "organizations.members.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeOrganizationMember(
+          ctx,
+          orgDeps,
+          inputOf<{ organizationId: OrganizationId; memberId: string }>(input),
         ),
     },
     {
@@ -679,6 +700,12 @@ export const ROUTE_SHAPES = {
   "organizations.create": { name: "string", slug: "string" },
   "organizations.get": { organizationId: "OrganizationId" },
   "organizations.members.list": { organizationId: "OrganizationId" },
+  "organizations.members.updateRole": {
+    organizationId: "OrganizationId",
+    memberId: "string",
+    role: "string",
+  },
+  "organizations.members.remove": { organizationId: "OrganizationId", memberId: "string" },
   "projects.list": { organizationId: "OrganizationId" },
   "projects.get": { projectId: "ProjectId" },
   "projects.create": {

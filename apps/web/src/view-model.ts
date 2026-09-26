@@ -455,6 +455,35 @@ export async function loadOrganizationMembers(
   return sectionFrom("Members", response);
 }
 
+/**
+ * Change a member's role.
+ *
+ * The server owns the rank rules (nobody edits their own role, an admin cannot
+ * act on an owner, the last owner cannot be demoted) and re-checks them in the
+ * policy; the dashboard only offers the choices a caller could be allowed to
+ * make, and reports a refusal rather than hiding it.
+ */
+export async function updateMemberRole(
+  client: ApiClient,
+  input: { organizationId: string; memberId: string; role: OrganizationMemberSummary["role"] },
+): Promise<ApiResponse<OrganizationMemberSummary>> {
+  return client.call<OrganizationMemberSummary>("organizations.members.updateRole", input);
+}
+
+/**
+ * Remove a member.
+ *
+ * A member removing themselves leaves the organization; anyone else needs to
+ * outrank the row. The last owner is refused, so this cannot empty an
+ * organization of everyone who can manage it.
+ */
+export async function removeMember(
+  client: ApiClient,
+  input: { organizationId: string; memberId: string },
+): Promise<ApiResponse<{ removed: boolean }>> {
+  return client.call<{ removed: boolean }>("organizations.members.remove", input);
+}
+
 export interface DomainSummary {
   readonly id: string;
   readonly hostname: string;

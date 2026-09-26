@@ -114,6 +114,32 @@ function makeStore() {
       memberships.push({ organizationId: org.id, userId: input.createdBy, role: "owner" });
       return org;
     },
+    async updateOrganizationMemberRole(input) {
+      if (!isMember(input.userId, input.organizationId)) return null;
+      const m = memberships.find(
+        (x) => x.organizationId === input.organizationId && x.userId === input.memberId,
+      );
+      if (!m) return null;
+      m.role = input.role;
+      return {
+        organizationId: m.organizationId,
+        userId: m.userId,
+        role: m.role,
+        email: null,
+        displayName: null,
+        invitedBy: null,
+        createdAt: "2026-01-01T00:00:00Z",
+      };
+    },
+    async removeOrganizationMember(input) {
+      if (!isMember(input.userId, input.organizationId)) return false;
+      const index = memberships.findIndex(
+        (x) => x.organizationId === input.organizationId && x.userId === input.memberId,
+      );
+      if (index === -1) return false;
+      memberships.splice(index, 1);
+      return true;
+    },
     async listProjects(userId, org) {
       return isMember(userId, org) ? projects.filter((p) => p.organizationId === org) : [];
     },
@@ -261,6 +287,8 @@ describe("the registered procedure table", () => {
       "organizations.get",
       "organizations.list",
       "organizations.members.list",
+      "organizations.members.remove",
+      "organizations.members.updateRole",
       "projects.create",
       "projects.get",
       "projects.list",
@@ -303,6 +331,12 @@ describe("the registered procedure table", () => {
     const scoped: Record<string, unknown> = {
       "organizations.get": { organizationId: ORG_A },
       "organizations.members.list": { organizationId: ORG_A },
+      "organizations.members.updateRole": {
+        organizationId: ORG_A,
+        memberId: ALICE,
+        role: "viewer",
+      },
+      "organizations.members.remove": { organizationId: ORG_A, memberId: ALICE },
       "projects.list": { organizationId: ORG_A },
       "projects.get": { projectId: "p-1" },
       "projects.create": { organizationId: ORG_A, name: "Sneak", slug: "sneak" },
