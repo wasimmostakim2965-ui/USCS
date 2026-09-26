@@ -30,6 +30,8 @@ import {
   type Engines,
   type RateLimitRule,
   type TrustedSource,
+  type VerifiedBot,
+  validateVerifiedBot,
 } from "@cloud-wai/adapters";
 import { protectionIsActive } from "./protection.js";
 import type { ControlPlaneStore } from "./index.js";
@@ -58,6 +60,32 @@ export interface SecurityEdgeEnvConfig {
   readonly origin: string;
   /** Per-organization edge admin tokens, keyed by organization id. */
   readonly tokens: Readonly<Record<string, string>>;
+  /**
+   * Extra verified bots this deployment trusts, on top of the curated directory.
+   *
+   * This is the operator overlay the compiler's `botAllowList` expects — the
+   * customer's own webhook providers and uptime monitors, which are deployment
+   * config, never customer input. A malformed entry is dropped, which is
+   * fail-closed: the bot is simply not pre-allowed and is challenged like any
+   * other caller, so a typo can never turn into a bypass.
+   */
+  readonly botAllowList: readonly VerifiedBot[];
+}
+
+/** One allow-list entry: `name:userAgent:confirmSuffix`. */
+function parseBotAllowList(raw: string | undefined): VerifiedBot[] {
+  if (!raw) return [];
+  const bots: VerifiedBot[] = [];
+  for (const entry of raw.split(";")) {
+    const trimmed = entry.trim();
+    if (trimmed === "") continue;
+    const parts = trimmed.split(":");
+    if (parts.length !== 3) continue;
+    const [name, userAgent, confirmSuffix] = parts as [string, string, string];
+    const bot: VerifiedBot = { name: name.trim(), userAgent: userAgent.trim(), confirmSuffix: confirmSuffix.trim() };
+    if (validateVerifiedBot(bot).ok) bots.push(bot);
+  }
+  return bots;
 }
 
 /**
@@ -86,7 +114,12 @@ export function securityEdgeConfigFromEnv(
   }
   if (Object.keys(tokens).length === 0) return null;
 
-  return { edgeUrl, origin, tokens };
+  return {
+    edgeUrl,
+    origin,
+    tokens,
+    botAllowList: parseBotAllowList(env.SECURITY_EDGE_BOT_ALLOWLIST),
+  };
 }
 
 export interface SecurityEdgeLoaders {
@@ -180,6 +213,10 @@ export function createSecurityEdgeLoaders(
         denyList,
         trustedSources,
         rateLimits,
+        // The deployment's own trusted crawlers/webhook senders, on top of the
+        // curated directory. Operator config, so a customer cannot widen the
+        // allow-list through the dashboard.
+        ...(config.botAllowList.length > 0 ? { botAllowList: config.botAllowList } : {}),
       };
     },
   };

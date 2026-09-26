@@ -151,6 +151,34 @@ describe("security edge environment config", () => {
     expect(config?.origin).toBe("10.0.1.5");
     expect(config?.tokens["org_a"]).toBe("token-a");
   });
+
+  it("carries an operator bot allow-list so a webhook sender can be trusted", () => {
+    const config = securityEdgeConfigFromEnv({
+      ...ENV,
+      SECURITY_EDGE_BOT_ALLOWLIST: "stripe-webhook:Stripebot:stripe.com;custom:MyMonitor:monitor.test",
+    });
+    expect(config?.botAllowList).toEqual([
+      { name: "stripe-webhook", userAgent: "Stripebot", confirmSuffix: "stripe.com" },
+      { name: "custom", userAgent: "MyMonitor", confirmSuffix: "monitor.test" },
+    ]);
+  });
+
+  it("drops a malformed bot entry instead of emitting a bypass, so a typo fails closed", () => {
+    const config = securityEdgeConfigFromEnv({
+      ...ENV,
+      // The first entry is missing its confirm suffix; the second has a public
+      // suffix but a bad name. Both are dropped; the valid one survives.
+      SECURITY_EDGE_BOT_ALLOWLIST:
+        "broken:NoSuffix;BAD NAME:ua:example.com;good:Goodbot:good.test",
+    });
+    expect(config?.botAllowList).toEqual([
+      { name: "good", userAgent: "Goodbot", confirmSuffix: "good.test" },
+    ]);
+  });
+
+  it("defaults the bot allow-list to empty when the environment does not set it", () => {
+    expect(securityEdgeConfigFromEnv(ENV)?.botAllowList).toEqual([]);
+  });
 });
 
 describe("security edge loaders", () => {
@@ -259,6 +287,46 @@ describe("security edge loaders", () => {
     expect(compiled.envoyConfig.skipChallengeAddresses).toEqual(["203.0.113.0/24"]);
     expect(compiled.envoyConfig.skipChallengeForVerifiedBots).toBe(true);
     expect(input?.route.host).toBe("app.example.com");
+  });
+
+  it("carries the operator's own webhook sender into the compiled allow-list", async () => {
+    const { store } = storeOver({
+      security_policies: [policyRow("org-a")],
+      domains: [domainRow("org-a", "app.example.com", true, "2026-01-02T00:00:00.000Z")],
+    });
+    const loaders = createSecurityEdgeLoaders(
+      store,
+      securityEdgeConfigFromEnv({
+        ...ENV,
+        SECURITY_EDGE_BOT_ALLOWLIST: "stripe:Stripebot:stripe.com",
+      })!,
+    );
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    expect(input?.botAllowList).toEqual([
+      { name: "stripe", userAgent: "Stripebot", confirmSuffix: "stripe.com" },
+    ]);
+
+    // It must reach the artifact: a bot rule is a two-rule chain, so the
+    // operator's webhook sender is pre-allowed rather than challenged. The
+    // curated directory is still present underneath it.
+    const compiled = compileEdge(input!);
+    const botSteps = compiled.ladder.filter((step) => step.stage === "allow-verified-bot");
+    // Nine curated bots plus the one overlay entry.
+    expect(botSteps).toHaveLength(10);
+    const overlay = botSteps[botSteps.length - 1]!;
+    expect(overlay.directive).toContain("Stripebot");
+    // The suffix is emitted as an escaped reverse-DNS regex, not a raw name.
+    expect(overlay.directive).toContain("stripe\\.com");
+  });
+
+  it("omits the overlay entirely when no bot allow-list is configured, so the curated set is unchanged", async () => {
+    const { store } = storeOver({
+      security_policies: [policyRow("org-a")],
+      domains: [domainRow("org-a", "app.example.com", true, "2026-01-02T00:00:00.000Z")],
+    });
+    const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
+    const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
+    expect(input?.botAllowList).toBeUndefined();
   });
 
   it("compiles a lapsed attack window back to normal, so a timed posture really ends", async () => {

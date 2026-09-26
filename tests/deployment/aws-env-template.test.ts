@@ -56,6 +56,13 @@ describe("the AWS SSM environment template", () => {
     expect(keys.has("SECURITY_EDGE_ORIGIN")).toBe(true);
   });
 
+  it("emits the bot allow-list, so a deployment can trust its own webhook senders", () => {
+    // The overlay is how attack mode avoids locking out a customer's own
+    // webhook provider or uptime monitor. Without the key on the host, an
+    // operator could set it in `.env.example` and have it silently ignored.
+    expect(keys.has("SECURITY_EDGE_BOT_ALLOWLIST")).toBe(true);
+  });
+
   it("never turns the fakes on", () => {
     expect(compute).not.toContain("CLOUD_WAI_USE_FAKE_ENGINES=true");
   });

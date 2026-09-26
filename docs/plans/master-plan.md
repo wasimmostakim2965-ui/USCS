@@ -168,6 +168,10 @@ No phase claims a row **Wired** without a procedure, a page and a test.
 
 1. Add the classification ladder to `compileEdge` (pure, deterministic).
 2. Add a curated verified-bot matcher + operator overlay (config, not customer).
+   The overlay is wired: `SECURITY_EDGE_BOT_ALLOWLIST` →
+   `securityEdgeConfigFromEnv` → `loadPolicy` → the compiled bot chain, so a
+   deployment trusts its own webhook senders and monitors without widening the
+   allow-list for customers.
 3. Add `security_rules` (deny list) and route-protection (mode + expiry) with org
    RLS and column guards; a probe like `12_`.
 4. Wire `security.policy.save/distribute` to carry the mode; expose

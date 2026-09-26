@@ -107,6 +107,7 @@ resource "aws_ssm_parameter" "env" {
     "COOLIFY_URL=${var.coolify_url}",
     "SECURITY_EDGE_URL=${var.security_edge_url}",
     "SECURITY_EDGE_ORIGIN=${var.security_edge_origin}",
+    "SECURITY_EDGE_BOT_ALLOWLIST=${var.security_edge_bot_allowlist}",
     "EDGE_HOSTNAME=${var.edge_hostname}",
     "STORAGE_ENDPOINT=${var.storage_endpoint}",
   ]))

@@ -115,6 +115,18 @@ variable "security_edge_origin" {
   default     = ""
 }
 
+variable "security_edge_bot_allowlist" {
+  description = <<-EOT
+    Extra verified bots to pre-allow on top of the curated crawler directory,
+    so attack mode does not lock out this deployment's own webhook providers or
+    uptime monitors. `name:userAgent:confirmSuffix` entries separated by `;`.
+    The suffix must be a DNS name the edge forward-confirms; a malformed entry
+    is dropped (fail-closed), never emitted as a bypass.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "edge_hostname" {
   description = "Hostname a domain may CNAME to for edge verification."
   type        = string
