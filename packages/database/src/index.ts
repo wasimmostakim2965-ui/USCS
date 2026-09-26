@@ -19,6 +19,11 @@ import type {
   UserId,
 } from "@cloud-wai/contracts";
 import type { Membership, OrgRole } from "@cloud-wai/authorization";
+// The stage vocabulary is owned by the compiler that emits it, so this reuses
+// that type rather than restating the union. A drift between the two — which
+// happened once, see `DECISION_STAGES` — then becomes a compile error here
+// rather than a rejected insert the edge can never report.
+import type { DecisionStage } from "@cloud-wai/adapters";
 
 /** Tables that make up the control-plane schema (see supabase/migrations). */
 export const CONTROL_PLANE_TABLES = [
@@ -1016,16 +1021,8 @@ export interface SecurityEvent {
   readonly id: string;
   readonly organizationId: OrganizationId;
   readonly host: string;
-  readonly stage:
-    | "allow-verified-bot"
-    | "allow-internal"
-    | "allow-trusted-ip"
-    | "block-deny-list"
-    | "ratelimit"
-    | "challenge"
-    | "waf"
-    | "log"
-    | "pass";
+  /** The ladder stage that decided, from the compiler's own vocabulary. */
+  readonly stage: DecisionStage;
   readonly action: "allow" | "log" | "challenge" | "block" | "quarantine";
   readonly ruleId: number | null;
   readonly policyVersion: number | null;

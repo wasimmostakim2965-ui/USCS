@@ -6,12 +6,14 @@
  * policy version it did not get to apply.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { AdapterContext, ProviderRef } from "@cloud-wai/contracts";
 import {
   BOT_CONFIRM_VARIABLE,
   CORAZA_ACTION,
+  DECISION_STAGES,
   INTERNAL_REQUEST_HEADER,
   compileEdge,
   createEnvoySecurityEdge,
@@ -787,5 +789,42 @@ describe("the decision ladder", () => {
       ],
     };
     expect(JSON.stringify(compileEdge(input))).toBe(JSON.stringify(compileEdge(input)));
+  });
+});
+
+/**
+ * The recorded vocabulary must match the recorded-vocabulary *constraint*.
+ *
+ * `DECISION_STAGES` is the compiler's stage union; `security_events.stage` is a
+ * check constraint in SQL. They cannot import each other, and they drifted once
+ * already: `0018` had to widen the constraint because the compiler emitted
+ * `allow-trusted-ip` and `ratelimit` while the table still listed the original
+ * seven, so an edge that made either decision had its insert rejected and the
+ * decision went unrecorded. This test reads the migrations and asserts the last
+ * constraint statement names exactly the compiler's set — so the next stage the
+ * compiler learns cannot be silently unrecordable.
+ */
+describe("decision-stage vocabulary", () => {
+  it("matches the security_events.stage check constraint the migrations install", () => {
+    const migrations = ["0010_security_protection_and_events", "0018_security_rate_limits"]
+      .map((name) =>
+        readFileSync(
+          new URL(`../../supabase/migrations/${name}.sql`, import.meta.url),
+          "utf8",
+        ),
+      )
+      .join("\n");
+
+    // The constraint as the migrations leave it is the last `stage in (...)`
+    // list in file order: 0010 creates the check, 0018 drops and restates it.
+    const matches = [...migrations.matchAll(/stage\s+in\s*\(([^)]*)\)/g)];
+    expect(matches.length).toBeGreaterThan(0);
+    const last = matches[matches.length - 1]![1]!;
+    const installed = [...last.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]!);
+
+    // Set equality, both directions: a value the table allows but the compiler
+    // never emits is dead vocabulary; a value the compiler emits but the table
+    // rejects is an unrecordable decision.
+    expect([...installed].sort()).toEqual([...DECISION_STAGES].sort());
   });
 });

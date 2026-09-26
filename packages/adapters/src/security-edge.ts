@@ -119,20 +119,39 @@ export const VERIFIED_BOTS: readonly VerifiedBot[] = [
 export const ROUTE_PROTECTION_MODES = ["normal", "attack"] as const;
 export type RouteProtectionMode = (typeof ROUTE_PROTECTION_MODES)[number];
 
+/**
+ * The stages the compiled ladder can emit, and the only values the edge may
+ * *record* against a request.
+ *
+ * This is a named list rather than nine inline union members because the same
+ * vocabulary has to exist in three places that cannot import each other: this
+ * type, the `security_events.stage` check constraint (migration `0010`, widened
+ * by `0018`), and the dashboard's decision table. When the two drifted — the
+ * compiler emitted `allow-trusted-ip` and `ratelimit` while the table's check
+ * still listed only the original seven — an edge that made either decision had
+ * its insert rejected, so the decision was silently unrecordable. Naming the list
+ * here gives one place for a test to pin the compiler against the constraint.
+ *
+ * Order is the ladder's evaluation order, so a reader can see precedence here.
+ */
+export const DECISION_STAGES = [
+  "allow-verified-bot",
+  "allow-internal",
+  "allow-trusted-ip",
+  "block-deny-list",
+  "ratelimit",
+  "challenge",
+  "waf",
+  "log",
+  "pass",
+] as const;
+export type DecisionStage = (typeof DECISION_STAGES)[number];
+
 /** One step of the compiled decision ladder, in the order the edge evaluates it. */
 export interface LadderStep {
   /** The `id:` the directive carries, so a decision is traceable to a rule. */
   readonly id: number;
-  readonly stage:
-    | "allow-verified-bot"
-    | "allow-internal"
-    | "allow-trusted-ip"
-    | "block-deny-list"
-    | "ratelimit"
-    | "challenge"
-    | "waf"
-    | "log"
-    | "pass";
+  readonly stage: DecisionStage;
   readonly action: EnforcementAction;
   /** The Coraza/SecLang directive for this step, or a comment when it is Envoy-only. */
   readonly directive: string;
