@@ -663,6 +663,12 @@ export function ProjectSettingsPage({
       slug !== project!.slug ||
       executionModel !== project!.executionModel);
 
+  // The slug names the engine application once one exists, and the engine has no
+  // rename the API is allowed to call — `projects.update` refuses the change. The
+  // field is disabled and the hint says why, so the control cannot promise
+  // something the server will reject.
+  const slugLocked = project?.providerResourceId != null;
+
   const submit = async () => {
     if (!project) return;
     setBusy(true);
@@ -700,11 +706,19 @@ export function ProjectSettingsPage({
                 />
               )}
             </Field>
-            <Field label="Slug" hint="Lowercase letters, digits and hyphens. Used in URLs.">
+            <Field
+              label="Slug"
+              hint={
+                slugLocked
+                  ? "This slug names the application on the hosting engine, and the engine cannot rename it. It can only change before the first deployment creates the application — rename the project's name instead."
+                  : "Lowercase letters, digits and hyphens. Used in URLs."
+              }
+            >
               {(id) => (
                 <TextInput
                   id={id}
                   value={slug}
+                  disabled={slugLocked}
                   onChange={(value) => {
                     setSaved(false);
                     setSlug(value.toLowerCase());

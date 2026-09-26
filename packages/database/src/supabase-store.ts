@@ -186,6 +186,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       organizationId: str(row, "organization_id") as OrganizationId,
       name: str(row, "name"),
       slug: str(row, "slug"),
+      providerResourceId: nullableStr(row, "provider_resource_id"),
       productionDeploymentId: nullableStr(row, "production_deployment_id"),
       executionModel: executionModel(row),
       createdAt: str(row, "created_at"),

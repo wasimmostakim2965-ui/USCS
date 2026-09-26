@@ -167,6 +167,7 @@ function makeStore() {
         ...p,
         name: input.name ?? p.name,
         slug: input.slug ?? p.slug,
+        ...(input.executionModel ? { executionModel: input.executionModel } : {}),
       };
       projects[projects.indexOf(p)] = next;
       return next;
@@ -752,6 +753,58 @@ describe("projects.update through the registered procedures", () => {
 
     expect(res.status).toBe(400);
     expect(projects[0]?.slug).toBe("p");
+  });
+
+  it("refuses a slug change once the hosting engine holds the application", async () => {
+    const { store, projects, audit } = makeStore();
+    // The worker records the engine application against the project on the first
+    // deployment. From then on the slug *is* that application's name, and the
+    // engine offers no rename — so a slug change is refused rather than leaving
+    // the two names silently different.
+    projects[0] = { ...projects[0]!, providerResourceId: "coolify-app-1" };
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", slug: "renamed" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(res.error?.code).toBe("conflict");
+    expect(projects[0]?.slug).toBe("p");
+    expect(audit.some((a) => a.event === "project.updated")).toBe(false);
+  });
+
+  it("still lets the name change when the slug cannot", async () => {
+    const { store, projects } = makeStore();
+    projects[0] = { ...projects[0]!, providerResourceId: "coolify-app-1" };
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", name: "Renamed" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(projects[0]?.name).toBe("Renamed");
+    expect(projects[0]?.slug).toBe("p");
+  });
+
+  it("allows a slug change before the engine application exists", async () => {
+    const { store, projects } = makeStore();
+    const router = buildRouter(deps(store), buildProcedures(store));
+
+    const res = await router.route({
+      procedure: "projects.update",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: "p-1", slug: "renamed" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(projects[0]?.slug).toBe("renamed");
   });
 });
 

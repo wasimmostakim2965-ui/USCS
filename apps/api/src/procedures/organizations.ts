@@ -370,6 +370,23 @@ export async function updateProject(
 
   const executionModel = parseExecutionModel(input.executionModel);
 
+  // The slug *is* the engine application's name — the worker creates the
+  // application as `projectSlug` and resolves it afterwards by the stored
+  // provider reference. Renaming the slug once that application exists would
+  // leave the engine running under the old name while the dashboard shows the
+  // new one: a silent divergence, and the next application a lost reference
+  // produced would be a duplicate rather than a rename. The engine has no
+  // rename the control plane is allowed to call, so the honest answer is to
+  // refuse the slug change and say why. A name change stays free.
+  if (slug !== undefined && slug !== existing.slug && existing.providerResourceId != null) {
+    throw new ApiError(
+      "conflict",
+      "This project's slug names the application on the hosting engine, and the engine " +
+        "cannot rename it. The slug can only change before the first deployment creates " +
+        "the application; rename the project's name instead.",
+    );
+  }
+
   const writes = deps.store as Partial<ControlPlaneWrites>;
   if (typeof writes.updateProject !== "function") {
     throw new ApiError("engine_unavailable", "This deployment cannot rename projects yet.");

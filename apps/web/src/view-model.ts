@@ -22,6 +22,13 @@ export interface ProjectSummary {
   readonly organizationId: string;
   readonly name: string;
   readonly slug: string;
+  /**
+   * The engine application this project was created as, once one exists.
+   *
+   * The slug is that application's name, so the Settings page uses this to know
+   * whether the slug is still free to change. Null before the first deployment.
+   */
+  readonly providerResourceId: string | null;
   /** Container (Coolify) or serverless (Lambda). A project's own choice. */
   readonly executionModel: "container" | "serverless";
 }

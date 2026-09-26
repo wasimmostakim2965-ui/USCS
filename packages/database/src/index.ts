@@ -1389,6 +1389,16 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
+   * The engine-side application this project was created as, once one exists.
+   *
+   * Read-only here: it is written by the worker through
+   * `setProjectProviderResource`, never by a client (the `projects` trigger from
+   * `0006` freezes it). It is surfaced because the slug *is* the engine
+   * application's name, so a rename has to know whether the name is still free
+   * to change.
+   */
+  readonly providerResourceId: string | null;
+  /**
    * The deployment the project's domains currently serve.
    *
    * Null until a production deployment has succeeded. It is stored, not derived:

@@ -885,6 +885,16 @@ table.table {
   color: var(--ink-3);
 }
 
+/* A disabled field still shows its value, dimmed, so a locked setting reads as
+   "fixed" rather than "empty". The hint beside it carries the reason. */
+.input:disabled,
+.select:disabled,
+.textarea:disabled {
+  color: var(--ink-2);
+  background: var(--surface-2, var(--ground));
+  cursor: not-allowed;
+}
+
 .input:focus,
 .select:focus,
 .textarea:focus {

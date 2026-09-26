@@ -828,6 +828,7 @@ export function TextInput({
   autoFocus,
   onEnter,
   ariaLabel,
+  disabled = false,
 }: {
   readonly id?: string;
   readonly value: string;
@@ -839,6 +840,14 @@ export function TextInput({
   readonly onEnter?: () => void;
   /** An accessible name for an input that has no visible label. */
   readonly ariaLabel?: string;
+  /**
+   * Render the field read-only, for a value the server will refuse to change.
+   *
+   * Disabling rather than hiding keeps the current value visible, so the reader
+   * can still see what the value *is*; the hint next to the field is what
+   * explains why it cannot be edited.
+   */
+  readonly disabled?: boolean;
 }) {
   return (
     <input
@@ -850,6 +859,7 @@ export function TextInput({
       autoFocus={autoFocus}
       aria-label={ariaLabel}
       aria-invalid={error ? true : undefined}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={
         onEnter

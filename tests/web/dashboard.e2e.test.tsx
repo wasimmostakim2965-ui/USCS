@@ -338,7 +338,13 @@ describe("the dashboard against a live control plane", () => {
 
   it("renames a project from the project settings page through projects.update", async () => {
     const calls: { procedure: string; input: unknown }[] = [];
-    let project = { id: "p-1", organizationId: "org-1", name: "Web app", slug: "web-app" };
+    let project = {
+      id: "p-1",
+      organizationId: "org-1",
+      name: "Web app",
+      slug: "web-app",
+      providerResourceId: null,
+    };
 
     const url = await startApi((procedure, input) => {
       calls.push({ procedure, input });
@@ -373,6 +379,40 @@ describe("the dashboard against a live control plane", () => {
     await waitFor(() => expect(calls.some((c) => c.procedure === "projects.update")).toBe(true));
     const rename = calls.find((c) => c.procedure === "projects.update");
     expect((rename!.input as { name: string }).name).toBe("Renamed app");
+  });
+
+  it("locks the slug once the engine holds the application, and says why", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            id: "p-1",
+            organizationId: "org-1",
+            name: "Web app",
+            slug: "web-app",
+            providerResourceId: "coolify-app-1",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/settings");
+
+    const slug = await screen.findByLabelText("Slug");
+    await waitFor(() => expect((slug as HTMLInputElement).value).toBe("web-app"));
+    // The engine cannot rename its application, so the field is not editable and
+    // the hint is the reason — never a control that promises a change the server
+    // will refuse.
+    expect((slug as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/names the application on the hosting engine/i)).toBeTruthy();
+    // The name is still free to change.
+    expect((screen.getByLabelText("Name") as HTMLInputElement).disabled).toBe(false);
   });
 
   it("navigates by rewriting the URL, so the route survives a reload", async () => {
