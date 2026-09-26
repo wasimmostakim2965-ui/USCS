@@ -129,12 +129,27 @@ so an existing bookmark does not 404.
   the whole transaction — and a request from a verified crawler can still carry
   an attack, so ending inspection on it is the wrong trade. The consequence is
   that an allow step alone does not stop the WAF from denying the request for
-  some other reason. Two cases are handled explicitly: a trusted address is
-  exempt from the deny list (each deny chain fails when `cloud_wai_trusted` is
-  set), so "trusted" means never blocked. What is *not* handled is a verified
-  bot that also trips a deny rule — the bot marker is not consulted by the deny
-  chains, and the bot allow is only a `pass`. If that case ever matters, add the
-  same guard keyed on `cloud_wai_bot`, with a test that pins it.
+  some other reason. Both cases where that would be wrong are now handled
+  explicitly: a trusted address is exempt from the deny list (each deny chain
+  fails when `cloud_wai_trusted` is set), and so is a confirmed crawler (the same
+  chain also fails when `cloud_wai_bot` is set), so "trusted" and "a verified
+  crawler" both mean never blocked by a deny rule. What is still not handled is
+  the WAF's anomaly rule itself: a confirmed crawler that carries a CRS-matching
+  payload is still blocked by the WAF, which is the intended trade (inspection is
+  never weakened for anyone).
+
+- **The bot confirmation is a suffix match, and its marker is set by the chain
+  member.** Two defects fixed together, and both were silent. The confirm member
+  used `@streq` against a DNS *suffix*, but the edge records the *hostname* it
+  forward-confirmed (`crawl-…​.googlebot.com`), which never equals
+  `googlebot.com` — so the allow could never fire. It now matches with `@rx
+  (^|\.)suffix$`, which is a label-boundary suffix match: `evilgooglebot.com` is
+  rejected, which a bare `@endsWith` would have accepted. And the `setvar` that
+  marks a confirmed bot sat on the chain *starter*; because `setvar` is
+  non-disruptive it runs as soon as the starter matches, whether or not the chain
+  member does, so anyone sending `User-Agent: Googlebot` would have been marked
+  as a confirmed crawler — the exact spoof the chain exists to reject, and (with
+  the new deny guard) a bypass. The marker is now on the member.
 
 - **The Envoy fragment does not carry the trusted addresses or the bot list.**
   `EnvoyRouteFragment` has `challengeBrowsers` but no field listing the

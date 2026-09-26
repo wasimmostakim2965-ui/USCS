@@ -321,8 +321,34 @@ function denyOperator(rule: DenyRule): { target: string; operator: string } {
  * which is not a PTR lookup and performs no forward confirmation, so it cannot
  * express "the reverse name is under this suffix AND resolves back to this
  * address". The edge does that check; this variable carries its answer.
+ *
+ * Exported because it is part of the edge contract, not an internal detail: an
+ * edge that does not populate it grants no bot allow at all.
  */
 export const BOT_CONFIRM_VARIABLE = "cloud_wai_bot_confirm";
+
+/**
+ * The transaction variable a confirmed bot sets.
+ *
+ * Written only when the whole bot chain matches, so it means "this is a
+ * confirmed crawler" rather than "this User-Agent looks like one".
+ */
+export const BOT_MARKER_VARIABLE = "cloud_wai_bot";
+
+/**
+ * The operator's suffix as a match against the confirmed PTR name.
+ *
+ * The suffix is a DNS name (`googlebot.com`), and what the edge records is the
+ * hostname it forward-confirmed (`crawl-66-249-66-1.googlebot.com`). Those are
+ * not equal, so an exact match would never fire and the allow would be dead. The
+ * name must instead *end* with the suffix **at a label boundary**: the leading
+ * `(^|\.)` is what rejects `evilgooglebot.com`, which a bare `@endsWith` would
+ * accept. Only dots are regex metacharacters in a validated DNS name, so they
+ * are the only characters that need escaping.
+ */
+function botConfirmPattern(suffix: string): string {
+  return `(^|\\.)${suffix.replace(/\./g, "\\.")}$`;
+}
 
 /**
  * Render a verified-bot allow as a real two-rule Coraza chain.
@@ -336,13 +362,19 @@ export const BOT_CONFIRM_VARIABLE = "cloud_wai_bot_confirm";
  * condition is what makes the allow trustworthy; without it, a scraper that
  * sets `User-Agent: Googlebot` would pass.
  *
+ * The marker is set by the *member*, not the starter. A non-disruptive action
+ * such as `setvar` runs on a chain starter as soon as the starter itself
+ * matches, whether or not the rest of the chain does, so a marker on the starter
+ * would be set for anyone who sends `User-Agent: Googlebot` — the exact
+ * attacker-controlled claim the chain exists to reject.
+ *
  * The member carries no `id` and no `phase`: Coraza rejects those on a chain
  * member ("can only be specified by chain starter rules").
  */
 function verifiedBotDirectives(id: number, bot: VerifiedBot): { starter: string; member: string } {
   return {
-    starter: `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,setvar:tx.cloud_wai_bot=${id},msg:'cloud-wai verified bot: ${bot.name}'"`,
-    member: `SecRule TX:${BOT_CONFIRM_VARIABLE} "@streq ${bot.confirmSuffix}" "t:none"`,
+    starter: `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,msg:'cloud-wai verified bot: ${bot.name}'"`,
+    member: `SecRule TX:${BOT_CONFIRM_VARIABLE} "@rx ${botConfirmPattern(bot.confirmSuffix)}" "t:none,setvar:tx.${BOT_MARKER_VARIABLE}=${id}"`,
   };
 }
 
@@ -568,25 +600,29 @@ export function compileEdge(input: CompileInput): CompiledEdge {
   // 4. Deny list. Each value was validated before it reached here; a value that
   //    would not match its grammar never becomes a directive.
   //
-  //    Each deny is a two-rule chain whose member fails when the trusted marker
-  //    is set, so a trusted address really is "never blocked" — otherwise the
-  //    allow step above would mark it and this rule would deny it anyway, and the
+  //    Each deny is a three-rule chain whose members fail when the trusted
+  //    marker or the confirmed-bot marker is set, so a trusted address and a
+  //    confirmed crawler really are "never blocked" — otherwise the allow steps
+  //    above would mark them and this rule would deny them anyway, and the
   //    operator's own webhook sender would be blocked by a rule they added to
-  //    block someone else. The marker is only ever set by the trusted-source step
-  //    from a validated address literal, so it cannot be claimed by a header.
+  //    block someone else, or a broad CIDR/ASN sweep would take Googlebot with
+  //    it and quietly break SEO. Both markers are only ever set from a validated
+  //    address literal and a forward-confirmed DNS name, so neither can be
+  //    claimed by a header.
   for (const rule of input.denyList ?? []) {
     const valid = validateDenyRule(rule);
     if (!valid.ok) continue; // never emit a directive from an unvalidated value
     const { target, operator } = denyOperator(rule);
     const id = nextId++;
     const starter = `SecRule ${target} "${operator}" "id:${id},phase:1,deny,status:403,log,msg:'cloud-wai deny list: ${rule.kind}',chain"`;
-    const member = `SecRule TX:cloud_wai_trusted "!@streq 1" "t:none"`;
-    directives.push(starter, member);
+    const trustedMember = `SecRule TX:cloud_wai_trusted "!@streq 1" "t:none,chain"`;
+    const botMember = `SecRule TX:${BOT_MARKER_VARIABLE} "!@rx ^\\d+$" "t:none"`;
+    directives.push(starter, trustedMember, botMember);
     ladder.push({
       id,
       stage: "block-deny-list",
       action: "block",
-      directive: `${starter}\n${member}`,
+      directive: `${starter}\n${trustedMember}\n${botMember}`,
     });
   }
 

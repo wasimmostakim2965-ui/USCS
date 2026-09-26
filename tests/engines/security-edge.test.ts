@@ -236,9 +236,11 @@ describe("the decision ladder", () => {
     const googlebot = compiled.ladder.find((step) => step.directive.includes("Googlebot"));
     expect(googlebot).toBeDefined();
     // The UA match is chained and carries the confirm suffix, so a scraper that
-    // sets `User-Agent: Googlebot` does not get the allow on UA alone.
+    // sets `User-Agent: Googlebot` does not get the allow on UA alone. The suffix
+    // is matched as a suffix at a label boundary, not by equality: the edge
+    // records the confirmed hostname, which is longer than the suffix.
     expect(googlebot!.directive).toContain("chain");
-    expect(googlebot!.directive).toContain("googlebot.com");
+    expect(googlebot!.directive).toContain("(^|\\.)googlebot\\.com$");
   });
 
   it("emits every bot chain with a matching member, never a dangling chain", () => {
@@ -405,6 +407,61 @@ describe("the decision ladder", () => {
     expect(member).not.toMatch(/id:\d+/);
   });
 
+  it("lets a confirmed crawler win when it also trips a deny rule", () => {
+    // A broad CIDR or ASN sweep must not take Googlebot with it: the ladder puts
+    // the verified-bot allow first, and this guard is what makes that ordering
+    // mean something. Without it the allow step marks the crawler and the deny
+    // chain blocks it anyway, silently breaking SEO for a rule that was aimed at
+    // someone else.
+    const compiled = compileEdge({
+      route: route(),
+      denyList: [{ kind: "cidr", value: "203.0.113.0/24" }],
+    });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const denyIndex = lines.findIndex((line) => line.includes("cloud-wai deny list"));
+    const members = [lines[denyIndex + 1], lines[denyIndex + 2]];
+    expect(members[0]).toContain("TX:cloud_wai_trusted");
+    expect(members[1]).toContain("TX:cloud_wai_bot");
+    // Negated: the chain fails when the crawler marker is present.
+    expect(members[1]).toContain("!@rx");
+  });
+
+  it("sets the crawler marker only when the whole chain matches", () => {
+    // `setvar` is non-disruptive, so on a chain *starter* it runs as soon as the
+    // starter matches — even when the confirm member fails. A marker there would
+    // be set for anyone sending `User-Agent: Googlebot`, the attacker-controlled
+    // claim the chain exists to reject, and the deny guard above would then hand
+    // that attacker a bypass. The marker must live on the member.
+    const compiled = compileEdge({ route: route() });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const starters = lines.filter((line) => line.includes(",chain") && line.includes("User-Agent"));
+    expect(starters.length).toBeGreaterThan(0);
+    for (const starter of starters) {
+      expect(starter).not.toContain("setvar:tx.cloud_wai_bot=");
+    }
+    const botMembers = lines.filter((line) => line.includes("setvar:tx.cloud_wai_bot="));
+    expect(botMembers.length).toBe(starters.length);
+    for (const member of botMembers) {
+      expect(member).toContain("TX:cloud_wai_bot_confirm");
+    }
+  });
+
+  it("matches the confirmed name as a suffix at a label boundary, not exactly", () => {
+    // The edge records the hostname it forward-confirmed
+    // (`crawl-66-249-66-1.googlebot.com`); the operator configures a suffix
+    // (`googlebot.com`). An exact match would never fire, so the allow would be
+    // dead. A bare suffix match would accept `evilgooglebot.com`, so the pattern
+    // anchors on a dot or the start of the name.
+    const compiled = compileEdge({ route: route() });
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const googlebot = lines.find(
+      (line) => line.includes("TX:cloud_wai_bot_confirm") && line.includes("googlebot"),
+    );
+    expect(googlebot).toBeDefined();
+    expect(googlebot).toContain("(^|\\.)googlebot\\.com$");
+    expect(googlebot).not.toContain("@streq");
+  });
+
   it("does not let the trusted guard be claimed without the allow step", () => {
     // The marker is set only by the trusted-source step, from an address literal.
     // With no trusted sources, no request can set it, so the deny guard is inert
@@ -436,18 +493,24 @@ describe("the decision ladder", () => {
     const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
     const starters = lines.filter((line) => line.includes(",chain"));
     expect(starters.length).toBeGreaterThan(0);
+    // Walk the chain by `chain` markers: a starter carries it, each member
+    // carries it except the last, and the last does not. So a starter is followed
+    // by members until the first line without `chain`, which must be a member.
     for (const [index, line] of lines.entries()) {
       if (!line.includes(",chain")) continue;
       const member = lines[index + 1];
       expect(member, `chain starter at ${index} has no member`).toBeDefined();
-      // The member reads a transaction variable, never a request header: the
-      // allow must not be claimable from attacker-controlled input.
+      // A member reads a transaction variable, never a request header: the allow
+      // must not be claimable from attacker-controlled input.
       expect(member.toLowerCase()).toContain("tx:");
       expect(member.toLowerCase()).not.toContain("request_headers");
       expect(member).not.toMatch(/id:\d+/);
       expect(member).not.toContain("phase:");
-      // The next starter must not be this chain's member.
-      expect(member).not.toContain(",chain");
+      // The next starter must not be this chain's member: a starter is a
+      // `SecRule` with an `id`, which a member may never carry.
+      if (member.includes(",chain")) {
+        expect(member).not.toMatch(/id:\d+/);
+      }
     }
   });
 
