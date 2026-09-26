@@ -135,14 +135,14 @@ object we have not built.
 | B4 | Backup history | `data.backups.list` (`index.ts:302`) | **Wired** |
 | B5 | Restore from a backup (gate 9) | `data.restore` / `data.restores.list` (`apps/api/src/procedures/data.ts`), `data_restores` + RLS (`supabase/migrations/0012_data_restores.sql`), worker `buildRestoreJobHandler`/`buildRestoreApplier` (`apps/worker/src/restore-job.ts`), Dashboard `RestoreResourceModal` (`apps/web/src/pages/database.tsx`); name-confirmation + completed-backup-only refusals | **Wired** (Honest n/c without creds) |
 | B6 | Rotate credentials | adapter `rotateCredentials` (`packages/adapters/src/postgres.ts:256`), `data.rotateCredentials` (`apps/api/src/procedures/data.ts`), registered (`apps/api/src/procedures/index.ts`), Dashboard `RotateCredentialsModal` with name-confirmation (`apps/web/src/pages/database.tsx`); postgres-only, requires a ready resource with an engine handle, and the new secret is never returned | **Wired** (Honest n/c without creds) |
-| B7 | Table editor | route + honest placeholder | **Missing (B2)** — needs table introspection |
-| B8 | SQL editor | route + honest placeholder | **Missing (B2)** |
-| B9 | Authentication (GoTrue surface) | route + honest placeholder | **Missing (B2)** |
+| B7 | Table editor | `DatabaseTables` console handoff (`apps/web/src/pages/database.tsx`); deep link per ready database via `engineConsole.terminal` (`packages/adapters/src/engine-console.ts`) | **Wired (handoff)** — ADR-0011 Option A: the control plane never opens the tenant DB, so rows are edited on the engine console |
+| B8 | SQL editor | `DatabaseSql` console handoff, same deep link | **Wired (handoff)** — SQL runs in the engine, never through the control plane |
+| B9 | Authentication (GoTrue surface) | `DatabaseAuth` console handoff; app-level auth is configured where the app is deployed | **Wired (handoff)** — no tenant data-plane access (ADR-0011) |
 | B10 | Storage buckets | `DatabaseStorage` from `data.list` | **Wired** |
-| B11 | REST/API endpoint list | route + honest placeholder | **Missing (B2)** |
-| B12 | Roles & extensions | route + honest placeholder | **Missing (B2)** |
-| B13 | Database logs | route + honest placeholder | **Missing (B2)** |
-| B14 | Database settings | route + honest placeholder | **Missing (B2)** |
+| B11 | REST/API endpoint list | `DatabaseApi` console handoff | **Wired (handoff)** — no generated REST layer over tenant tables (ADR-0011) |
+| B12 | Roles & extensions | `DatabaseRoles` console handoff | **Wired (handoff)** — role introspection needs data-plane access (ADR-0011) |
+| B13 | Database logs | `data.logs` (`apps/api/src/procedures/data.ts`), `DatabaseAdapter.getLogs` (`packages/adapters/src/index.ts`, `postgres.ts`), `DatabaseLogs`/`DatabaseLogPanel` (`apps/web/src/pages/database.tsx`); unconfigured engine renders as its own state | **Wired** (Honest n/c without creds) |
+| B14 | Database settings | `DatabaseSettings` console handoff (`engineConsole["environment-variables"]`) | **Wired (handoff)** — engine config lives on the engine (ADR-0011) |
 
 ## Where Cloud Wai is ahead (the honest version)
 

@@ -210,15 +210,24 @@ credentials and a build engine exist. See ADR-0017.
    table.
 4. Dashboard wiring for each; tests for each write path.
 
-### Phase 5 — Database sub-pages (needs the owner's ADR-0011 decision)
+### Phase 5 — Database sub-pages (DONE — ADR-0011 Option A)
 
-The seven missing sub-pages cannot be honestly built without either reversing
-ADR-0011 (give each tenant a Supabase-shaped data plane behind a new
-`TenantDataPlane` adapter contract) or narrowing the section to what Coolify's
-API can answer. **This is a product decision, and the plan asks for it rather
-than guessing.** Recommended: reverse ADR-0011 for *introspection and auth only*
-(read metadata, never tenant row data), which delivers the brief's surface while
-keeping "Cloud Wai holds no tenant data-plane credentials for row data".
+The owner settled the ADR-0011 question in favour of **Option A**: Cloud Wai stays
+out of the tenant data plane. It never opens a tenant database connection and
+never issues SQL. The Database section is therefore a control-plane view, and the
+seven sub-pages that need data-plane access are wired as **engine-console
+handoffs** rather than as a proxy that would have required reversing the ADR:
+
+- **Real control-plane reads:** Overview and Storage (`data.list`), and **Logs**
+  (`data.logs` → `DatabaseAdapter.getLogs`), which the engine serves without the
+  control plane entering the data plane.
+- **Console handoffs:** Table Editor, SQL Editor, Authentication, API, Roles,
+  Settings. Each states *why* the control plane does not proxy the concern and
+  links to the engine's own screen for it, using the deep link the server resolves
+  per resource (`engine-console.ts`, conformance-checked against Coolify's pinned
+  route table). No dead links, no fake editors; an unconfigured console says so.
+
+Every one of the seven rows (B7–B14) moved off "honest placeholder".
 
 ### Phase 6 — Observability, analytics, polish, AWS proof
 
