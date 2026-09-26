@@ -740,12 +740,29 @@ export async function addRateLimit(
   const note = input.note?.trim() ?? "";
   if (note.length > 200) throw new ApiError("invalid_input", "A note is at most 200 characters.");
 
+  // One limit per key (and, for a header-keyed limit, per header). The table's
+  // unique constraint enforces this, but a duplicate would otherwise surface as
+  // an opaque engine error: the caller is told which existing limit it clashes
+  // with, the same way a duplicate hostname or git link is reported.
+  const normalizedHeader = headerName && headerName !== "" ? headerName : null;
   const writes = rateLimitWritesFor(deps);
+  const clash = (await writes.listRateLimits(ctx.principal.userId, input.organizationId)).find(
+    (limit) => limit.key === input.key && (limit.headerName ?? null) === normalizedHeader,
+  );
+  if (clash) {
+    throw new ApiError(
+      "conflict",
+      normalizedHeader
+        ? `A limit for the ${normalizedHeader} header already exists.`
+        : `A ${input.key}-keyed limit already exists.`,
+    );
+  }
+
   const created = await writes.createRateLimit({
     id: deps.newId(),
     organizationId: input.organizationId,
     key: input.key,
-    headerName: headerName && headerName !== "" ? headerName : null,
+    headerName: normalizedHeader,
     limit: input.limit,
     windowSeconds: input.windowSeconds,
     note: note === "" ? null : note,

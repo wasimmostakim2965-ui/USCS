@@ -1376,6 +1376,61 @@ describe("security.rateLimits through the registered procedures", () => {
     expect(rateLimits).toHaveLength(1);
   });
 
+  it("refuses a second limit for the same key, naming the clash", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const first = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 60, windowSeconds: 60 },
+    });
+    expect(first.ok, JSON.stringify(first.error)).toBe(true);
+
+    // A second ip-keyed limit would leave two competing budgets for the same
+    // traffic. It is refused as a conflict with a message the caller can act on,
+    // not surfaced as an opaque engine error.
+    const duplicate = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 999, windowSeconds: 60 },
+    });
+    expect(duplicate.ok).toBe(false);
+    expect(duplicate.status).toBe(409);
+    expect(rateLimits).toHaveLength(1);
+    expect(rateLimits[0]!.limit).toBe(60);
+
+    // The clash is per key/header pair, not per key alone: a header-keyed limit
+    // for a different header is a different budget and is allowed.
+    const header = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        key: "header",
+        headerName: "x-api-key",
+        limit: 600,
+        windowSeconds: 60,
+      },
+    });
+    expect(header.ok, JSON.stringify(header.error)).toBe(true);
+
+    const sameHeader = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        key: "header",
+        headerName: "x-api-key",
+        limit: 5,
+        windowSeconds: 60,
+      },
+    });
+    expect(sameHeader.ok).toBe(false);
+    expect(sameHeader.status).toBe(409);
+    expect(rateLimits).toHaveLength(2);
+  });
+
   it("refuses an out-of-range allowance, so a limit cannot deny everyone", async () => {
     const { store, rateLimits } = makeStore();
     const router = routerWith(store, unconfiguredEngines());

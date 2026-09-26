@@ -47,6 +47,8 @@ SQL_STEPS=(
   "deployment production pointer|supabase/migrations/0014_deployment_production_pointer.sql"
   "project env vars|supabase/migrations/0015_project_env_vars.sql"
   "security trusted sources|supabase/migrations/0016_security_trusted_sources.sql"
+  "project execution model|supabase/migrations/0017_project_execution_model.sql"
+  "security rate limits|supabase/migrations/0018_security_rate_limits.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
@@ -60,6 +62,7 @@ SQL_STEPS=(
   "production pointer probe|tests/isolation/rls/20_production_pointer_probe.sql"
   "env var probe|tests/isolation/rls/21_env_var_probe.sql"
   "trusted source probe|tests/isolation/rls/22_trusted_source_probe.sql"
+  "rate limit probe|tests/isolation/rls/23_rate_limit_probe.sql"
 )
 
 run_all() {

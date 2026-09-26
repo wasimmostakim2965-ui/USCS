@@ -46,7 +46,12 @@ create table if not exists security_rate_limits (
   created_at      timestamptz not null default now(),
   -- One rule per key/header pair, so a duplicate is a no-op rather than two
   -- competing limits for the same traffic.
-  unique (organization_id, key, header_name)
+  --
+  -- `nulls not distinct` is load-bearing: a plain UNIQUE treats every NULL as
+  -- distinct, so `header_name is null` would never collide and an `ip` or
+  -- `global` limit could be inserted twice, leaving two competing budgets for
+  -- the same traffic. PostgreSQL 15+ gives the intended "one row per pair".
+  unique nulls not distinct (organization_id, key, header_name)
 );
 
 create index if not exists security_rate_limits_org_idx
