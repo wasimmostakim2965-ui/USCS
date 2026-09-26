@@ -38,6 +38,7 @@ import type {
   DataStore,
   RateLimit,
   SecurityEvent,
+  SecurityIncident,
   SecurityPolicy,
   SecurityPolicyEvent,
   SecurityRule,
@@ -67,6 +68,11 @@ type SecurityRuleWrites = Pick<
 >;
 
 type SecurityEventReads = Pick<ControlPlaneWrites, "listSecurityEvents">;
+
+type SecurityIncidentWrites = Pick<
+  ControlPlaneWrites,
+  "listSecurityIncidents" | "transitionSecurityIncident"
+>;
 
 type TrustedSourceWrites = Pick<
   ControlPlaneWrites,
@@ -439,6 +445,22 @@ export async function distributeSecurityPolicy(
       targetId: policy.id,
       metadata: { version: policy.version, status: applied.status },
     });
+
+    // A refused distribution is a security event, not a rounding error. Group it
+    // as an incident so it is triaged rather than buried in the policy log. The
+    // store method is optional: a deployment that predates the incident table
+    // still records the rejection as a policy event above.
+    const incidents = deps.store as Partial<ControlPlaneWrites>;
+    if (typeof incidents.openSecurityIncidentForService === "function") {
+      await incidents.openSecurityIncidentForService({
+        id: deps.newId(),
+        organizationId: policy.organizationId,
+        kind: "policy_distribution_rejected",
+        severity: applied.status === "not_configured" ? "medium" : "high",
+        summary: `Policy v${policy.version} was not applied: ${applied.reason}`,
+        openedAt: (deps.now ?? (() => new Date()))().toISOString(),
+      });
+    }
 
     return {
       policy,
@@ -852,4 +874,145 @@ export async function readVerifiedBots(
   requireCapability(ctx, organizationId, "security:read");
   void deps;
   return { bots: VERIFIED_BOTS };
+}
+
+// ---------------------------------------------------------------------------
+// Incidents — the grouped signal above the raw decisions
+//
+// The decisions view answers "what did the edge do with this request". This view
+// answers the operator's next question: "is anything wrong, and is it being
+// handled". An incident is opened by a detector (the worker, off the request
+// path) and moved through its lifecycle here, by an admin, with a resolution.
+// ---------------------------------------------------------------------------
+
+const INCIDENT_STATES = ["open", "triaged", "resolved", "false_positive"] as const;
+type IncidentStateInput = (typeof INCIDENT_STATES)[number];
+
+/** The states a caller may move an incident *into*. `open` is the start, not a transition. */
+const TRANSITION_STATES = ["triaged", "resolved", "false_positive"] as const;
+type TransitionState = (typeof TRANSITION_STATES)[number];
+
+/** An incident's current state, as the API's own type so the guard can narrow it. */
+interface IncidentRow {
+  readonly id: string;
+  readonly state: IncidentStateInput;
+  readonly resolution: string | null;
+}
+
+/**
+ * The incident writes, checked separately like the rule writes: a deployment
+ * that predates the incident table is still a working deployment for everything
+ * else, and only these procedures report the honest `engine_unavailable`.
+ */
+function incidentWritesFor(deps: SecurityDeps): SecurityIncidentWrites {
+  const store = deps.store;
+  const required = ["listSecurityIncidents", "transitionSecurityIncident"] as const;
+  const missing = required.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot read security incidents yet.`,
+    );
+  }
+  return store as unknown as SecurityIncidentWrites;
+}
+
+/** The organization's incidents, newest first. */
+export async function listSecurityIncidents(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<{ incidents: readonly SecurityIncident[] }> {
+  requireCapability(ctx, organizationId, "security:read");
+  const incidents = await incidentWritesFor(deps).listSecurityIncidents(
+    ctx.principal.userId,
+    organizationId,
+  );
+  return { incidents };
+}
+
+export interface TransitionIncidentInput {
+  readonly organizationId: OrganizationId;
+  readonly incidentId: string;
+  readonly state: TransitionState;
+  /** Required to close, refused if blank. Ignored for `triaged`. */
+  readonly resolution?: string | null;
+}
+
+/**
+ * Move an incident through its lifecycle.
+ *
+ * The API enforces the same rules the table's trigger does, so a caller gets a
+ * clear `invalid_input` rather than a raw database error: an incident must be
+ * triaged before it is resolved, and a close must carry a resolution. The trigger
+ * remains the backstop for a path that bypasses this procedure.
+ */
+export async function transitionSecurityIncident(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: TransitionIncidentInput,
+): Promise<SecurityIncident> {
+  requireCapability(ctx, input.organizationId, "security:update");
+
+  if (!TRANSITION_STATES.includes(input.state)) {
+    throw new ApiError("invalid_input", "Unknown incident state.");
+  }
+
+  const closing = input.state === "resolved" || input.state === "false_positive";
+  const resolution = (input.resolution ?? "").trim();
+  if (closing && resolution.length === 0) {
+    // An incident that disappears without a resolution is worse than one left
+    // open: the next reader cannot tell whether it was fixed or forgotten.
+    throw new ApiError("invalid_input", "Closing an incident requires a resolution.");
+  }
+  if (resolution.length > 500) {
+    throw new ApiError("invalid_input", "A resolution is at most 500 characters.");
+  }
+
+  const writes = incidentWritesFor(deps);
+  const current = await findIncident(deps, ctx, input.organizationId, input.incidentId);
+  if (!current) throw new ApiError("not_found", "No such incident in this organization.");
+
+  if (current.state === "resolved" || current.state === "false_positive") {
+    throw new ApiError("conflict", "A closed incident cannot be reopened; open a new one.");
+  }
+  if (current.state === "open" && closing) {
+    throw new ApiError("conflict", "An incident must be triaged before it is closed.");
+  }
+
+  const updated = await writes.transitionSecurityIncident({
+    organizationId: input.organizationId,
+    incidentId: input.incidentId,
+    state: input.state,
+    resolution: closing ? resolution : null,
+    triagedBy: ctx.principal.userId,
+  });
+  if (!updated) throw new ApiError("not_found", "No such incident in this organization.");
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: `security_incident.${input.state}`,
+    targetType: "security_incident",
+    targetId: updated.id,
+    metadata: { from: current.state, to: updated.state, severity: updated.severity },
+  });
+
+  return updated;
+}
+
+/** Read one incident from the list, so a transition is decided against live state. */
+async function findIncident(
+  deps: SecurityDeps,
+  ctx: RequestContext,
+  organizationId: OrganizationId,
+  incidentId: string,
+): Promise<IncidentRow | null> {
+  const incidents = await incidentWritesFor(deps).listSecurityIncidents(
+    ctx.principal.userId,
+    organizationId,
+  );
+  const found = incidents.find((incident) => incident.id === incidentId);
+  return found ? { id: found.id, state: found.state, resolution: found.resolution } : null;
 }

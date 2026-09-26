@@ -88,6 +88,7 @@ import {
   distributeSecurityPolicy,
   listRateLimits,
   listSecurityEvents,
+  listSecurityIncidents,
   listSecurityRules,
   listTrustedSources,
   readSecurityPolicy,
@@ -96,6 +97,7 @@ import {
   removeSecurityRule,
   removeTrustedSource,
   saveSecurityPolicy,
+  transitionSecurityIncident,
   type AddRateLimitInput,
   type AddSecurityRuleInput,
   type AddTrustedSourceInput,
@@ -105,6 +107,7 @@ import {
   type RemoveTrustedSourceInput,
   type SavePolicyInput,
   type SecurityDeps,
+  type TransitionIncidentInput,
 } from "./security.js";
 import { providerHealth, type HealthDeps } from "./health.js";
 import {
@@ -532,6 +535,20 @@ export function buildProcedures(
       },
     },
     {
+      name: "security.incidents.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listSecurityIncidents(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "security.incidents.transition",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        transitionSecurityIncident(ctx, securityDeps, inputOf<TransitionIncidentInput>(input)),
+    },
+    {
       name: "apiKeys.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listApiKeys(
@@ -748,6 +765,13 @@ export const ROUTE_SHAPES = {
   "security.rateLimits.remove": { organizationId: "OrganizationId", rateLimitId: "string" },
   "security.bots.list": { organizationId: "OrganizationId" },
   "security.events.list": { organizationId: "OrganizationId", limit: "number?" },
+  "security.incidents.list": { organizationId: "OrganizationId" },
+  "security.incidents.transition": {
+    organizationId: "OrganizationId",
+    incidentId: "string",
+    state: "triaged|resolved|false_positive",
+    resolution: "string?",
+  },
   "apiKeys.list": { organizationId: "OrganizationId" },
   "apiKeys.create": { organizationId: "OrganizationId", name: "string", scopes: "string[]" },
   "apiKeys.revoke": { organizationId: "OrganizationId", keyId: "ApiKeyId" },

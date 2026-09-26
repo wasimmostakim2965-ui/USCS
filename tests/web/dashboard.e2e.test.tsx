@@ -3480,4 +3480,73 @@ describe("the Security policy write path", () => {
 
     expect(await screen.findByText(/cannot read edge decisions yet/)).toBeTruthy();
   });
+
+  it("shows an incident with its severity and lifecycle so a signal is triaged, not buried", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.incidents.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            incidents: [
+              {
+                id: "inc-1",
+                kind: "policy_distribution_rejected",
+                severity: "high",
+                summary: "Policy v2 was not applied: edge refused",
+                state: "open",
+                openedAt: new Date().toISOString(),
+                closedAt: null,
+                resolution: null,
+              },
+              {
+                id: "inc-2",
+                kind: "policy_distribution_rejected",
+                severity: "medium",
+                summary: "Policy v1 was not applied",
+                state: "resolved",
+                openedAt: new Date().toISOString(),
+                closedAt: new Date().toISOString(),
+                resolution: "Re-distributed after fixing the certificate",
+              },
+            ],
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/edge refused/)).toBeTruthy();
+    expect(await screen.findByText("High")).toBeTruthy();
+    expect(await screen.findByText("Open")).toBeTruthy();
+    expect(await screen.findByText(/Re-distributed after fixing the certificate/)).toBeTruthy();
+  });
+
+  it("reports an incidents read the deployment cannot serve as degraded, not empty", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.incidents.list") {
+        return {
+          ok: false,
+          status: 503,
+          error: {
+            code: "engine_unavailable",
+            message: "This deployment cannot read security incidents yet.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/cannot read security incidents yet/)).toBeTruthy();
+  });
 });

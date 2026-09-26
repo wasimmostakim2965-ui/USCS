@@ -68,6 +68,9 @@ import type {
   SecurityPolicyEvent,
   SecurityPolicyInput,
   SecurityEvent,
+  SecurityIncident,
+  SecurityIncidentCreateInput,
+  SecurityIncidentTransitionInput,
   SecurityRule,
   SecurityRuleCreateInput,
   RateLimit,
@@ -476,6 +479,22 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       path: nullableStr(row, "path"),
       userAgent: nullableStr(row, "user_agent"),
       observedAt: str(row, "observed_at"),
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toSecurityIncident(row: Row): SecurityIncident {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      kind: str(row, "kind"),
+      severity: str(row, "severity") as SecurityIncident["severity"],
+      summary: str(row, "summary"),
+      state: str(row, "state") as SecurityIncident["state"],
+      openedAt: str(row, "opened_at"),
+      closedAt: nullableStr(row, "closed_at"),
+      resolution: nullableStr(row, "resolution"),
+      triagedBy: nullableStr(row, "triaged_by") as UserId | null,
       createdAt: str(row, "created_at"),
     };
   }
@@ -933,6 +952,43 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toSecurityEvent);
     },
 
+    async listSecurityIncidents(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly SecurityIncident[]> {
+      // Bounded like the decisions read: the table keeps history, and the page
+      // states its window rather than paging forever.
+      const found = await rows("listSecurityIncidents", {
+        method: "GET",
+        path: `/security_incidents?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=opened_at.desc&limit=200`,
+      });
+      return found.map(toSecurityIncident);
+    },
+
+    async transitionSecurityIncident(
+      input: SecurityIncidentTransitionInput,
+    ): Promise<SecurityIncident | null> {
+      // The update body carries only the transition columns. The observation
+      // columns are not sent at all — sending them would be refused by the
+      // column grant in `0019`, and a no-op echo of them would still be a
+      // rewrite attempt the trigger has to reject.
+      const body: Record<string, unknown> = {
+        state: input.state,
+        triaged_by: input.triagedBy,
+        resolution: input.resolution,
+      };
+      const updated = await must<Row[]>("transitionSecurityIncident", {
+        method: "PATCH",
+        path: `/security_incidents?id=eq.${q(input.incidentId)}&organization_id=eq.${q(input.organizationId)}&organization_members.user_id=eq.${q(input.triagedBy)}`,
+        prefer: "return=representation",
+        body,
+      });
+      const row = Array.isArray(updated) ? updated[0] : undefined;
+      // An incident in another organization matches no row: the caller learns
+      // nothing rather than being told it exists.
+      return row ? toSecurityIncident(row) : null;
+    },
+
     // --------------------------------------------------------------- writes
 
     async createOrganization(input: {
@@ -1248,6 +1304,31 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const row = Array.isArray(created) ? created[0] : undefined;
       if (!row) throw new ControlPlaneUnavailableError("recordPolicyEvent", "no row returned");
       return toPolicyEvent(row);
+    },
+
+    async openSecurityIncidentForService(
+      input: SecurityIncidentCreateInput,
+    ): Promise<SecurityIncident> {
+      // Service-role write: `0019` drops the client insert grant, because an
+      // incident is the control plane's observation of a signal, not something a
+      // browser may assert. `state` is left to its `open` default.
+      const created = await must<Row[]>("openSecurityIncidentForService", {
+        method: "POST",
+        path: "/security_incidents?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          kind: input.kind,
+          severity: input.severity,
+          summary: input.summary,
+          opened_at: input.openedAt,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row)
+        throw new ControlPlaneUnavailableError("openSecurityIncidentForService", "no row returned");
+      return toSecurityIncident(row);
     },
 
     async createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule> {

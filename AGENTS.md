@@ -284,3 +284,37 @@ not when a commit message says so.
   configured, and `Edge status unknown.` when the read failed. Do not put a fixed
   sentence back: a hardcoded "not configured yet" survives the edge being wired
   and becomes a lie in the other direction.
+
+## Security incidents (the layer above the edge's decisions)
+
+- `security_events` is one append-only fact per request. `security_incidents`
+  (migration `0019`) is the layer above it: a grouped signal with a lifecycle.
+  They are deliberately separate tables. Folding them together would mean
+  mutating an append-only fact, which is the guarantee `security_events` exists
+  to carry.
+- Two kinds of column, treated differently. The *observed facts* — `kind`,
+  `severity`, `summary`, `opened_at` — are the control plane's own observation:
+  the client INSERT grant is dropped and the UPDATE grant is narrowed to the
+  lifecycle columns, so a browser cannot fabricate an incident or rewrite the one
+  it opened. The *triage* — `state`, `resolution`, `closed_at`, `triaged_by` — is
+  an operator's work, admin-only, at the same threshold as a policy change.
+- The API and the table's trigger enforce the *same* lifecycle, and they must
+  stay identical: triage before any close, a resolution required to close, a
+  closed incident cannot be reopened, and `closed_at` is stamped from the server
+  clock so a close cannot be backdated. A rule that lives only in the procedure
+  is not a rule for a caller that reaches PostgREST directly — the same lesson as
+  the API-key and deployment-status guards above.
+- The detector opens an incident through the service role, never through a
+  procedure: the policy worker (`apps/worker/src/policy-job.ts`) and the
+  synchronous `distributeSecurityPolicy` both do it when the edge refuses a
+  distribution. That is the honest counterpart of "a policy that the edge
+  rejected is not active" — the refusal leaves a case an operator can see and
+  close, rather than a log line.
+- `tests/isolation/rls/24_incident_probe.sql` is the database-side proof
+  (isolation, no client insert, immutable observation, forward-only lifecycle,
+  admin-only triage); `tests/isolation/data-security-writes.test.ts` is the
+  procedure-side proof; `tests/web/dashboard.e2e.test.tsx` covers the surface.
+  `0019` is in `scripts/verify-rls.sh`'s single step list, and
+  `security_incidents` is in the `10_isolation_probe.sql` sweep — a new
+  tenant-owned table must be added to both, or a leak in it goes unnoticed.
+

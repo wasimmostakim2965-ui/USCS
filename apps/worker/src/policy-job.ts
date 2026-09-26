@@ -56,6 +56,22 @@ export interface PolicyExecutionWrites {
     readonly targetId: string;
     readonly metadata: Record<string, unknown>;
   }): Promise<unknown>;
+  /**
+   * Open an incident for a rejected distribution.
+   *
+   * Optional: a deployment whose store predates the incident table still
+   * distributes policy, and the rejection is still recorded as a policy event.
+   * When the store supports it, the rejection additionally becomes a grouped
+   * incident a human is asked to triage — the S7 gap.
+   */
+  openSecurityIncidentForService?(input: {
+    readonly id: string;
+    readonly organizationId: string;
+    readonly kind: string;
+    readonly severity: "low" | "medium" | "high" | "critical";
+    readonly summary: string;
+    readonly openedAt: string;
+  }): Promise<unknown>;
 }
 
 export interface PolicyJobDeps {
@@ -159,6 +175,23 @@ export function buildPolicyApplier(
         targetId: policy.id,
         metadata: { version: policy.version, status: result.status },
       });
+      // A refused distribution is a security event, not a rounding error: the
+      // edge is running something other than what the customer saved. Group it
+      // as an incident so it is triaged rather than buried in the policy log.
+      // Severity follows the status — a rejection while the edge is simply
+      // absent is a configuration gap (medium), while a live edge refusing the
+      // policy is the serious case (high).
+      if (deps.writes.openSecurityIncidentForService) {
+        const severity = result.status === "not_configured" ? "medium" : "high";
+        await deps.writes.openSecurityIncidentForService({
+          id: deps.newId(),
+          organizationId: policy.organizationId,
+          kind: "policy_distribution_rejected",
+          severity,
+          summary: `Policy v${policy.version} was not applied: ${result.reason}`,
+          openedAt: (deps.now ?? (() => new Date()))().toISOString(),
+        });
+      }
       return;
     }
 

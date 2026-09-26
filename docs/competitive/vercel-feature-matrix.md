@@ -121,7 +121,7 @@ object we have not built.
 | X12 | WAF rate limiting | per-route limits keyed by `ip`, `header` (with header name) or `global`; stored in `security_rate_limits` + org RLS (`supabase/migrations/0018_security_rate_limits.sql`), read through `security.rateLimits.*` (`apps/api/src/procedures/security.ts`), loaded by `edge-loaders.ts` and compiled as a `ratelimit` ladder step after the allow steps (`security-edge.ts`). Validated by the same rule the compiler runs, so an accepted limit is always one the edge will emit | **Wired** |
 | X13 | IP blocking / trusted IPs | deny list supports `ip`/`cidr`/`asn`/`user-agent` kinds (`packages/security`); trusted-IP allow-list via `security.trustedSources.*` (`apps/api/src/procedures/security.ts`), `security_trusted_sources` + org RLS (`supabase/migrations/0016_security_trusted_sources.sql`), compiled as `allow-trusted-ip` steps **before** the deny list, and each deny chain now fails when the trusted marker is set (`security-edge.ts`). The validated addresses also reach the Envoy fragment (`skipChallengeAddresses`) | **Wired** — a trusted address is exempt from the deny list and is named to the edge for the challenge skip; the Envoy-side application of that field needs a live host (see AGENTS.md) |
 | X14 | DDoS mitigation | engine-side (edge host); no control-plane surface | **Honest n/c** |
-| X15 | Security incidents surfaced | `IncidentTracker` (`apps/security-control/src/index.ts:85-160`) exists, **not wired to the API** | **Contract-only (S7)** |
+| X15 | Security incidents surfaced | `security_incidents` table + org-scoped RLS (`supabase/migrations/0019_security_incidents.sql`); opened by the detector (policy rejection in `apps/worker/src/policy-job.ts` and the synchronous `distributeSecurityPolicy`); read/transitioned via `security.incidents.list/transition` (`apps/api/src/procedures/security.ts`), store `listSecurityIncidents`/`transitionSecurityIncident` (`packages/database/src/supabase-store.ts`), Dashboard "Incidents" table with triage/close (`apps/web/src/pages/pages.tsx`) | **Wired** — the detector opens an incident on a rejected distribution; the surface is honest n/c until one exists |
 | X16 | Edge decided-traffic view (what was blocked) | `security_events` table + org-scoped RLS (`supabase/migrations/0010_security_protection_and_events.sql`); read via `security.events.list` (`apps/api/src/procedures/security.ts`), store `listSecurityEvents` (`packages/database/src/supabase-store.ts`), Dashboard "Edge decisions" table (`apps/web/src/pages/pages.tsx`) | **Wired (read)** — the edge writes rows; **Honest n/c** until a live edge populates them |
 | X17 | Security dashboard (posture across projects) | the org Security page shows posture, deny list, verified bots, engine state | **Partial** |
 
@@ -164,7 +164,7 @@ Ranked against the brief. Each row is a workstream, not a wish:
 | 2 | Known-bot allow-list + attack mode | X8 ✅, X9 ✅, X13 ✅ | Medium | **Closed** — the compile, the control-plane surface and the production edge wiring are done (`buildDeploymentEngines`); the live-edge application stays an open release gate (6/7) |
 | 3 | Environment variables | P13, P14 | Medium | Day-one usability |
 | 4 | Usage recording + hard spend cap | W8 ✅, W9 ✅ | Medium | **Closed** — the top user complaint |
-| 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X16 ✅ | Medium | **Closed for read** — cancel, restore and the edge decided-traffic view are wired; the incident surface (X15) remains |
+| 5 | Cancel / restore / edge traffic view | P7 ✅, B5 ✅, X16 ✅, X15 ✅ | Medium | **Closed** — cancel, restore, the edge decided-traffic view and the incident lifecycle (X15) are all wired |
 | 6 | Database sub-pages | B7–B14 | Large | Requires the ADR-0011 decision |
 | 7 | Observability metrics/traces, analytics | P19–P21 | Large | Largest surface gap (ADR-0013) |
 
@@ -172,6 +172,6 @@ Ranked against the brief. Each row is a workstream, not a wish:
 
 Vercel rows come from Vercel's own docs pages named above; user rows come from the
 review sources named above. Our rows were read in the file cited, in this
-session. `pnpm verify` (554 tests) and `pnpm verify:rls` were green when this was
+session. `pnpm verify` (694 tests) and `pnpm verify:rls` were green when this was
 written. A row moves to **Wired** only with a procedure, a page and a test in the
 same commit.

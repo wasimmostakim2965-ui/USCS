@@ -125,6 +125,11 @@ export function buildWorkerWiring(
       store.recordPolicyEvent(input),
     recordAuditEvent: (input: Parameters<typeof store.recordAuditEvent>[0]) =>
       store.recordAuditEvent(input),
+    // A rejected distribution becomes a grouped incident (S7). The store method
+    // is service-role, matching the detector's sessionless position.
+    openSecurityIncidentForService: (input: Parameters<
+      typeof store.openSecurityIncidentForService
+    >[0]) => store.openSecurityIncidentForService(input),
   };
 
   const handlers: Record<string, JobHandler> = {

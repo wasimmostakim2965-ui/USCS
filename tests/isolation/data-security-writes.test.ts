@@ -50,6 +50,9 @@ import type {
   SecurityRule,
   SecurityRuleCreateInput,
   SecurityEvent,
+  SecurityIncident,
+  SecurityIncidentCreateInput,
+  SecurityIncidentTransitionInput,
   TrustedSource,
   TrustedSourceCreateInput,
   RateLimit,
@@ -169,6 +172,7 @@ function makeStore() {
   const trustedSources: TrustedSource[] = [];
   const rateLimits: RateLimit[] = [];
   const securityEvents: SecurityEvent[] = [];
+  const incidents: SecurityIncident[] = [];
   const audit: AuditEvent[] = [];
   const deployments: Deployment[] = [];
   const domains: Domain[] = [];
@@ -515,6 +519,53 @@ function makeStore() {
       rateLimits.splice(index, 1);
       return true;
     },
+    async listSecurityIncidents(userId: UserId, org: OrganizationId) {
+      if (!isMember(userId, org)) return [];
+      return incidents
+        .filter((i) => i.organizationId === org)
+        .sort((a, b) => b.openedAt.localeCompare(a.openedAt));
+    },
+    // Mirrors `0019`'s trigger: the observation is immutable, the lifecycle only
+    // moves forward, and the close time is the server's.
+    async transitionSecurityIncident(input: SecurityIncidentTransitionInput) {
+      if (!isMember(input.triagedBy, input.organizationId)) return null;
+      const found = incidents.find(
+        (i) => i.id === input.incidentId && i.organizationId === input.organizationId,
+      );
+      if (!found) return null;
+      if (found.state === "resolved" || found.state === "false_positive") return null;
+      if (found.state === "open" && input.state !== "triaged") return null;
+      const closing = input.state === "resolved" || input.state === "false_positive";
+      if (closing && (input.resolution ?? "").trim() === "") return null;
+      const updated: SecurityIncident = {
+        ...found,
+        state: input.state,
+        resolution: closing ? input.resolution : null,
+        closedAt: closing ? nextTime() : null,
+        triagedBy: input.triagedBy,
+      };
+      incidents[incidents.indexOf(found)] = updated;
+      return updated;
+    },
+    // Service-role: the detector has no session, and `0019` drops the client
+    // insert grant, so this is the only way an incident is opened.
+    async openSecurityIncidentForService(input: SecurityIncidentCreateInput) {
+      const incident: SecurityIncident = {
+        id: input.id,
+        organizationId: input.organizationId,
+        kind: input.kind,
+        severity: input.severity,
+        summary: input.summary,
+        state: "open",
+        openedAt: input.openedAt,
+        closedAt: null,
+        resolution: null,
+        triagedBy: null,
+        createdAt: nextTime(),
+      };
+      incidents.push(incident);
+      return incident;
+    },
   } satisfies DataStoreLike;
 
   return {
@@ -528,6 +579,7 @@ function makeStore() {
     trustedSources,
     rateLimits,
     securityEvents,
+    incidents,
     audit,
   };
 }
@@ -1767,6 +1819,206 @@ describe("security.policy.get through the registered procedures", () => {
 
     expect(res.ok).toBe(false);
     expect([403, 404]).toContain(res.status);
+  });
+});
+
+/**
+ * The incident lifecycle (matrix X15 / audit S7).
+ *
+ * An incident is the layer above the edge's per-request decisions: a grouped
+ * signal with a state. The properties under test are the ones a mock would
+ * hide — an incident is opened only by the detector (never fabricated from a
+ * browser), it cannot be closed without a resolution, and it cannot skip the
+ * triage step or be reopened once closed.
+ */
+describe("security.incidents through the registered procedures", () => {
+  it("lists an incident the detector opened, and triages then closes it", async () => {
+    const { store, incidents, audit } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    // The detector's path: service-role, off the request path.
+    await store.openSecurityIncidentForService({
+      id: "inc-1",
+      organizationId: ORG_A,
+      kind: "policy_distribution_rejected",
+      severity: "high",
+      summary: "Policy v2 was not applied: edge refused",
+      openedAt: "2026-01-02T00:00:00Z",
+    });
+
+    const listed = await router.route({
+      procedure: "security.incidents.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(listed.ok, JSON.stringify(listed.error)).toBe(true);
+    expect((listed.data as { incidents: readonly unknown[] }).incidents).toHaveLength(1);
+
+    const triaged = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, incidentId: "inc-1", state: "triaged" },
+    });
+    expect(triaged.ok, JSON.stringify(triaged.error)).toBe(true);
+    expect((triaged.data as SecurityIncident).state).toBe("triaged");
+
+    const closed = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        incidentId: "inc-1",
+        state: "resolved",
+        resolution: "Re-distributed after fixing the edge certificate",
+      },
+    });
+    expect(closed.ok, JSON.stringify(closed.error)).toBe(true);
+    const final = closed.data as SecurityIncident;
+    expect(final.state).toBe("resolved");
+    expect(final.resolution).toContain("edge certificate");
+    expect(final.closedAt).not.toBeNull();
+    expect(incidents[0]?.state).toBe("resolved");
+    expect(audit.some((a) => a.event === "security_incident.resolved")).toBe(true);
+  });
+
+  it("refuses to close an incident without a resolution", async () => {
+    const { store, incidents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    await store.openSecurityIncidentForService({
+      id: "inc-2",
+      organizationId: ORG_A,
+      kind: "origin_leaked",
+      severity: "critical",
+      summary: "Origin address observed in a public scan",
+      openedAt: "2026-01-02T00:00:00Z",
+    });
+
+    const res = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, incidentId: "inc-2", state: "resolved" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(incidents[0]?.state).toBe("open");
+  });
+
+  it("refuses to resolve an incident that was never triaged", async () => {
+    const { store, incidents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    await store.openSecurityIncidentForService({
+      id: "inc-3",
+      organizationId: ORG_A,
+      kind: "policy_distribution_rejected",
+      severity: "medium",
+      summary: "Policy v1 was not applied",
+      openedAt: "2026-01-02T00:00:00Z",
+    });
+
+    const res = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        incidentId: "inc-3",
+        state: "resolved",
+        resolution: "fixed",
+      },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(incidents[0]?.state).toBe("open");
+  });
+
+  it("refuses to reopen a closed incident", async () => {
+    const { store, incidents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    await store.openSecurityIncidentForService({
+      id: "inc-4",
+      organizationId: ORG_A,
+      kind: "policy_distribution_rejected",
+      severity: "high",
+      summary: "Policy v3 was not applied",
+      openedAt: "2026-01-02T00:00:00Z",
+    });
+    await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, incidentId: "inc-4", state: "triaged" },
+    });
+    await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        incidentId: "inc-4",
+        state: "false_positive",
+        resolution: "not our signal",
+      },
+    });
+
+    const res = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, incidentId: "inc-4", state: "triaged" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(incidents[0]?.state).toBe("false_positive");
+  });
+
+  it("does not leak an incident to a non-member, and refuses a cross-tenant transition", async () => {
+    const { store, incidents } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    await store.openSecurityIncidentForService({
+      id: "inc-5",
+      organizationId: ORG_A,
+      kind: "policy_distribution_rejected",
+      severity: "high",
+      summary: "Policy v4 was not applied",
+      openedAt: "2026-01-02T00:00:00Z",
+    });
+
+    // Carol is a member of neither organization: the list is empty, not an error
+    // that would confirm the organization exists.
+    const listed = await router.route({
+      procedure: "security.incidents.list",
+      accessToken: TOKEN_CAROL,
+      input: { organizationId: ORG_A },
+    });
+    expect(listed.ok).toBe(false);
+    expect(listed.status).toBe(404);
+
+    // Dave belongs to both tenants. A transition addressed at ORG_A while he
+    // acts in ORG_B must not touch ORG_A's incident.
+    const cross = await router.route({
+      procedure: "security.incidents.transition",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_B, incidentId: "inc-5", state: "triaged" },
+    });
+    expect(cross.ok).toBe(false);
+    expect(incidents[0]?.state).toBe("open");
+  });
+
+  it("reports engine_unavailable when the store predates the incident table", async () => {
+    const { store } = makeStore();
+    // A store without the incident methods, as a deployment on 0018 would have.
+    const legacy = store as unknown as Record<string, unknown>;
+    delete legacy.listSecurityIncidents;
+    delete legacy.transitionSecurityIncident;
+    const router = routerWith(store, unconfiguredEngines());
+
+    const res = await router.route({
+      procedure: "security.incidents.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+
+    expect(res.ok).toBe(false);
+    expect((res.error as { code?: string })?.code).toBe("engine_unavailable");
   });
 });
 

@@ -987,6 +987,47 @@ export interface SecurityEventSummary {
 }
 
 /**
+ * Load the organization's security incidents.
+ *
+ * The decisions read answers "what did the edge do with this request". This is
+ * the layer above it: the grouped signals that need a human — a rejected policy
+ * distribution, and (later) an origin leak or a rule-volume spike — with their
+ * lifecycle. A deployment whose store predates the incident table answers with
+ * the honest `engine_unavailable`, surfaced as degraded rather than empty.
+ */
+export async function loadSecurityIncidents(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<SecurityIncidentSummary>> {
+  const response = await client.call<{ incidents: readonly SecurityIncidentSummary[] }>(
+    "security.incidents.list",
+    { organizationId },
+  );
+  if (response.notConfigured) {
+    return {
+      title: "Incidents",
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) {
+    return errored("Incidents", response.error?.message ?? "Request failed.");
+  }
+  return ready("Incidents", response.data?.incidents ?? []);
+}
+
+/** A grouped security incident, with the lifecycle that makes it actionable. */
+export interface SecurityIncidentSummary {
+  readonly id: string;
+  readonly kind: string;
+  readonly severity: "low" | "medium" | "high" | "critical";
+  readonly summary: string;
+  readonly state: "open" | "triaged" | "resolved" | "false_positive";
+  readonly openedAt: string;
+  readonly closedAt: string | null;
+  readonly resolution: string | null;
+}
+
+/**
  * Load the verified-bot directory.
  *
  * This is the answer to "will attack mode break my search ranking": the crawlers

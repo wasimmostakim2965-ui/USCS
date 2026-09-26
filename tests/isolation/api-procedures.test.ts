@@ -266,6 +266,8 @@ describe("the registered procedure table", () => {
       "providers.health",
       "security.bots.list",
       "security.events.list",
+      "security.incidents.list",
+      "security.incidents.transition",
       "security.policy.distribute",
       "security.policy.get",
       "security.policy.save",

@@ -296,6 +296,17 @@ export interface ControlPlaneWrites {
   saveSecurityPolicy(input: SecurityPolicyInput): Promise<SecurityPolicy>;
   /** Record a policy state transition. Append-only. */
   recordPolicyEvent(input: PolicyEventInput): Promise<SecurityPolicyEvent>;
+  /**
+   * Open an incident from a detector.
+   *
+   * The observation columns are the control plane's, not a client's, so this is
+   * a service-role write (`0019` drops the client insert grant). A detector runs
+   * off the request path — the worker after a rejected distribution — with no
+   * session to scope by, so `organization_id` is the tenant boundary.
+   */
+  openSecurityIncidentForService(
+    input: SecurityIncidentCreateInput,
+  ): Promise<SecurityIncident>;
   listPolicyEvents(
     userId: UserId,
     organizationId: OrganizationId,
@@ -316,6 +327,30 @@ export interface ControlPlaneWrites {
     organizationId: OrganizationId,
     limit?: number,
   ): Promise<readonly SecurityEvent[]>;
+
+  /**
+   * The organization's security incidents, newest first. Membership-scoped.
+   *
+   * An incident is the case above the raw decisions: what was grouped, its
+   * severity, and how (or whether) it ended. This is the read the Security page
+   * needs to say "something needs attention" rather than only listing traffic.
+   */
+  listSecurityIncidents(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly SecurityIncident[]>;
+
+  /**
+   * Move an incident through its lifecycle.
+   *
+   * The observation columns are not writable; only `state`, `resolution` and
+   * `triaged_by` are, and the table's trigger refuses a skipped step, a
+   * reopen and a backdated close. Returns null when the incident does not exist
+   * in the caller's organization, so a non-member learns nothing.
+   */
+  transitionSecurityIncident(
+    input: SecurityIncidentTransitionInput,
+  ): Promise<SecurityIncident | null>;
 
   /** Add a deny-list rule. The value grammar is enforced by the table and the API. */
   createSecurityRule(input: SecurityRuleCreateInput): Promise<SecurityRule>;
@@ -978,6 +1013,51 @@ export interface SecurityPolicyEvent {
   readonly actorEmail: string | null;
   readonly detail: string | null;
   readonly createdAt: string;
+}
+
+/**
+ * A grouped security incident.
+ *
+ * `security_events` records one decision about one request. An incident is the
+ * case above it: a signal worth a human's attention, with a lifecycle and a
+ * resolution. The two are separate tables on purpose — a decision is an
+ * append-only fact, an incident is a state that changes — and `0019` carries the
+ * constraint that a closed incident has both a resolution and a close time.
+ */
+export interface SecurityIncident {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: string;
+  readonly severity: IncidentSeverity;
+  readonly summary: string;
+  readonly state: IncidentState;
+  readonly openedAt: string;
+  readonly closedAt: string | null;
+  readonly resolution: string | null;
+  readonly triagedBy: UserId | null;
+  readonly createdAt: string;
+}
+
+/** The lifecycle states, mirroring `@cloud-wai/security`. */
+export type IncidentState = "open" | "triaged" | "resolved" | "false_positive";
+export type IncidentSeverity = "low" | "medium" | "high" | "critical";
+
+export interface SecurityIncidentCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly kind: string;
+  readonly severity: IncidentSeverity;
+  readonly summary: string;
+  readonly openedAt: string;
+}
+
+export interface SecurityIncidentTransitionInput {
+  readonly organizationId: OrganizationId;
+  readonly incidentId: string;
+  readonly state: IncidentState;
+  /** Required to close, ignored otherwise. The trigger enforces both. */
+  readonly resolution: string | null;
+  readonly triagedBy: UserId;
 }
 
 export interface PolicyEventInput {

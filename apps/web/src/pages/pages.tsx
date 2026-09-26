@@ -52,6 +52,7 @@ import {
   loadProviderHealth,
   loadSecurityRules,
   loadSecurityEvents,
+  loadSecurityIncidents,
   loadTrustedSources,
   addTrustedSource,
   removeTrustedSource,
@@ -87,6 +88,7 @@ import {
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
   type SecurityEventSummary,
+  type SecurityIncidentSummary,
   type SecurityRuleSummary,
   type TrustedSourceSummary,
   type RateLimitSummary,
@@ -2605,6 +2607,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Edge decisions",
   );
+  const incidents = useSection(
+    () => loadSecurityIncidents(client, organizationId),
+    [client, organizationId],
+    "Incidents",
+  );
   const [saving, setSaving] = useState(false);
   const [distributing, setDistributing] = useState(false);
   const [addingRule, setAddingRule] = useState(false);
@@ -2613,6 +2620,12 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
   const [removingTrusted, setRemovingTrusted] = useState<TrustedSourceSummary | null>(null);
   const [addingRateLimit, setAddingRateLimit] = useState(false);
   const [removingRateLimit, setRemovingRateLimit] = useState<RateLimitSummary | null>(null);
+  // The incident being triaged or closed. Its lifecycle is enforced server-side;
+  // this only decides which modal is open.
+  const [incidentAction, setIncidentAction] = useState<{
+    readonly incident: SecurityIncidentSummary;
+    readonly mode: "triage" | "close";
+  } | null>(null);
   // A level card preselects the risk and action the form opens with; it is a
   // convenience over the same save, never a separate write. Null means "open
   // with the policy's own values".
@@ -3050,6 +3063,89 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       </SectionShell>
 
       <SectionShell
+        title="Incidents"
+        hint="Grouped security signals that need a human: a policy the edge refused, and later an origin leak or a rule-volume spike. An incident is triaged, then closed with a resolution — it never disappears without one."
+        actions={
+          <Button size="sm" onClick={() => incidents.reload()}>
+            Refresh
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<SecurityIncidentSummary>
+            section={incidents.section}
+            onRetry={incidents.reload}
+            emptyMessage="No security incidents. When the edge rejects a distribution, or a detector raises a signal, it appears here to triage."
+            columns={[
+              {
+                key: "severity",
+                header: "Severity",
+                render: (item) => <IncidentSeverityBadge severity={item.severity} />,
+              },
+              {
+                key: "summary",
+                header: "Signal",
+                render: (item) => (
+                  <span className="small" style={{ display: "inline-block", maxWidth: 360 }}>
+                    {item.summary}
+                  </span>
+                ),
+              },
+              {
+                key: "kind",
+                header: "Kind",
+                render: (item) => <span className="mono small">{item.kind}</span>,
+              },
+              {
+                key: "state",
+                header: "State",
+                render: (item) => <IncidentStateBadge state={item.state} />,
+              },
+              {
+                key: "openedAt",
+                header: "Opened",
+                render: (item) => <Timestamp value={item.openedAt} />,
+              },
+              {
+                key: "resolution",
+                header: "Resolution",
+                render: (item) => (
+                  <span className="small">{item.resolution ?? "—"}</span>
+                ),
+              },
+              {
+                key: "actions",
+                header: "",
+                render: (item) =>
+                  item.state === "open" || item.state === "triaged" ? (
+                    <div className="row-gap">
+                      {item.state === "open" ? (
+                        <Button
+                          size="sm"
+                          onClick={() => setIncidentAction({ incident: item, mode: "triage" })}
+                        >
+                          Triage
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={() => setIncidentAction({ incident: item, mode: "close" })}
+                      >
+                        Close
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="small muted">Closed</span>
+                  ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell
         title="Edge decisions"
         hint="What the edge did with recent requests: allowed, logged, challenged or blocked, and at which stage. Written by the edge, read-only here."
         actions={
@@ -3238,6 +3334,15 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
         onRemoved={() => {
           setRemovingRateLimit(null);
           rateLimits.reload();
+        }}
+      />
+      <IncidentActionModal
+        organizationId={organizationId}
+        action={incidentAction}
+        onClose={() => setIncidentAction(null)}
+        onDone={() => {
+          setIncidentAction(null);
+          incidents.reload();
         }}
       />
     </PageShell>
@@ -3799,6 +3904,167 @@ function RemoveSecurityRuleModal({
       </div>
     </Modal>
   );
+}
+
+/**
+ * Triage or close one incident.
+ *
+ * Triage records that a human has seen it. Closing requires a resolution — the
+ * server refuses a close without one, because an incident that vanishes with no
+ * reason is worse than one left open. The API is the source of the lifecycle
+ * rules; this form mirrors them so the buttons it offers are always valid.
+ */
+function IncidentActionModal({
+  organizationId,
+  action,
+  onClose,
+  onDone,
+}: {
+  readonly organizationId: string;
+  readonly action: {
+    readonly incident: SecurityIncidentSummary;
+    readonly mode: "triage" | "close";
+  } | null;
+  readonly onClose: () => void;
+  readonly onDone: () => void;
+}) {
+  const { client } = useApp();
+  const [resolution, setResolution] = useState("");
+  const [closeAs, setCloseAs] = useState<"resolved" | "false_positive">("resolved");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!action) return null;
+  const { incident, mode } = action;
+
+  const close = () => {
+    setError(null);
+    setResolution("");
+    setCloseAs("resolved");
+    onClose();
+  };
+
+  const submit = async () => {
+    if (mode === "close" && resolution.trim() === "") {
+      setError("A resolution is required to close an incident.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await client.call<SecurityIncidentSummary>(
+      "security.incidents.transition",
+      {
+        organizationId,
+        incidentId: incident.id,
+        state: mode === "triage" ? "triaged" : closeAs,
+        ...(mode === "close" ? { resolution: resolution.trim() } : {}),
+      },
+    );
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The incident could not be updated.");
+      return;
+    }
+    setResolution("");
+    onDone();
+  };
+
+  return (
+    <Modal
+      title={mode === "triage" ? "Triage incident" : "Close incident"}
+      open={action !== null}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            {mode === "triage" ? "Mark triaged" : "Close incident"}
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">{incident.summary}</p>
+        {mode === "triage" ? (
+          <p className="muted small">
+            Triage records that a human has seen this. It stays open for resolution afterwards.
+          </p>
+        ) : (
+          <>
+            <Field label="Outcome">
+              {(id) => (
+                <div className="row-gap" id={id}>
+                  <Button
+                    size="sm"
+                    variant={closeAs === "resolved" ? "primary" : "default"}
+                    onClick={() => setCloseAs("resolved")}
+                  >
+                    Resolved
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={closeAs === "false_positive" ? "primary" : "default"}
+                    onClick={() => setCloseAs("false_positive")}
+                  >
+                    False positive
+                  </Button>
+                </div>
+              )}
+            </Field>
+            <Field
+              label="Resolution"
+              hint="What was done, in the operator's own words. Shown on the incident afterwards."
+            >
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={resolution}
+                  onChange={setResolution}
+                  placeholder="e.g. Re-distributed after fixing the edge certificate"
+                />
+              )}
+            </Field>
+          </>
+        )}
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/** The severity of an incident, in the platform's tone vocabulary. */
+function IncidentSeverityBadge({
+  severity,
+}: {
+  readonly severity: SecurityIncidentSummary["severity"];
+}) {
+  const tone =
+    severity === "critical" || severity === "high"
+      ? "danger"
+      : severity === "medium"
+        ? "warning"
+        : "neutral";
+  const label = severity.charAt(0).toUpperCase() + severity.slice(1);
+  return <StatusBadge label={label} tone={tone} />;
+}
+
+/** An incident's lifecycle state. */
+function IncidentStateBadge({ state }: { readonly state: SecurityIncidentSummary["state"] }) {
+  const presentation: Record<
+    SecurityIncidentSummary["state"],
+    { readonly label: string; readonly tone: "danger" | "warning" | "positive" | "neutral" }
+  > = {
+    open: { label: "Open", tone: "danger" },
+    triaged: { label: "Triaged", tone: "warning" },
+    resolved: { label: "Resolved", tone: "positive" },
+    false_positive: { label: "False positive", tone: "neutral" },
+  };
+  const { label, tone } = presentation[state];
+  return <StatusBadge label={label} tone={tone} />;
 }
 
 /**
