@@ -610,14 +610,22 @@ export function compileEdge(input: CompileInput): CompiledEdge {
 
   // 7. The WAF rule. Present whenever there is a policy, in every mode: attack
   //    mode adds a challenge, it never weakens inspection.
+  //
+  //    The variable names are the CRS 4 ones, which is the pinned ruleset. CRS 4
+  //    accumulates the inbound score in `tx.blocking_inbound_anomaly_score` and
+  //    reads the threshold from `tx.inbound_anomaly_score_threshold`; there is no
+  //    `tx.anomaly_score_threshold` in any CRS version, and `tx.anomaly_score` is
+  //    a derived value CRS 4 sets in phase 5, after this phase-2 rule has run.
+  //    Reading either of those made the rule a no-op, so a request the customer
+  //    asked to block was not blocked by this step.
   if (policy) {
     const severity = CORAZA_SEVERITY[policy.riskLevel];
     const action = CORAZA_ACTION[policy.action];
     const thresholdId = nextId++;
     const ruleId = nextId++;
     const threshold = policy.riskLevel === "critical" ? 1 : policy.riskLevel === "high" ? 3 : 5;
-    const setThreshold = `SecAction "id:${thresholdId},phase:1,pass,nolog,setvar:tx.anomaly_score_threshold=${threshold}"`;
-    const wafRule = `SecRule TX:ANOMALY_SCORE "@ge %{tx.anomaly_score_threshold}" "id:${ruleId},phase:2,severity:${severity},${action},status:403,log"`;
+    const setThreshold = `SecAction "id:${thresholdId},phase:1,pass,nolog,setvar:tx.inbound_anomaly_score_threshold=${threshold}"`;
+    const wafRule = `SecRule TX:BLOCKING_INBOUND_ANOMALY_SCORE "@ge %{tx.inbound_anomaly_score_threshold}" "id:${ruleId},phase:2,severity:${severity},${action},status:403,log"`;
     directives.push(setThreshold, wafRule);
     ladder.push({ id: ruleId, stage: "waf", action: policy.action, directive: wafRule });
   }

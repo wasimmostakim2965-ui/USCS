@@ -321,6 +321,46 @@ describe("the decision ladder", () => {
     expect(attack.envoyConfig.wafEnabled).toBe(true);
   });
 
+  it("reads the anomaly score the pinned CRS actually accumulates", () => {
+    // The pinned ruleset is CRS 4.30.0-dev. It accumulates the inbound score in
+    // `tx.blocking_inbound_anomaly_score` and reads the threshold from
+    // `tx.inbound_anomaly_score_threshold`. `tx.anomaly_score_threshold` does
+    // not exist in any CRS version, and `tx.anomaly_score` is a phase-5 derived
+    // value, so a phase-2 rule reading it can never fire.
+    const compiled = compileEdge({ route: route(), policy });
+    const waf = compiled.ladder.find((step) => step.stage === "waf");
+    expect(waf!.directive).toContain("TX:BLOCKING_INBOUND_ANOMALY_SCORE");
+    expect(waf!.directive).toContain("tx.inbound_anomaly_score_threshold");
+    expect(waf!.directive).not.toContain("tx.anomaly_score_threshold");
+    expect(compiled.corazaDirectives.some((d) => d.includes("tx.anomaly_score_threshold"))).toBe(
+      false,
+    );
+    const setThreshold = compiled.corazaDirectives.find((d) => d.includes("score_threshold"));
+    expect(setThreshold).toContain("tx.inbound_anomaly_score_threshold");
+    expect(setThreshold).toContain("phase:1");
+  });
+
+  it("raises the block sensitivity as the policy risk rises", () => {
+    const thresholdOf = (riskLevel: "low" | "medium" | "high" | "critical") => {
+      const compiled = compileEdge({
+        route: route(),
+        policy: { riskLevel, action: "block", version: 1 },
+      });
+      const waf = compiled.ladder.find((step) => step.stage === "waf");
+      // The literal threshold is set by the phase-1 SecAction; the phase-2 rule
+      // compares against the variable, so read the SecAction.
+      const setThreshold = compiled.corazaDirectives.find((d) =>
+        d.includes("tx.inbound_anomaly_score_threshold="),
+      );
+      expect(waf).toBeDefined();
+      return Number(/threshold=(\d+)/.exec(setThreshold!)![1]);
+    };
+    // A critical policy blocks on the first critical-severity hit; a low-risk one
+    // needs more corroboration before it denies real traffic.
+    expect(thresholdOf("critical")).toBeLessThan(thresholdOf("high"));
+    expect(thresholdOf("high")).toBeLessThan(thresholdOf("low"));
+  });
+
   it("compiles a deny rule to a real block, and refuses an invalid one", () => {
     const compiled = compileEdge({
       route: route(),
