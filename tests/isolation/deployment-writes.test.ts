@@ -665,6 +665,95 @@ describe("deployments.create through the registered procedures", () => {
   });
 });
 
+describe("staging a production deployment", () => {
+  it("records the staged flag on the row and carries it into the job payload", async () => {
+    const { store, deployments } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "staged-1", staged: true },
+    });
+
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    // The row remembers the request, so the list can label a held release.
+    expect(deployments[0]?.staged).toBe(true);
+    // And the worker is told, so it can withhold the promote without a lookup.
+    const job = await queue.claim("w-1", 30_000);
+    expect((job?.payload as { staged?: boolean } | undefined)?.staged).toBe(true);
+  });
+
+  it("leaves the flag false for an ordinary production deploy", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "live-1" },
+    });
+
+    expect(deployments[0]?.staged).toBe(false);
+  });
+
+  it("refuses to stage a preview, which is never live in the first place", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "staged-preview",
+        kind: "preview",
+        gitBranch: "feature/x",
+        staged: true,
+      },
+    });
+
+    // Silently accepting and ignoring it would make the caller believe a
+    // production-only control applied to a preview build.
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("keeps a staged build staged across a redeploy", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "staged-source",
+        staged: true,
+        gitRepository: "https://github.com/acme/alpha.git",
+        gitBranch: "main",
+      },
+    });
+    const source = deployments[0]!;
+    expect(source.staged).toBe(true);
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: source.id, idempotencyKey: "staged-replay" },
+    });
+
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    // A redeploy repeats the row: replaying a held release must not quietly
+    // publish it, which is the one thing the flag exists to prevent.
+    const replayed = deployments[deployments.length - 1]!;
+    expect(replayed.id).not.toBe(source.id);
+    expect(replayed.staged).toBe(true);
+  });
+});
+
 describe("deployments.rollback through the registered procedures", () => {
   it("is honestly not_configured when the project has no engine application", async () => {
     const { store, audit } = makeStore();
