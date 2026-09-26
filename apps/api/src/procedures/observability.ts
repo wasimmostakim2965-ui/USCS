@@ -55,6 +55,22 @@ export interface JobKindSummary {
   readonly lastError: string | null;
 }
 
+/**
+ * One day's job activity.
+ *
+ * This is the honest part of "metrics": a count of queue rows by the day they
+ * were created is derived entirely from rows that exist, so it needs no metrics
+ * engine. CPU, memory and request latency are *not* here — those need an engine
+ * this deployment has not configured, and inventing a series for them would be
+ * the same lie as a green badge over an unconfigured engine.
+ */
+export interface JobThroughputDay {
+  /** `YYYY-MM-DD`, in UTC. */
+  readonly day: string;
+  readonly created: number;
+  readonly failed: number;
+}
+
 export interface ObservabilityReport {
   readonly totals: {
     readonly jobs: number;
@@ -65,8 +81,26 @@ export interface ObservabilityReport {
   readonly byState: readonly JobStateCount[];
   readonly byKind: readonly JobKindSummary[];
   readonly latency: JobLatency;
+  /** The last `THROUGHPUT_DAYS` days of job creation, oldest first. */
+  readonly throughput: readonly JobThroughputDay[];
   /** Every job, newest first, so the dashboard lists without a second call. */
   readonly jobs: readonly OrchestrationJob[];
+}
+
+/**
+ * How many days of throughput the report carries.
+ *
+ * A fixed window so the chart's x-axis is stable between loads, and short enough
+ * that a quiet day is visibly quiet rather than averaged into a month.
+ */
+export const THROUGHPUT_DAYS = 14;
+
+/** The UTC day key for a timestamp, or null when it is not a real date. */
+function utcDay(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return new Date(parsed).toISOString().slice(0, 10);
 }
 
 /** Nearest-rank percentile over a sorted numeric sample. */
@@ -158,6 +192,43 @@ export async function readObservability(
       p95Ms: percentileOrNull(sortedDurations, 95),
       maxMs: sortedDurations.length > 0 ? sortedDurations[sortedDurations.length - 1]! : null,
     },
+    throughput: buildThroughput(jobs),
     jobs,
   };
+}
+
+/**
+ * Job creation per day over a fixed trailing window.
+ *
+ * The window ends on the most recent day this organization created a job, not on
+ * wall-clock today: an organization that last ran a deploy a month ago should see
+ * its activity, not fourteen empty days. The window is still a fixed length, so
+ * the chart's x-axis does not move between two loads of the same data.
+ */
+function buildThroughput(jobs: readonly OrchestrationJob[]): readonly JobThroughputDay[] {
+  const created = new Map<string, { created: number; failed: number }>();
+  let latestDay: string | null = null;
+
+  for (const job of jobs) {
+    const day = utcDay(job.createdAt);
+    if (!day) continue;
+    const bucket = created.get(day) ?? { created: 0, failed: 0 };
+    bucket.created += 1;
+    if (job.state === "failed") bucket.failed += 1;
+    created.set(day, bucket);
+    if (latestDay === null || day > latestDay) latestDay = day;
+  }
+
+  if (latestDay === null) return [];
+
+  // Walk back from the latest day so the series has one entry per day, including
+  // the days with no jobs — a gap in the chart is real information.
+  const end = Date.parse(`${latestDay}T00:00:00Z`);
+  const days: JobThroughputDay[] = [];
+  for (let offset = THROUGHPUT_DAYS - 1; offset >= 0; offset -= 1) {
+    const day = new Date(end - offset * 86_400_000).toISOString().slice(0, 10);
+    const bucket = created.get(day) ?? { created: 0, failed: 0 };
+    days.push({ day, created: bucket.created, failed: bucket.failed });
+  }
+  return days;
 }

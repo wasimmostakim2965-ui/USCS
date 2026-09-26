@@ -91,7 +91,7 @@ object we have not built.
 | P16 | Project settings: slug↔engine name sync | slug rename does not rename the engine app (C10) | **Partial** |
 | P17 | Domains add / verify / remove | `domains.list/create/verify/remove`; project-scoped | **Wired**; direct-origin denial = gate 6 **open** |
 | P18 | Automatic TLS / SSL | engine-side (Coolify); no control-plane surface | **Honest n/c** |
-| P19 | Observability: metrics, traces, error tracking | `observability.jobs` (`apps/api/src/procedures/observability.ts`) = job roll-up from real rows; time-series + traces panel states its absence | **Partial** (job activity wired; metrics/traces missing) |
+| P19 | Observability: metrics, traces, error tracking | `observability.jobs` (`apps/api/src/procedures/observability.ts`) = job roll-up from real rows, now with per-state/per-kind charts and a 14-day throughput series derived from `created_at`; host-level CPU/memory and traces panel states its absence | **Partial** (job-derived activity wired; resource metrics/traces missing) |
 | P20 | Web Analytics / Speed Insights | none | **Missing** |
 | P21 | Runtime logs / log drains | none (deployment logs only, P5) | **Missing** |
 | P22 | Cron Jobs | none | **Missing** |

@@ -203,6 +203,12 @@ export interface ObservabilityReportSummary {
     readonly p95Ms: number | null;
     readonly maxMs: number | null;
   };
+  /** Job creation per day over a fixed trailing window, oldest first. */
+  readonly throughput: readonly {
+    readonly day: string;
+    readonly created: number;
+    readonly failed: number;
+  }[];
   readonly jobs: readonly OrchestrationJobSummary[];
 }
 

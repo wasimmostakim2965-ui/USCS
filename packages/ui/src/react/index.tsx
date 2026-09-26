@@ -192,6 +192,63 @@ export function StatBox({
   );
 }
 
+/* ------------------------------------------------------------------ chart */
+
+export interface BarChartBar {
+  readonly label: string;
+  readonly value: number;
+  /**
+   * How the bar is coloured. `tone` maps to the same tokens the badges use, so
+   * a failed count is the same red wherever it appears. Absent means the accent
+   * colour, which is the neutral "this is just a count" case.
+   */
+  readonly tone?: "accent" | "ok" | "warn" | "danger";
+}
+
+export interface BarChartProps {
+  readonly bars: readonly BarChartBar[];
+  /**
+   * The value a full-width bar represents. Defaults to the largest bar, so the
+   * chart always fills its width; pass an explicit maximum when two charts must
+   * share a scale and be comparable.
+   */
+  readonly max?: number;
+  /** Unit suffix rendered after each value, e.g. "ms" or "jobs". */
+  readonly unit?: string;
+  readonly ariaLabel?: string;
+}
+
+/**
+ * A horizontal bar chart over rows the caller already has.
+ *
+ * Deliberately not a charting dependency: every series this dashboard draws is a
+ * handful of rows derived from real data, so the honest primitive is a labelled
+ * bar with the value printed beside it. A value of zero renders as an empty
+ * track, never as a sliver, so "none" is visibly none.
+ */
+export function BarChart({ bars, max, unit, ariaLabel }: BarChartProps) {
+  const ceiling = max ?? Math.max(1, ...bars.map((bar) => bar.value));
+  return (
+    <div className="chart" role="img" aria-label={ariaLabel}>
+      {bars.map((bar) => (
+        <div className="chart__row" key={bar.label}>
+          <span className="chart__label mono small">{bar.label}</span>
+          <span className="chart__track">
+            <span
+              className={`chart__bar${bar.tone ? ` chart__bar--${bar.tone}` : ""}`}
+              style={{ width: `${Math.min(100, (bar.value / ceiling) * 100)}%` }}
+            />
+          </span>
+          <span className="chart__value mono small">
+            {bar.value}
+            {unit ? <span className="faint"> {unit}</span> : null}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ button */
 
 export interface ButtonProps {

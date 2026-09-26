@@ -580,6 +580,58 @@ kbd,
   font-size: var(--step--1);
 }
 
+/* ---------------------------------------------------------------- charts */
+
+.chart {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+}
+
+.chart__row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) 1fr minmax(4rem, auto);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.chart__label {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart__track {
+  height: 0.75rem;
+  background: var(--panel-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.chart__bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 160ms ease;
+}
+
+.chart__bar--ok {
+  background: var(--ok);
+}
+.chart__bar--warn {
+  background: var(--warn);
+}
+.chart__bar--danger {
+  background: var(--danger);
+}
+
+.chart__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --------------------------------------------------------------- tables */
 
 .table-wrap {

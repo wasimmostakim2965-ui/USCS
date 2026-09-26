@@ -11,6 +11,7 @@ import {
   Button,
   Card,
   type Column,
+  BarChart,
   ChoiceGroup,
   DegradedState,
   Drawer,
@@ -4688,7 +4689,64 @@ export function ObservabilityPage({ organizationId }: { readonly organizationId:
 
       {report ? (
         <>
-          <SectionShell title="By kind" hint="Most active first">
+          {(report.throughput ?? []).length > 0 ? (
+            <SectionShell
+              title="Job throughput"
+              hint={`Jobs created per day over the last ${String(report.throughput.length)} days of this organization's activity, newest day last`}
+            >
+              <Card flush>
+                <BarChart
+                  ariaLabel="Jobs created per day"
+                  unit="jobs"
+                  bars={report.throughput.map((entry) => ({
+                    label: entry.day.slice(5),
+                    value: entry.created,
+                    ...(entry.failed > 0 ? { tone: "danger" as const } : {}),
+                  }))}
+                />
+              </Card>
+            </SectionShell>
+          ) : null}
+
+          <div className="grid">
+            <SectionShell
+              title="By state"
+              hint="Every job in the queue, grouped by its recorded state"
+            >
+              <Card flush>
+                <BarChart
+                  ariaLabel="Orchestration jobs by state"
+                  bars={report.byState.map((entry) => ({
+                    label: entry.state,
+                    value: entry.count,
+                    ...(entry.state === "failed"
+                      ? { tone: "danger" as const }
+                      : entry.state === "succeeded"
+                        ? { tone: "ok" as const }
+                        : {}),
+                  }))}
+                />
+              </Card>
+            </SectionShell>
+
+            <SectionShell title="By kind" hint="Most active first">
+              <Card flush>
+                <BarChart
+                  ariaLabel="Orchestration jobs by kind"
+                  bars={report.byKind.map((entry) => ({
+                    label: entry.kind,
+                    value: entry.total,
+                    ...(entry.failed > 0 ? { tone: "danger" as const } : {}),
+                  }))}
+                />
+              </Card>
+            </SectionShell>
+          </div>
+
+          <SectionShell
+            title="Failures and retries by kind"
+            hint="A kind that fails or retries is visible here rather than averaged into the totals"
+          >
             <Card flush>
               <Table
                 items={report.byKind}
@@ -4794,13 +4852,14 @@ export function ObservabilityPage({ organizationId }: { readonly organizationId:
         </>
       ) : null}
 
-      <SectionShell title="Metrics & traces" hint="Not wired in this deployment">
+      <SectionShell title="Metrics & traces" hint="Partly derived, partly not wired">
         <Card>
           <p className="small" style={{ margin: 0 }}>
-            Job state, failures and durations above are real. Time-series metrics and distributed
-            traces need an engine this deployment has not configured, so no chart is drawn and no
-            series is invented to fill the space — the honest state is that they are absent until an
-            engine is wired.
+            Job state, throughput, failures and durations above are derived from this organization's
+            own queue rows, so they are real without a metrics engine. What is <em>not</em> drawn is
+            host-level resource use (CPU, memory) and distributed traces: those need an engine this
+            deployment has not configured, so no chart is drawn and no series is invented to fill
+            the space. The honest state is that they are absent until an engine is wired.
           </p>
         </Card>
       </SectionShell>

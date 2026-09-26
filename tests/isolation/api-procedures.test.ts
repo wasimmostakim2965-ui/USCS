@@ -535,6 +535,7 @@ describe("the registered procedure table", () => {
         p95Ms: number | null;
         maxMs: number | null;
       };
+      throughput: readonly { day: string; created: number; failed: number }[];
       jobs: readonly { id: string }[];
     };
 
@@ -554,6 +555,14 @@ describe("the registered procedure table", () => {
     });
     // Three finished jobs have durations 2s, 4s, 6s; the queued one is excluded.
     expect(report.latency).toEqual({ samples: 3, p50Ms: 4000, p95Ms: 6000, maxMs: 6000 });
+    // Throughput is one point per day in a fixed trailing window that ends on the
+    // newest day this org acted (09-23), and the other tenant's job (09-24) is
+    // absent from it — the same isolation guarantee the row list gives.
+    expect(report.throughput).toHaveLength(14);
+    expect(report.throughput.at(-1)).toEqual({ day: "2026-09-23", created: 1, failed: 0 });
+    expect(report.throughput.at(-2)).toEqual({ day: "2026-09-22", created: 1, failed: 1 });
+    expect(report.throughput.some((d) => d.day === "2026-09-24")).toBe(false);
+    expect(report.throughput.reduce((sum, d) => sum + d.created, 0)).toBe(4);
     expect(report.jobs.map((j) => j.id).sort()).toEqual(["j-1", "j-2", "j-3", "j-4"]);
     // The other tenant's job is absent, which is the isolation guarantee.
     expect(report.jobs.some((j) => j.id === "j-5")).toBe(false);

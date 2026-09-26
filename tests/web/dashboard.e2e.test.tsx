@@ -1853,6 +1853,10 @@ describe("the dashboard renders every state for every route", () => {
               { kind: "security_distribution", total: 1, failed: 0, retried: 0, lastError: null },
             ],
             latency: { samples: 1, p50Ms: 4000, p95Ms: 4000, maxMs: 4000 },
+            throughput: [
+              { day: "2026-09-20", created: 2, failed: 1 },
+              { day: "2026-09-21", created: 1, failed: 0 },
+            ],
             jobs: [
               {
                 id: "job-abcdef123456",
@@ -1890,10 +1894,44 @@ describe("the dashboard renders every state for every route", () => {
     expect(await screen.findAllByText("engine restarted")).toHaveLength(2);
     expect(screen.getAllByText("4.0 s").length).toBeGreaterThan(0);
     expect(screen.getByText(/Not started/)).toBeTruthy();
+    // The state rollup the API returns is drawn, not discarded: every state in
+    // `byState` appears as a labelled bar, so the field is not dead weight.
+    expect(screen.getByText("By state")).toBeTruthy();
+    const stateChart = screen.getByRole("img", { name: "Orchestration jobs by state" });
+    expect(stateChart.textContent).toContain("failed");
+    expect(stateChart.textContent).toContain("queued");
+    expect(stateChart.textContent).toContain("succeeded");
+    // Throughput is derived from the same rows and drawn as real days.
+    const throughputChart = screen.getByRole("img", { name: "Jobs created per day" });
+    expect(throughputChart.textContent).toContain("09-20");
+    expect(throughputChart.textContent).toContain("09-21");
     // The page is wired to the procedure, not to a local constant.
     expect(calls).toContain("observability.jobs");
     // Metrics and traces are declared absent rather than drawn from nothing.
     expect(screen.getByText(/Metrics & traces/)).toBeTruthy();
+  });
+
+  it("does not crash when a report arrives without a throughput series", async () => {
+    // The dashboard must not throw on a shape it did not expect. An older API or
+    // a proxy that strips the field would otherwise take the whole page down.
+    const url = await startApi(
+      only("observability.jobs", {
+        ok: true,
+        status: 200,
+        data: {
+          totals: { jobs: 1, active: 0, failed: 0, retried: 0 },
+          byState: [{ state: "succeeded", count: 1 }],
+          byKind: [{ kind: "deployment", total: 1, failed: 0, retried: 0, lastError: null }],
+          latency: { samples: 1, p50Ms: 1000, p95Ms: 1000, maxMs: 1000 },
+          jobs: [],
+        },
+      }),
+    );
+    renderApp(url, "#/orgs/org-1/observability");
+
+    // The roll-up still renders; only the series that was absent is absent.
+    expect(await screen.findByText("By state")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: "Jobs created per day" })).toBeNull();
   });
 
   it("renders an empty job read as no activity, not as a panel of zeros", async () => {
