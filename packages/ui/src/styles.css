@@ -1685,6 +1685,24 @@ a.card:hover,
   color: var(--ink-2);
 }
 
+/* The log toolbar: a filter field and a count, above the preformatted tail.
+   It is a plain row rather than a card so the tail below stays the focus. */
+.log__tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+
+.log__tools .input {
+  flex: 1 1 auto;
+}
+
+.log__count {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 /* ------------------------------------------------------------------ landing */
 
 /**

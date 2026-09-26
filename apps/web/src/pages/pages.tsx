@@ -1164,6 +1164,10 @@ function DeploymentLogsDrawer({
     | { readonly kind: "success"; readonly data: DeploymentLogsSummary }
     | { readonly kind: "error"; readonly message: string }
   >({ kind: "loading" });
+  // A case-insensitive substring filter over the returned tail. It narrows what
+  // the engine already sent; it never re-queries, so the count below always
+  // names the same tail the "full tail" note describes.
+  const [filter, setFilter] = useState("");
 
   const load = useCallback(async () => {
     if (!deployment) return;
@@ -1179,6 +1183,16 @@ function DeploymentLogsDrawer({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A new deployment in the same drawer starts with a clean filter, so a term
+  // that matched the previous run does not silently hide the new one's lines.
+  useEffect(() => {
+    setFilter("");
+  }, [deployment?.id]);
+
+  const lines = state.kind === "success" ? state.data.lines : [];
+  const needle = filter.trim().toLowerCase();
+  const shown = needle === "" ? lines : lines.filter((line) => line.toLowerCase().includes(needle));
 
   return (
     <Drawer
@@ -1204,15 +1218,37 @@ function DeploymentLogsDrawer({
               The hosting engine keeps no cursor for logs, so this is the full tail it returned.
             </p>
           ) : null}
-          {state.data.lines.length === 0 ? (
+          {lines.length === 0 ? (
             <EmptyState
               title="No output yet"
               message="The engine returned no log lines for this deployment."
             />
           ) : (
-            <pre className="log" aria-label="Deployment logs">
-              {state.data.lines.join("\n")}
-            </pre>
+            <>
+              <div className="log__tools">
+                <TextInput
+                  value={filter}
+                  onChange={setFilter}
+                  placeholder="Filter lines…"
+                  ariaLabel="Filter log lines"
+                />
+                <span className="log__count small muted">
+                  {needle === ""
+                    ? `${String(lines.length)} lines`
+                    : `${String(shown.length)} of ${String(lines.length)} lines`}
+                </span>
+              </div>
+              {shown.length === 0 ? (
+                <EmptyState
+                  title="No matching lines"
+                  message={`No line in the tail the engine returned contains “${filter.trim()}”.`}
+                />
+              ) : (
+                <pre className="log" aria-label="Deployment logs">
+                  {shown.join("\n")}
+                </pre>
+              )}
+            </>
           )}
         </>
       ) : null}

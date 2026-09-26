@@ -791,9 +791,7 @@ describe("project environment variables", () => {
     // leave the page to find the only thing that makes the change take effect.
     await user.click(await screen.findByRole("button", { name: "Redeploy now" }));
 
-    await waitFor(() =>
-      expect(screen.getByText(/A redeployment was queued/i)).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText(/A redeployment was queued/i)).toBeTruthy());
     expect(JSON.stringify(calls)).toContain("git.deployNow");
     // It says the deployment was queued, never that it succeeded.
     expect(screen.queryByText(/deployed successfully/i)).toBeNull();
@@ -1499,6 +1497,52 @@ describe("requesting and rolling back a deployment", () => {
     await user.click(await screen.findByRole("button", { name: "Logs" }));
 
     expect(await screen.findByText(/Coolify is not configured/)).toBeTruthy();
+    expect(screen.queryByLabelText("Deployment logs")).toBeNull();
+  });
+
+  it("filters the returned tail without re-querying the engine, and counts honestly", async () => {
+    const { responder, calls } = deploymentPlane();
+    const withLogs: Responder = (procedure, input) => {
+      if (procedure === "deployments.logs") {
+        calls.push({ procedure, input });
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            lines: ["build started", "npm install ok", "build finished"],
+            cursor: null,
+            engineReason: null,
+          },
+        };
+      }
+      return responder(procedure, input);
+    };
+    const url = await startApi(withLogs);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Logs" }));
+    expect(await screen.findByLabelText("Deployment logs")).toBeTruthy();
+
+    const callsBefore = calls.filter((c) => c.procedure === "deployments.logs").length;
+
+    await user.type(screen.getByLabelText("Filter log lines"), "build");
+
+    // Only the two lines containing "build" survive, and the count names the
+    // full tail so a filtered view cannot read as the whole log.
+    const tail = screen.getByLabelText("Deployment logs");
+    expect(tail.textContent).toContain("build started");
+    expect(tail.textContent).toContain("build finished");
+    expect(tail.textContent).not.toContain("npm install ok");
+    expect(screen.getByText("2 of 3 lines")).toBeTruthy();
+    // Filtering narrows what the engine already sent; it must not re-fetch.
+    expect(calls.filter((c) => c.procedure === "deployments.logs").length).toBe(callsBefore);
+
+    // A term that matches nothing says so rather than showing an empty box that
+    // reads like "the engine returned nothing".
+    await user.clear(screen.getByLabelText("Filter log lines"));
+    await user.type(screen.getByLabelText("Filter log lines"), "zzz");
+    expect(screen.getByText("No matching lines")).toBeTruthy();
     expect(screen.queryByLabelText("Deployment logs")).toBeNull();
   });
 });
@@ -2632,9 +2676,7 @@ describe("the Database drill-in", () => {
         return {
           ok: true,
           status: 200,
-          data: [
-            { id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" },
-          ],
+          data: [{ id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" }],
         };
       }
       if (procedure === "data.logs") {
@@ -2645,7 +2687,10 @@ describe("the Database drill-in", () => {
           data: {
             resource: { id: "d-1" },
             engineReason: null,
-            lines: ["2026-09-24 LOG: database system is ready", "2026-09-24 LOG: checkpoint complete"],
+            lines: [
+              "2026-09-24 LOG: database system is ready",
+              "2026-09-24 LOG: checkpoint complete",
+            ],
             cursor: null,
           },
         };
@@ -2661,6 +2706,46 @@ describe("the Database drill-in", () => {
     expect(log.textContent).toContain("checkpoint complete");
   });
 
+  it("filters a database's log tail in place, counting against the full tail", async () => {
+    const responder = reachable();
+    const url = await startApi((procedure, input) => {
+      if (procedure === "data.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [{ id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" }],
+        };
+      }
+      if (procedure === "data.logs") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            resource: { id: "d-1" },
+            engineReason: null,
+            lines: [
+              "2026-09-24 LOG: database system is ready",
+              "2026-09-24 LOG: checkpoint complete",
+              "2026-09-24 WARNING: there is already a transaction",
+            ],
+            cursor: null,
+          },
+        };
+      }
+      return responder(procedure, input);
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1/database/logs");
+
+    const user = userEvent.setup();
+    await screen.findByLabelText("Log for orders");
+    await user.type(screen.getByLabelText("Filter log lines for orders"), "checkpoint");
+
+    const log = screen.getByLabelText("Log for orders");
+    expect(log.textContent).toContain("checkpoint complete");
+    expect(log.textContent).not.toContain("database system is ready");
+    expect(screen.getByText("1 of 3 lines")).toBeTruthy();
+  });
+
   it("renders an unconfigured database engine as its own state, not an empty log", async () => {
     const responder = reachable();
     const url = await startApi((procedure, input) => {
@@ -2668,9 +2753,7 @@ describe("the Database drill-in", () => {
         return {
           ok: true,
           status: 200,
-          data: [
-            { id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" },
-          ],
+          data: [{ id: "d-1", name: "orders", kind: "postgres", state: "ready", projectId: "p-1" }],
         };
       }
       if (procedure === "data.logs") {
@@ -2702,7 +2785,13 @@ describe("the Database drill-in", () => {
           ok: true,
           status: 200,
           data: [
-            { id: "d-1", name: "orders", kind: "postgres", state: "provisioning", projectId: "p-1" },
+            {
+              id: "d-1",
+              name: "orders",
+              kind: "postgres",
+              state: "provisioning",
+              projectId: "p-1",
+            },
           ],
         };
       }

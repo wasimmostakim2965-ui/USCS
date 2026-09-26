@@ -350,6 +350,7 @@ function DatabaseLogPanel({
 }) {
   const { client } = useApp();
   const [nonce, setNonce] = useState(0);
+  const [filter, setFilter] = useState("");
   const [state, setState] = useState<
     | { readonly kind: "loading" }
     | { readonly kind: "refused"; readonly reason: string }
@@ -372,6 +373,10 @@ function DatabaseLogPanel({
     };
   }, [client, organizationId, resource.id, nonce]);
 
+  const lines = state.kind === "loaded" ? state.lines : [];
+  const needle = filter.trim().toLowerCase();
+  const shown = needle === "" ? lines : lines.filter((line) => line.toLowerCase().includes(needle));
+
   return (
     <SectionShell
       title={resource.name}
@@ -387,7 +392,7 @@ function DatabaseLogPanel({
         <DegradedState title="Database log" reason={state.reason} />
       ) : null}
       {state.kind === "loaded" ? (
-        state.lines.length === 0 ? (
+        lines.length === 0 ? (
           <Card>
             <EmptyState
               title="No log output"
@@ -395,10 +400,30 @@ function DatabaseLogPanel({
             />
           </Card>
         ) : (
-          <Card flush>
-            <pre className="log" aria-label={`Log for ${resource.name}`}>
-              {state.lines.join("\n")}
-            </pre>
+          <Card>
+            <div className="log__tools">
+              <TextInput
+                value={filter}
+                onChange={setFilter}
+                placeholder="Filter lines…"
+                ariaLabel={`Filter log lines for ${resource.name}`}
+              />
+              <span className="log__count small muted">
+                {needle === ""
+                  ? `${String(lines.length)} lines`
+                  : `${String(shown.length)} of ${String(lines.length)} lines`}
+              </span>
+            </div>
+            {shown.length === 0 ? (
+              <EmptyState
+                title="No matching lines"
+                message={`No line in the tail the engine returned contains “${filter.trim()}”.`}
+              />
+            ) : (
+              <pre className="log" aria-label={`Log for ${resource.name}`}>
+                {shown.join("\n")}
+              </pre>
+            )}
           </Card>
         )
       ) : null}

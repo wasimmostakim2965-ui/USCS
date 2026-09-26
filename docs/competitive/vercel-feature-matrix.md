@@ -77,7 +77,7 @@ object we have not built.
 | P2 | Deployments history | `deployments.list` (`index.ts:230`); `DeploymentsPage` | **Wired** |
 | P3 | Create deployment | `deployments.create` (`index.ts:237`; `apps/api/src/procedures/deployments.ts:requestDeployment`) | **Wired** |
 | P4 | Durable deploy execution (job + worker) | `apps/worker/src/deployment-executor.ts`; `sql-queue.ts` | **Wired** |
-| P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them | **Wired** |
+| P5 | Build vs runtime logs | `deployments.logs` (`index.ts:247`); `source` distinguishes them; the log drawer filters the returned tail in place (case-insensitive substring, with an "N of M lines" count) and never re-queries — Vercel's own gap on historical/searchable logs | **Wired** |
 | P6 | Instant rollback | `deployments.rollback` (`index.ts:242`); Coolify needs a commit (`coolify.ts:353`) | **Wired** |
 | P7 | Cancel an in-flight deployment | `deployments.cancel` (`index.ts:257`; `apps/api/src/procedures/deployments.ts:cancelDeployment`); adapter `cancelDeployment` (`coolify.ts:326`); Cancel action on pending/running rows | **Wired** |
 | P8 | Git integration: auto-deploy on push | `git.connect` + HMAC-verified `/hooks/git` receiver enqueues the deploy job (`apps/api/src/git-hook.ts`); Project Settings → Git page connects a repo and shows the webhook URL (`apps/web/src/pages/pages.tsx`) | **Wired** (engine execution is honest n/c without Coolify) |
@@ -93,7 +93,7 @@ object we have not built.
 | P18 | Automatic TLS / SSL | engine-side (Coolify); no control-plane surface | **Honest n/c** |
 | P19 | Observability: metrics, traces, error tracking | `observability.jobs` (`apps/api/src/procedures/observability.ts`) = job roll-up from real rows, now with per-state/per-kind charts and a 14-day throughput series derived from `created_at`; host-level CPU/memory and traces panel states its absence | **Partial** (job-derived activity wired; resource metrics/traces missing) |
 | P20 | Web Analytics / Speed Insights | none | **Missing** |
-| P21 | Runtime logs / log drains | none (deployment logs only, P5) | **Missing** |
+| P21 | Runtime logs / log drains | none (deployment logs only, P5; the drawer now filters that tail in place, but a push drain is still absent) | **Missing** |
 | P22 | Cron Jobs | none | **Missing** |
 | P23 | Functions / serverless | a project's execution model is `container` or `serverless` (`projects.execution_model`, migration `0017`); the serverless engine is a distinct provider (`lambda`/`microvm`) behind `ServerlessAdapter` (SigV4-signed, per-org credentials) reached through the one `DeploymentEngine` port (`execution-router.ts`). A serverless deploy requires a built artifact and refuses without one; a serverless project is never handed to Coolify. Routes conformance-checked against botocore's pinned service models (`tests/fixtures/lambda-routes.json`, `tests/engines/lambda-routes.test.ts`) | **Wired (Honest n/c)** — no AWS credentials or build engine configured here, so a serverless deploy reports `not_configured` end to end |
 | P24 | Edge Config | none | **Missing (out of model)** |
