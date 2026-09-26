@@ -70,6 +70,8 @@ import type {
   SecurityEvent,
   SecurityRule,
   SecurityRuleCreateInput,
+  RateLimit,
+  RateLimitCreateInput,
   TrustedSource,
   TrustedSourceCreateInput,
   UsageRecord,
@@ -440,6 +442,20 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       organizationId: str(row, "organization_id") as OrganizationId,
       kind: str(row, "kind") as TrustedSource["kind"],
       value: str(row, "value"),
+      note: nullableStr(row, "note"),
+      createdBy: str(row, "created_by") as UserId,
+      createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toRateLimit(row: Row): RateLimit {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      key: str(row, "key") as RateLimit["key"],
+      headerName: nullableStr(row, "header_name"),
+      limit: Number(row["limit_count"]),
+      windowSeconds: Number(row["window_seconds"]),
       note: nullableStr(row, "note"),
       createdBy: str(row, "created_by") as UserId,
       createdAt: str(row, "created_at"),
@@ -848,6 +864,16 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/security_trusted_sources?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toTrustedSource);
+    },
+
+    async listRateLimitsForService(
+      organizationId: OrganizationId,
+    ): Promise<readonly RateLimit[]> {
+      const found = await rows("listRateLimitsForService", {
+        method: "GET",
+        path: `/security_rate_limits?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toRateLimit);
     },
 
     async findDomainByHostnameForService(
@@ -1298,6 +1324,51 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       await must<Row[]>("deleteTrustedSource", {
         method: "DELETE",
         path: `/security_trusted_sources?id=eq.${q(sourceId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        prefer: "return=representation",
+      });
+      return true;
+    },
+
+    async listRateLimits(
+      userId: UserId,
+      organizationId: OrganizationId,
+    ): Promise<readonly RateLimit[]> {
+      const found = await rows("listRateLimits", {
+        method: "GET",
+        path: `/security_rate_limits?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+      });
+      return found.map(toRateLimit);
+    },
+
+    async createRateLimit(input: RateLimitCreateInput): Promise<RateLimit> {
+      const created = await must<Row[]>("createRateLimit", {
+        method: "POST",
+        path: "/security_rate_limits?select=*",
+        prefer: "return=representation",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          key: input.key,
+          header_name: input.headerName,
+          limit_count: input.limit,
+          window_seconds: input.windowSeconds,
+          note: input.note,
+          created_by: input.createdBy,
+        },
+      });
+      const row = Array.isArray(created) ? created[0] : undefined;
+      if (!row) throw new ControlPlaneUnavailableError("createRateLimit", "no row returned");
+      return toRateLimit(row);
+    },
+
+    async deleteRateLimit(
+      userId: UserId,
+      organizationId: OrganizationId,
+      rateLimitId: string,
+    ): Promise<boolean> {
+      await must<Row[]>("deleteRateLimit", {
+        method: "DELETE",
+        path: `/security_rate_limits?id=eq.${q(rateLimitId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return true;

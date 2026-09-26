@@ -52,6 +52,8 @@ import type {
   SecurityEvent,
   TrustedSource,
   TrustedSourceCreateInput,
+  RateLimit,
+  RateLimitCreateInput,
 } from "@cloud-wai/database";
 import type { AdapterContext, JobQueue, SecurityEdgeAdapter, Engines } from "@cloud-wai/adapters";
 import {
@@ -165,6 +167,7 @@ function makeStore() {
   const policyEvents: SecurityPolicyEvent[] = [];
   const securityRules: SecurityRule[] = [];
   const trustedSources: TrustedSource[] = [];
+  const rateLimits: RateLimit[] = [];
   const securityEvents: SecurityEvent[] = [];
   const audit: AuditEvent[] = [];
   const deployments: Deployment[] = [];
@@ -488,6 +491,34 @@ function makeStore() {
       trustedSources.splice(index, 1);
       return true;
     },
+    async listRateLimits(userId: UserId, org: OrganizationId) {
+      if (!isMember(userId, org)) return [];
+      return rateLimits.filter((r) => r.organizationId === org);
+    },
+    async createRateLimit(input: RateLimitCreateInput) {
+      const limit: RateLimit = {
+        id: input.id,
+        organizationId: input.organizationId,
+        key: input.key,
+        headerName: input.headerName,
+        limit: input.limit,
+        windowSeconds: input.windowSeconds,
+        note: input.note,
+        createdBy: input.createdBy,
+        createdAt: nextTime(),
+      };
+      rateLimits.push(limit);
+      return limit;
+    },
+    async deleteRateLimit(userId: UserId, org: OrganizationId, rateLimitId: string) {
+      if (!isMember(userId, org)) return false;
+      const index = rateLimits.findIndex(
+        (r) => r.id === rateLimitId && r.organizationId === org,
+      );
+      if (index < 0) return false;
+      rateLimits.splice(index, 1);
+      return true;
+    },
   } satisfies DataStoreLike;
 
   return {
@@ -499,6 +530,7 @@ function makeStore() {
     policyEvents,
     securityRules,
     trustedSources,
+    rateLimits,
     securityEvents,
     audit,
   };
@@ -1279,6 +1311,177 @@ describe("security.trustedSources through the registered procedures", () => {
     });
     expect(inB.ok, JSON.stringify(inB.error)).toBe(true);
     expect(inB.data as readonly TrustedSource[]).toHaveLength(0);
+  });
+});
+
+describe("security.rateLimits through the registered procedures", () => {
+  it("sets a per-address limit the compiler will emit, and reads it back", async () => {
+    const { store, rateLimits, audit } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 60, windowSeconds: 60, note: "Scraper" },
+    });
+    expect(added.ok, JSON.stringify(added.error)).toBe(true);
+    expect(rateLimits).toHaveLength(1);
+    expect(audit.some((a) => a.event === "security_rate_limit.added")).toBe(true);
+
+    const listed = await router.route({
+      procedure: "security.rateLimits.list",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A },
+    });
+    expect(listed.ok).toBe(true);
+    expect(listed.data as readonly RateLimit[]).toHaveLength(1);
+  });
+
+  it("pairs a header key with its header name, and refuses a half-specified rule", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const ok = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        key: "header",
+        headerName: "x-api-key",
+        limit: 1000,
+        windowSeconds: 3600,
+      },
+    });
+    expect(ok.ok, JSON.stringify(ok.error)).toBe(true);
+    expect(rateLimits[0]!.headerName).toBe("x-api-key");
+
+    // A header key with no header name is half-specified.
+    const missing = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "header", limit: 10, windowSeconds: 60 },
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.status).toBe(400);
+
+    // A non-header key that names a header is refused rather than ignored.
+    const spurious = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", headerName: "x-api-key", limit: 10, windowSeconds: 60 },
+    });
+    expect(spurious.ok).toBe(false);
+    expect(rateLimits).toHaveLength(1);
+  });
+
+  it("refuses an out-of-range allowance, so a limit cannot deny everyone", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const zero = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 0, windowSeconds: 60 },
+    });
+    expect(zero.ok).toBe(false);
+    expect(zero.status).toBe(400);
+
+    const longWindow = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 60, windowSeconds: 86_401 },
+    });
+    expect(longWindow.ok).toBe(false);
+    expect(rateLimits).toHaveLength(0);
+  });
+
+  it("refuses injection through a header name, never escaping it into a directive", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    const res = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        key: "header",
+        headerName: '" \nSecRuleEngine Off',
+        limit: 10,
+        windowSeconds: 60,
+      },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+    expect(rateLimits).toHaveLength(0);
+  });
+
+  it("removes a limit, and reports an absent one honestly", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    const added = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "global", limit: 100000, windowSeconds: 1 },
+    });
+    const limit = added.data as RateLimit;
+
+    const removed = await router.route({
+      procedure: "security.rateLimits.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, rateLimitId: limit.id },
+    });
+    expect(removed.ok).toBe(true);
+    expect(rateLimits).toHaveLength(0);
+
+    const again = await router.route({
+      procedure: "security.rateLimits.remove",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, rateLimitId: limit.id },
+    });
+    expect(again.ok).toBe(true);
+    expect((again.data as { removed: boolean }).removed).toBe(false);
+  });
+
+  it("refuses a member who is not an admin", async () => {
+    const { store, rateLimits } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+    const res = await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_A, key: "ip", limit: 60, windowSeconds: 60 },
+    });
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+    expect(rateLimits).toHaveLength(0);
+  });
+
+  it("keeps one organization's limits out of another's list", async () => {
+    const { store } = makeStore();
+    const router = routerWith(store, unconfiguredEngines());
+
+    await router.route({
+      procedure: "security.rateLimits.add",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, key: "ip", limit: 60, windowSeconds: 60 },
+    });
+
+    // Dave belongs to both tenants, so only the organization scope can separate
+    // them: ORG_A's limit is visible to him there, absent from ORG_B's list.
+    const inA = await router.route({
+      procedure: "security.rateLimits.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_A },
+    });
+    expect(inA.ok, JSON.stringify(inA.error)).toBe(true);
+    expect(inA.data as readonly RateLimit[]).toHaveLength(1);
+
+    const inB = await router.route({
+      procedure: "security.rateLimits.list",
+      accessToken: TOKEN_DAVE,
+      input: { organizationId: ORG_B },
+    });
+    expect(inB.ok, JSON.stringify(inB.error)).toBe(true);
+    expect(inB.data as readonly RateLimit[]).toHaveLength(0);
   });
 });
 

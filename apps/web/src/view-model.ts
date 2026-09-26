@@ -579,6 +579,25 @@ export interface VerifiedBotSummary {
   readonly confirmSuffix: string;
 }
 
+/**
+ * One per-route request rate limit, as the server stores it.
+ *
+ * The third arm of the security policy, beside the deny list (what to block) and
+ * the trusted sources (what to let through): what to *throttle*. A scraper is
+ * not necessarily hostile, only disproportionate, so a limit a normal visitor
+ * never reaches keeps a human served and a scrape uneconomic. It is compiled
+ * after the allow steps, so an allowed crawler is never counted.
+ */
+export interface RateLimitSummary {
+  readonly id: string;
+  readonly key: "ip" | "header" | "global";
+  readonly headerName: string | null;
+  readonly limit: number;
+  readonly windowSeconds: number;
+  readonly note: string | null;
+  readonly createdAt: string;
+}
+
 export interface SecurityPolicyReadSummary {
   readonly policy: SecurityPolicySummary | null;
   readonly events: readonly SecurityPolicyEventSummary[];
@@ -860,6 +879,47 @@ export async function removeTrustedSource(
   input: { organizationId: string; sourceId: string },
 ): Promise<ApiResponse<{ removed: boolean }>> {
   return client.call<{ removed: boolean }>("security.trustedSources.remove", input);
+}
+
+/**
+ * Load the organization's request rate limits.
+ *
+ * A deployment that predates the table answers with the honest
+ * `engine_unavailable`, surfaced as degraded, so "no limits yet" and "not
+ * supported here" stay distinguishable — the same shape the trusted sources use.
+ */
+export async function loadRateLimits(
+  client: ApiClient,
+  organizationId: string,
+): Promise<Section<RateLimitSummary>> {
+  const response = await client.call<readonly RateLimitSummary[]>(
+    "security.rateLimits.list",
+    { organizationId },
+  );
+  return sectionFrom("Rate limits", response);
+}
+
+/** Set a rate limit, so a burst is throttled without affecting a normal visitor. */
+export async function addRateLimit(
+  client: ApiClient,
+  input: {
+    organizationId: string;
+    key: "ip" | "header" | "global";
+    headerName?: string;
+    limit: number;
+    windowSeconds: number;
+    note?: string;
+  },
+): Promise<ApiResponse<RateLimitSummary>> {
+  return client.call<RateLimitSummary>("security.rateLimits.add", input);
+}
+
+/** Remove a rate limit. Idempotent: removing an absent one is not an error. */
+export async function removeRateLimit(
+  client: ApiClient,
+  input: { organizationId: string; rateLimitId: string },
+): Promise<ApiResponse<{ removed: boolean }>> {
+  return client.call<{ removed: boolean }>("security.rateLimits.remove", input);
 }
 
 /**

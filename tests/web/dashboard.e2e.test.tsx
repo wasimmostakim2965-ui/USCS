@@ -3151,6 +3151,102 @@ describe("the Security policy write path", () => {
     expect(await screen.findByText(/cannot record trusted sources yet/)).toBeTruthy();
   });
 
+  it("sets a rate limit through the API and reads it back", async () => {
+    const calls: { procedure: string; input: unknown }[] = [];
+    const url = await startApi((procedure, input) => {
+      calls.push({ procedure, input });
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.rateLimits.add") {
+        return {
+          ok: true,
+          status: 200,
+          data: {
+            id: "rl-1",
+            key: "ip",
+            headerName: null,
+            limit: 60,
+            windowSeconds: 60,
+            note: null,
+            createdAt: new Date().toISOString(),
+          },
+        };
+      }
+      if (procedure === "security.rateLimits.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add a limit" }));
+    await user.type(await screen.findByLabelText("Allowance"), "60");
+    const setButtons = screen.getAllByRole("button", { name: "Set limit" });
+    await user.click(setButtons[setButtons.length - 1]!);
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.procedure === "security.rateLimits.add")).toBe(true),
+    );
+  });
+
+  it("shows a rate limit the deployment stored, so a scraper budget is visible", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.rateLimits.list") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            {
+              id: "rl-1",
+              key: "header",
+              headerName: "x-api-key",
+              limit: 1000,
+              windowSeconds: 3600,
+              note: "Scraper budget",
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText("header x-api-key")).toBeTruthy();
+    expect(await screen.findByText("1,000 / 1h")).toBeTruthy();
+    expect(await screen.findByText("Scraper budget")).toBeTruthy();
+  });
+
+  it("reports a rate-limit list the deployment does not support as degraded, not empty", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "security.rateLimits.list") {
+        return {
+          ok: false,
+          status: 503,
+          error: {
+            code: "engine_unavailable",
+            message: "This deployment cannot record rate limits yet.",
+          },
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    expect(await screen.findByText(/cannot record rate limits yet/)).toBeTruthy();
+  });
+
   it("shows the verified-bot directory so attack mode does not look like it breaks SEO", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

@@ -81,20 +81,25 @@ import {
   type RotateCredentialsInput,
 } from "./data.js";
 import {
+  addRateLimit,
   addSecurityRule,
   addTrustedSource,
   distributeSecurityPolicy,
+  listRateLimits,
   listSecurityEvents,
   listSecurityRules,
   listTrustedSources,
   readSecurityPolicy,
   readVerifiedBots,
+  removeRateLimit,
   removeSecurityRule,
   removeTrustedSource,
   saveSecurityPolicy,
+  type AddRateLimitInput,
   type AddSecurityRuleInput,
   type AddTrustedSourceInput,
   type DistributePolicyInput,
+  type RemoveRateLimitInput,
   type RemoveSecurityRuleInput,
   type RemoveTrustedSourceInput,
   type SavePolicyInput,
@@ -490,6 +495,25 @@ export function buildProcedures(
         removeTrustedSource(ctx, securityDeps, inputOf<RemoveTrustedSourceInput>(input)),
     },
     {
+      name: "security.rateLimits.list",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listRateLimits(
+          ctx,
+          securityDeps,
+          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
+        ),
+    },
+    {
+      name: "security.rateLimits.add",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        addRateLimit(ctx, securityDeps, inputOf<AddRateLimitInput>(input)),
+    },
+    {
+      name: "security.rateLimits.remove",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        removeRateLimit(ctx, securityDeps, inputOf<RemoveRateLimitInput>(input)),
+    },
+    {
       name: "security.bots.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         readVerifiedBots(
@@ -702,6 +726,24 @@ export const ROUTE_SHAPES = {
     note: "string?",
   },
   "security.rules.remove": { organizationId: "OrganizationId", ruleId: "string" },
+  "security.trustedSources.list": { organizationId: "OrganizationId" },
+  "security.trustedSources.add": {
+    organizationId: "OrganizationId",
+    kind: "ip|cidr",
+    value: "string",
+    note: "string?",
+  },
+  "security.trustedSources.remove": { organizationId: "OrganizationId", sourceId: "string" },
+  "security.rateLimits.list": { organizationId: "OrganizationId" },
+  "security.rateLimits.add": {
+    organizationId: "OrganizationId",
+    key: "ip|header|global",
+    headerName: "string?",
+    limit: "number",
+    windowSeconds: "number",
+    note: "string?",
+  },
+  "security.rateLimits.remove": { organizationId: "OrganizationId", rateLimitId: "string" },
   "security.bots.list": { organizationId: "OrganizationId" },
   "security.events.list": { organizationId: "OrganizationId", limit: "number?" },
   "apiKeys.list": { organizationId: "OrganizationId" },

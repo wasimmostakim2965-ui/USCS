@@ -263,6 +263,14 @@ export interface ControlPlaneWrites {
    */
   listTrustedSourcesForService(organizationId: OrganizationId): Promise<readonly TrustedSource[]>;
   /**
+   * The organization's rate limits, scoped by organization only.
+   *
+   * Read when the edge adapter assembles a `CompileInput` for a sessionless
+   * caller (the worker draining a distribution job). `organization_id` is the
+   * tenant boundary.
+   */
+  listRateLimitsForService(organizationId: OrganizationId): Promise<readonly RateLimit[]>;
+  /**
    * A domain by hostname, scoped by organization only.
    *
    * The edge's route loader resolves a hostname to the private origin behind it
@@ -337,6 +345,23 @@ export interface ControlPlaneWrites {
     userId: UserId,
     organizationId: OrganizationId,
     sourceId: string,
+  ): Promise<boolean>;
+
+  /**
+   * The organization's rate limits, newest first. Membership-scoped.
+   */
+  listRateLimits(
+    userId: UserId,
+    organizationId: OrganizationId,
+  ): Promise<readonly RateLimit[]>;
+
+  /** Set a rate limit. The key/header pairing is enforced by the API and the table. */
+  createRateLimit(input: RateLimitCreateInput): Promise<RateLimit>;
+  /** Remove a rate limit. Idempotent, like a deny-rule removal. */
+  deleteRateLimit(
+    userId: UserId,
+    organizationId: OrganizationId,
+    rateLimitId: string,
   ): Promise<boolean>;
 
   /** Register a hostname. Always unverified: only the edge may verify it. */
@@ -881,6 +906,38 @@ export interface TrustedSourceCreateInput {
 }
 
 /**
+ * One per-route request rate limit for an organization.
+ *
+ * The answer to the scraper-budget problem: a limit a normal visitor never
+ * reaches but a scraper walking a catalogue does. It is compiled *after* the
+ * allow steps, so a verified bot or a trusted address is never counted. Only an
+ * admin may set one, because a limit set too low denies everyone, so it is a
+ * deliberate security-policy change, not a member action.
+ */
+export interface RateLimit {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly key: "ip" | "header" | "global";
+  readonly headerName: string | null;
+  readonly limit: number;
+  readonly windowSeconds: number;
+  readonly note: string | null;
+  readonly createdBy: UserId;
+  readonly createdAt: string;
+}
+
+export interface RateLimitCreateInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly key: RateLimit["key"];
+  readonly headerName: string | null;
+  readonly limit: number;
+  readonly windowSeconds: number;
+  readonly note: string | null;
+  readonly createdBy: UserId;
+}
+
+/**
  * One request-level decision the edge made.
  *
  * This is the edge's observation, not a client's assertion, and the table is
@@ -895,7 +952,9 @@ export interface SecurityEvent {
   readonly stage:
     | "allow-verified-bot"
     | "allow-internal"
+    | "allow-trusted-ip"
     | "block-deny-list"
+    | "ratelimit"
     | "challenge"
     | "waf"
     | "log"

@@ -28,6 +28,7 @@ import {
   type EdgeRoute,
   type EngineConfig,
   type Engines,
+  type RateLimitRule,
   type TrustedSource,
 } from "@cloud-wai/adapters";
 import { protectionIsActive } from "./protection.js";
@@ -139,6 +140,7 @@ export function createSecurityEdgeLoaders(
 
       const rules = await store.listSecurityRulesForService(ref.organizationId);
       const trusted = await store.listTrustedSourcesForService(ref.organizationId);
+      const limits = await store.listRateLimitsForService(ref.organizationId);
 
       const denyList: DenyRule[] = rules.map((rule) => ({
         kind: rule.kind,
@@ -151,6 +153,17 @@ export function createSecurityEdgeLoaders(
           source.kind === "ip" || source.kind === "cidr",
         )
         .map((source) => ({ kind: source.kind, value: source.value }));
+      // A header-keyed limit carries its header name; the others carry none, so
+      // the compiler's pairing check is satisfied by construction.
+      const rateLimits: RateLimitRule[] = limits.map((limit) => ({
+        id: limit.id,
+        key: limit.key,
+        ...(limit.key === "header" && limit.headerName
+          ? { headerName: limit.headerName }
+          : {}),
+        limit: limit.limit,
+        windowSeconds: limit.windowSeconds,
+      }));
 
       const [primary, ...rest] = routes.map((domain) =>
         routeFor(domain.hostname, ref.organizationId),
@@ -170,6 +183,7 @@ export function createSecurityEdgeLoaders(
         protection: protectionIsActive(policy) ? "attack" : "normal",
         denyList,
         trustedSources,
+        rateLimits,
       };
     },
   };

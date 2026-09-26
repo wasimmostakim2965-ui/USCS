@@ -28,6 +28,7 @@ import { ApiError } from "../errors.js";
 import {
   VERIFIED_BOTS,
   validateDenyRule,
+  validateRateLimitRule,
   validateTrustedSource,
   type Engines,
   type JobQueue,
@@ -35,6 +36,7 @@ import {
 import type {
   ControlPlaneWrites,
   DataStore,
+  RateLimit,
   SecurityEvent,
   SecurityPolicy,
   SecurityPolicyEvent,
@@ -71,6 +73,11 @@ type TrustedSourceWrites = Pick<
   "listTrustedSources" | "createTrustedSource" | "deleteTrustedSource"
 >;
 
+type RateLimitWrites = Pick<
+  ControlPlaneWrites,
+  "listRateLimits" | "createRateLimit" | "deleteRateLimit"
+>;
+
 const REQUIRED_WRITES = [
   "getSecurityPolicy",
   "saveSecurityPolicy",
@@ -88,6 +95,12 @@ const REQUIRED_TRUSTED_WRITES = [
   "listTrustedSources",
   "createTrustedSource",
   "deleteTrustedSource",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+const REQUIRED_RATE_LIMIT_WRITES = [
+  "listRateLimits",
+  "createRateLimit",
+  "deleteRateLimit",
 ] as const satisfies readonly (keyof ControlPlaneWrites)[];
 
 export interface SecurityDeps {
@@ -147,6 +160,19 @@ function trustedWritesFor(deps: SecurityDeps): TrustedSourceWrites {
     );
   }
   return store as unknown as TrustedSourceWrites;
+}
+
+/** The rate-limit writes, checked the same way and separately. */
+function rateLimitWritesFor(deps: SecurityDeps): RateLimitWrites {
+  const store = deps.store;
+  const missing = REQUIRED_RATE_LIMIT_WRITES.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot record ${missing.join(", ")} yet.`,
+    );
+  }
+  return store as unknown as RateLimitWrites;
 }
 
 /** The current policy and its transition history, membership-scoped. */
@@ -652,6 +678,121 @@ export async function removeTrustedSource(
     event: "security_trusted_source.removed",
     targetType: "security_trusted_source",
     targetId: input.sourceId,
+    metadata: { removed },
+  });
+
+  return { removed };
+}
+
+// ---------------------------------------------------------------------------
+// Rate limits — throttling the disproportionate, not the hostile
+// ---------------------------------------------------------------------------
+
+/** The rate-limit keys. `header` requires a header name; the others forbid one. */
+const RATE_LIMIT_KEY_KINDS = ["ip", "header", "global"] as const;
+type RateLimitKeyKind = (typeof RATE_LIMIT_KEY_KINDS)[number];
+
+export async function listRateLimits(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<readonly RateLimit[]> {
+  requireCapability(ctx, organizationId, "security:read");
+  return rateLimitWritesFor(deps).listRateLimits(ctx.principal.userId, organizationId);
+}
+
+export interface AddRateLimitInput {
+  readonly organizationId: OrganizationId;
+  readonly key: RateLimitKeyKind;
+  readonly headerName?: string | null;
+  readonly limit: number;
+  readonly windowSeconds: number;
+  readonly note?: string | null;
+}
+
+export async function addRateLimit(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: AddRateLimitInput,
+): Promise<RateLimit> {
+  requireCapability(ctx, input.organizationId, "security:update");
+
+  if (!RATE_LIMIT_KEY_KINDS.includes(input.key)) {
+    throw new ApiError("invalid_input", "Unknown rate-limit key.");
+  }
+  // A header name on a non-header key is a half-specified rule, not something to
+  // silently drop: the caller meant something and must be told it is refused.
+  if (input.key !== "header" && input.headerName != null && input.headerName !== "") {
+    throw new ApiError("invalid_input", "Only a header-keyed limit may name a header.");
+  }
+  const headerName = input.key === "header" ? (input.headerName ?? "").trim() : undefined;
+  // The same validator the compiler runs, so an API-accepted rule is always a
+  // rule the compiler will emit — and never directive syntax.
+  const valid = validateRateLimitRule({
+    id: "pending",
+    key: input.key,
+    ...(headerName !== undefined ? { headerName } : {}),
+    limit: input.limit,
+    windowSeconds: input.windowSeconds,
+  });
+  if (!valid.ok) throw new ApiError("invalid_input", valid.reason);
+
+  const note = input.note?.trim() ?? "";
+  if (note.length > 200) throw new ApiError("invalid_input", "A note is at most 200 characters.");
+
+  const writes = rateLimitWritesFor(deps);
+  const created = await writes.createRateLimit({
+    id: deps.newId(),
+    organizationId: input.organizationId,
+    key: input.key,
+    headerName: headerName && headerName !== "" ? headerName : null,
+    limit: input.limit,
+    windowSeconds: input.windowSeconds,
+    note: note === "" ? null : note,
+    createdBy: ctx.principal.userId,
+  });
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_rate_limit.added",
+    targetType: "security_rate_limit",
+    targetId: created.id,
+    metadata: {
+      key: created.key,
+      limit: created.limit,
+      windowSeconds: created.windowSeconds,
+    },
+  });
+
+  return created;
+}
+
+export interface RemoveRateLimitInput {
+  readonly organizationId: OrganizationId;
+  readonly rateLimitId: string;
+}
+
+export async function removeRateLimit(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: RemoveRateLimitInput,
+): Promise<{ removed: boolean }> {
+  requireCapability(ctx, input.organizationId, "security:update");
+  const removed = await rateLimitWritesFor(deps).deleteRateLimit(
+    ctx.principal.userId,
+    input.organizationId,
+    input.rateLimitId,
+  );
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "security_rate_limit.removed",
+    targetType: "security_rate_limit",
+    targetId: input.rateLimitId,
     metadata: { removed },
   });
 

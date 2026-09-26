@@ -104,6 +104,7 @@ export interface LadderStep {
     | "allow-internal"
     | "allow-trusted-ip"
     | "block-deny-list"
+    | "ratelimit"
     | "challenge"
     | "waf"
     | "log"
@@ -192,6 +193,72 @@ export function validateTrustedSource(
   }
 }
 
+/**
+ * What a rate limit counts requests against.
+ *
+ * `ip` limits one source address, `header` limits by a request header's value
+ * (an API key or tenant id), and `global` limits the route as a whole. These are
+ * the three Vercel's firewall exposes for a custom rule, and they are the three
+ * the edge's rate-limit descriptor can key on without new state.
+ */
+export const RATE_LIMIT_KEYS = ["ip", "header", "global"] as const;
+export type RateLimitKey = (typeof RATE_LIMIT_KEYS)[number];
+
+/**
+ * A per-route request-rate rule.
+ *
+ * The answer to the scraper-budget problem: a normal visitor makes a handful of
+ * requests a minute, so a limit of, say, 60/min is invisible to them while a
+ * scraper walking a catalogue is throttled. It sits *after* the allow steps, so
+ * a verified bot or a trusted address is never counted — SEO and a customer's
+ * own webhook senders are untouched.
+ *
+ * `headerName` is required for `key: "header"` and refused for the others, so a
+ * rule cannot be half-specified. Both the header name and the numeric bounds are
+ * validated here and again at compile time: nothing reaches an engine by
+ * concatenation.
+ */
+export interface RateLimitRule {
+  readonly id: string;
+  readonly key: RateLimitKey;
+  readonly headerName?: string | undefined;
+  /** Requests allowed per window. */
+  readonly limit: number;
+  /** Window length in seconds. */
+  readonly windowSeconds: number;
+}
+
+/** Header names that may key a rate limit. A strict token, never directive syntax. */
+const HEADER_NAME = /^[A-Za-z0-9][A-Za-z0-9-]{0,60}$/;
+
+/** Validate one rate-limit rule. Refuses anything that would be directive syntax. */
+export function validateRateLimitRule(
+  rule: RateLimitRule,
+): { ok: true } | { ok: false; reason: string } {
+  if (!RATE_LIMIT_KEYS.includes(rule.key)) return { ok: false, reason: "Unknown rate-limit key." };
+  if (!Number.isInteger(rule.limit) || rule.limit < 1 || rule.limit > 1_000_000) {
+    return { ok: false, reason: "A rate limit is an integer between 1 and 1000000." };
+  }
+  if (!Number.isInteger(rule.windowSeconds) || rule.windowSeconds < 1 || rule.windowSeconds > 86_400) {
+    return { ok: false, reason: "A rate-limit window is 1 to 86400 seconds." };
+  }
+  if (rule.key === "header") {
+    if (!rule.headerName || !HEADER_NAME.test(rule.headerName)) {
+      return { ok: false, reason: "A header-keyed limit needs a plain header name." };
+    }
+  } else if (rule.headerName !== undefined) {
+    return { ok: false, reason: "Only a header-keyed limit may name a header." };
+  }
+  return { ok: true };
+}
+
+/** The Envoy rate-limit descriptor a compiled rule produces, for the engine. */
+export interface CompiledRateLimit {
+  readonly descriptor: string;
+  readonly limit: number;
+  readonly windowSeconds: number;
+}
+
 /** The Coraza operator and target for a deny rule kind. */
 function denyOperator(rule: DenyRule): { target: string; operator: string } {
   switch (rule.kind) {
@@ -212,6 +279,25 @@ function denyOperator(rule: DenyRule): { target: string; operator: string } {
 /** Render a verified-bot step: UA substring AND a forward-confirmed DNS suffix. */
 function verifiedBotDirective(id: number, bot: VerifiedBot): string {
   return `SecRule REQUEST_HEADERS:User-Agent "@contains ${bot.userAgent}" "id:${id},phase:1,pass,nolog,chain,setvar:tx.cloud_wai_bot=${id},setvar:tx.cloud_wai_bot_confirm=${bot.confirmSuffix}"`;
+}
+
+/**
+ * The Envoy rate-limit descriptor for a rule.
+ *
+ * Envoy keys a rate limit by a descriptor entry, and the entry's name is what
+ * distinguishes "per source address" from "per header value" from "per route".
+ * Building it here keeps the descriptor grammar in the adapter, where every other
+ * engine-specific string already lives.
+ */
+function rateLimitDescriptor(rule: RateLimitRule): string {
+  switch (rule.key) {
+    case "ip":
+      return "remote_address";
+    case "header":
+      return `header:${rule.headerName ?? ""}`;
+    case "global":
+      return "route_global";
+  }
 }
 
 export interface CompileInput {
@@ -255,6 +341,14 @@ export interface CompileInput {
    * not a header the attacker sends.
    */
   readonly trustedSources?: readonly TrustedSource[] | undefined;
+  /**
+   * Per-route request-rate rules.
+   *
+   * Compiled after the allow steps so verified bots, internal requests and
+   * trusted addresses are never counted — the scraper problem is addressed
+   * without touching SEO or a customer's own webhook senders.
+   */
+  readonly rateLimits?: readonly RateLimitRule[] | undefined;
 }
 
 export interface EnvoyRouteFragment {
@@ -295,6 +389,12 @@ export interface CompiledEdge {
    * reading Coraza syntax.
    */
   readonly ladder: readonly LadderStep[];
+  /**
+   * The rate-limit descriptors the edge enforces, per compiled rule. Envoy's
+   * rate-limit filter is the enforcement point; these describe what to key on
+   * and how many requests are allowed.
+   */
+  readonly rateLimits: readonly CompiledRateLimit[];
   readonly version: number;
 }
 
@@ -331,13 +431,16 @@ export function validateEdgeRoute(route: EdgeRoute): { ok: true } | { ok: false;
  *   2. allow  — this deployment's own internal requests
  *   3. allow  — a trusted source address (a webhook sender / CI runner)
  *   4. block  — an explicit deny-list match (IP / CIDR / ASN / user-agent)
- *   5. challenge — browser traffic, only when the route is in attack mode
- *   6. waf    — the OWASP CRS anomaly threshold (the existing rule)
- *   7. log    — an inspect-only match
- *   8. pass   — default
+ *   5. ratelimit — a per-route request burst (the scraper-budget problem)
+ *   6. challenge — browser traffic, only when the route is in attack mode
+ *   7. waf    — the OWASP CRS anomaly threshold (the existing rule)
+ *   8. log    — an inspect-only match
+ *   9. pass   — default
  *
  * Steps 1-3 come first on purpose: that ordering is what lets attack mode be
  * enabled without breaking SEO, a webhook sender or a customer's CI runner.
+ * The rate limit sits after the allow steps for the same reason — a crawler that
+ * is *allowed* is never counted against a visitor's budget.
  */
 export function compileEdge(input: CompileInput): CompiledEdge {
   const { route, policy } = input;
@@ -397,7 +500,32 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id, stage: "block-deny-list", action: "block", directive });
   }
 
-  // 5. Attack mode challenges browsers. It is Envoy that serves the challenge;
+  // 5. Rate limits. After the allow steps on purpose: a verified bot, an
+  //    internal probe or a trusted address has already been marked and is never
+  //    counted, so a scraper is throttled without a crawler or a webhook sender
+  //    being affected. Each value was validated before it reached here.
+  const rateLimits: CompiledRateLimit[] = [];
+  for (const rule of input.rateLimits ?? []) {
+    const valid = validateRateLimitRule(rule);
+    if (!valid.ok) continue; // never emit a descriptor from an unvalidated rule
+    const id = nextId++;
+    const descriptor = rateLimitDescriptor(rule);
+    // Coraza has no rate primitive; Envoy's rate-limit filter enforces it
+    // upstream. The directive records the intent so the compiled config is
+    // self-describing, and the descriptor below is what the edge actuates.
+    const directive = `SecAction "id:${id},phase:1,pass,nolog,setvar:tx.cloud_wai_rate_limit=${rule.limit}/${
+      rule.windowSeconds
+    }s,setvar:tx.cloud_wai_rate_key=${rule.key}"`;
+    directives.push(directive);
+    ladder.push({ id, stage: "ratelimit", action: "log", directive });
+    rateLimits.push({
+      descriptor,
+      limit: rule.limit,
+      windowSeconds: rule.windowSeconds,
+    });
+  }
+
+  // 6. Attack mode challenges browsers. It is Envoy that serves the challenge;
   //    the WAF records the intent so the compiled config is self-describing.
   if (attackMode) {
     const id = nextId++;
@@ -406,7 +534,7 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     ladder.push({ id, stage: "challenge", action: "challenge", directive });
   }
 
-  // 6. The WAF rule. Present whenever there is a policy, in every mode: attack
+  // 7. The WAF rule. Present whenever there is a policy, in every mode: attack
   //    mode adds a challenge, it never weakens inspection.
   if (policy) {
     const severity = CORAZA_SEVERITY[policy.riskLevel];
@@ -444,6 +572,7 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     envoyConfig: envoyRoutes[0]!,
     envoyRoutes,
     ladder,
+    rateLimits,
     version: policy?.version ?? 1,
   };
 }

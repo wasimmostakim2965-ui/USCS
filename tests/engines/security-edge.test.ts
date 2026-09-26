@@ -15,6 +15,7 @@ import {
   createEnvoySecurityEdge,
   validateDenyRule,
   validateEdgeRoute,
+  validateRateLimitRule,
   validateTrustedSource,
   type EdgeRoute,
 } from "@cloud-wai/adapters";
@@ -374,5 +375,103 @@ describe("the decision ladder", () => {
     const directives = compiled.ladder.filter((s) => s.stage === "allow-verified-bot");
     expect(directives.some((s) => s.directive.includes("AcmeHook"))).toBe(true);
     expect(directives.some((s) => s.directive.includes("Googlebot"))).toBe(true);
+  });
+
+  it("compiles a rate limit after the allow steps, so a crawler is never counted", () => {
+    const compiled = compileEdge({
+      route: route(),
+      policy,
+      protection: "attack",
+      botAllowList: [{ name: "hook", userAgent: "AcmeHook", confirmSuffix: "acme.example" }],
+      trustedSources: [{ kind: "ip", value: "198.51.100.7" }],
+      rateLimits: [{ id: "rl-1", key: "ip", limit: 60, windowSeconds: 60 }],
+    });
+    const stages = compiled.ladder.map((step) => step.stage);
+    const rate = stages.indexOf("ratelimit");
+    expect(rate).toBeGreaterThan(-1);
+    // After every allow step, or a verified bot would be throttled as if it were
+    // a scraper — the exact SEO break the ladder exists to prevent.
+    expect(rate).toBeGreaterThan(stages.indexOf("allow-verified-bot"));
+    expect(rate).toBeGreaterThan(stages.indexOf("allow-internal"));
+    expect(rate).toBeGreaterThan(stages.indexOf("allow-trusted-ip"));
+    // Before the challenge and the WAF, so a burst is throttled before it is
+    // inspected against the full CRS.
+    expect(rate).toBeLessThan(stages.indexOf("challenge"));
+    expect(rate).toBeLessThan(stages.indexOf("waf"));
+  });
+
+  it("carries the rate limit as a descriptor the edge can actuate", () => {
+    const compiled = compileEdge({
+      route: route(),
+      rateLimits: [
+        { id: "rl-1", key: "ip", limit: 60, windowSeconds: 60 },
+        { id: "rl-2", key: "header", headerName: "x-api-key", limit: 1000, windowSeconds: 3600 },
+        { id: "rl-3", key: "global", limit: 100000, windowSeconds: 1 },
+      ],
+    });
+    expect(compiled.rateLimits).toHaveLength(3);
+    expect(compiled.rateLimits[0]).toEqual({
+      descriptor: "remote_address",
+      limit: 60,
+      windowSeconds: 60,
+    });
+    expect(compiled.rateLimits[1]!.descriptor).toBe("header:x-api-key");
+    expect(compiled.rateLimits[2]!.descriptor).toBe("route_global");
+    expect(compiled.corazaDirectives.some((d) => d.includes("cloud_wai_rate_limit=60/60s"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a rate limit that is not a real rule, never escaping it into a directive", () => {
+    const compiled = compileEdge({
+      route: route(),
+      rateLimits: [
+        // A header name that is directive syntax must be refused, not escaped.
+        { id: "bad-1", key: "header", headerName: '" \nSecRuleEngine Off', limit: 10, windowSeconds: 60 },
+        // A header name on a non-header key is a half-specified rule.
+        { id: "bad-2", key: "ip", headerName: "x-api-key", limit: 10, windowSeconds: 60 },
+        // Zero and out-of-range values are refused.
+        { id: "bad-3", key: "ip", limit: 0, windowSeconds: 60 },
+        { id: "bad-4", key: "ip", limit: 10, windowSeconds: 0 },
+        // The one valid rule is the only one that becomes a descriptor.
+        { id: "ok-1", key: "ip", limit: 60, windowSeconds: 60 },
+      ],
+    });
+    expect(compiled.rateLimits).toHaveLength(1);
+    expect(compiled.corazaDirectives.some((d) => d.includes("SecRuleEngine Off"))).toBe(false);
+  });
+
+  it("validates a rate-limit rule against its key and bounds", () => {
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 60 }).ok).toBe(true);
+    expect(validateRateLimitRule({ id: "a", key: "global", limit: 1, windowSeconds: 1 }).ok).toBe(
+      true,
+    );
+    expect(
+      validateRateLimitRule({ id: "a", key: "header", headerName: "x-api-key", limit: 1, windowSeconds: 1 })
+        .ok,
+    ).toBe(true);
+    // A header key without a header name is refused.
+    expect(validateRateLimitRule({ id: "a", key: "header", limit: 1, windowSeconds: 1 }).ok).toBe(
+      false,
+    );
+    // A non-header key that names a header is refused.
+    expect(
+      validateRateLimitRule({ id: "a", key: "ip", headerName: "x", limit: 1, windowSeconds: 1 }).ok,
+    ).toBe(false);
+    // Bounds.
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 0, windowSeconds: 60 }).ok).toBe(false);
+    expect(validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 0 }).ok).toBe(false);
+    expect(
+      validateRateLimitRule({ id: "a", key: "ip", limit: 60, windowSeconds: 86_401 }).ok,
+    ).toBe(false);
+  });
+
+  it("stays deterministic with a rate limit present", () => {
+    const input = {
+      route: route(),
+      policy,
+      rateLimits: [{ id: "rl-1", key: "header" as const, headerName: "x-api-key", limit: 60, windowSeconds: 60 }],
+    };
+    expect(JSON.stringify(compileEdge(input))).toBe(JSON.stringify(compileEdge(input)));
   });
 });

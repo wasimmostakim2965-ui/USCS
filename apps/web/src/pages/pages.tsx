@@ -54,6 +54,9 @@ import {
   loadTrustedSources,
   addTrustedSource,
   removeTrustedSource,
+  loadRateLimits,
+  addRateLimit,
+  removeRateLimit,
   loadVerifiedBots,
   loadUsage,
   loadSecurityPolicy,
@@ -84,6 +87,7 @@ import {
   type SecurityEventSummary,
   type SecurityRuleSummary,
   type TrustedSourceSummary,
+  type RateLimitSummary,
   type ObservabilityReportSummary,
   type OrchestrationJobSummary,
   type SecurityPolicySummary,
@@ -2486,6 +2490,11 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Verified bots",
   );
+  const rateLimits = useSection(
+    () => loadRateLimits(client, organizationId),
+    [client, organizationId],
+    "Rate limits",
+  );
   const edgeEvents = useSection(
     () => loadSecurityEvents(client, organizationId),
     [client, organizationId],
@@ -2497,6 +2506,8 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
   const [removingRule, setRemovingRule] = useState<SecurityRuleSummary | null>(null);
   const [addingTrusted, setAddingTrusted] = useState(false);
   const [removingTrusted, setRemovingTrusted] = useState<TrustedSourceSummary | null>(null);
+  const [addingRateLimit, setAddingRateLimit] = useState(false);
+  const [removingRateLimit, setRemovingRateLimit] = useState<RateLimitSummary | null>(null);
   // A level card preselects the risk and action the form opens with; it is a
   // convenience over the same save, never a separate write. Null means "open
   // with the policy's own values".
@@ -2797,6 +2808,64 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
       </SectionShell>
 
       <SectionShell
+        title="Rate limits"
+        hint="Throttle the disproportionate, not the hostile. A limit a normal visitor never reaches keeps a human served while a scraper walking a catalogue is made uneconomic. Compiled after the allow steps, so a verified crawler or a trusted address is never counted. An engine that has no rate primitive reports not_configured rather than a fake pass."
+        actions={
+          <Button size="sm" variant="primary" onClick={() => setAddingRateLimit(true)}>
+            Add a limit
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<RateLimitSummary>
+            section={rateLimits.section}
+            onRetry={rateLimits.reload}
+            emptyMessage="No rate limits yet. Add one to cap a burst from a single address, a header value, or the route as a whole."
+            columns={[
+              {
+                key: "key",
+                header: "Counted by",
+                render: (item) => (
+                  <span className="mono small">
+                    {item.key === "header" ? `header ${item.headerName ?? ""}` : item.key}
+                  </span>
+                ),
+              },
+              {
+                key: "limit",
+                header: "Allowance",
+                render: (item) => (
+                  <span className="small">
+                    {item.limit.toLocaleString()} / {formatWindow(item.windowSeconds)}
+                  </span>
+                ),
+              },
+              {
+                key: "note",
+                header: "Note",
+                render: (item) => <span className="small">{item.note ?? "—"}</span>,
+              },
+              {
+                key: "createdAt",
+                header: "Added",
+                render: (item) => <Timestamp value={item.createdAt} />,
+              },
+              {
+                key: "actions",
+                header: "",
+                render: (item) => (
+                  <Button size="sm" onClick={() => setRemovingRateLimit(item)}>
+                    Remove
+                  </Button>
+                ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+          />
+        </Card>
+      </SectionShell>
+
+      <SectionShell
         title="Verified bots"
         hint="Crawlers whose identity is confirmed by reverse DNS. They keep working even while attack mode challenges browsers."
       >
@@ -3041,8 +3110,35 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
           trusted.reload();
         }}
       />
+      <AddRateLimitModal
+        organizationId={organizationId}
+        open={addingRateLimit}
+        onClose={() => setAddingRateLimit(false)}
+        onAdded={() => {
+          setAddingRateLimit(false);
+          rateLimits.reload();
+        }}
+      />
+      <RemoveRateLimitModal
+        organizationId={organizationId}
+        rateLimit={removingRateLimit}
+        open={removingRateLimit !== null}
+        onClose={() => setRemovingRateLimit(null)}
+        onRemoved={() => {
+          setRemovingRateLimit(null);
+          rateLimits.reload();
+        }}
+      />
     </PageShell>
   );
+}
+
+/** A human window: seconds folded into the largest whole unit that fits. */
+function formatWindow(seconds: number): string {
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`;
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
 }
 
 /** A policy's lifecycle. `active` is the edge's answer, never a form's. */
@@ -3810,7 +3906,256 @@ function RemoveTrustedSourceModal({
   );
 }
 
-/* ------------------------------------------------------------------ activity */
+/**
+ * The rate-limit keys, with the shape each requires.
+ *
+ * `ip` counts one source address — the scraper case. `header` counts a request
+ * header's value, so a customer can budget one API key or tenant without
+ * touching the others. `global` counts the route as a whole, for a hard ceiling.
+ * These are the three Vercel's firewall exposes for a custom rule, and the three
+ * the edge's descriptor can key on without new state.
+ */
+const RATE_LIMIT_KEY_OPTIONS: readonly {
+  readonly key: RateLimitSummary["key"];
+  readonly label: string;
+  readonly hint: string;
+  readonly needsHeader: boolean;
+}[] = [
+  {
+    key: "ip",
+    label: "Per source address",
+    hint: "One budget per client IP — the scraper case. A normal visitor never reaches it.",
+    needsHeader: false,
+  },
+  {
+    key: "header",
+    label: "Per request header",
+    hint: "One budget per header value, so you can cap a single API key or tenant without capping the rest.",
+    needsHeader: true,
+  },
+  {
+    key: "global",
+    label: "Whole route",
+    hint: "One budget for the route as a whole, across every caller. A hard ceiling, not a per-caller one.",
+    needsHeader: false,
+  },
+];
+
+/** Set a rate limit, so a burst is throttled without touching a normal visitor. */
+function AddRateLimitModal({
+  organizationId,
+  open,
+  onClose,
+  onAdded,
+}: {
+  readonly organizationId: string;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onAdded: () => void;
+}) {
+  const { client } = useApp();
+  const [key, setKey] = useState<RateLimitSummary["key"]>("ip");
+  const [headerName, setHeaderName] = useState("x-api-key");
+  const [limit, setLimit] = useState("60");
+  const [windowSeconds, setWindowSeconds] = useState("60");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const selected =
+    RATE_LIMIT_KEY_OPTIONS.find((option) => option.key === key) ?? RATE_LIMIT_KEY_OPTIONS[0]!;
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    const limitNumber = Number(limit);
+    const windowNumber = Number(windowSeconds);
+    if (!Number.isInteger(limitNumber) || limitNumber < 1) {
+      setError("The allowance must be a whole number of requests, at least 1.");
+      return;
+    }
+    if (!Number.isInteger(windowNumber) || windowNumber < 1 || windowNumber > 86_400) {
+      setError("The window must be a whole number of seconds, 1 to 86400.");
+      return;
+    }
+    if (selected.needsHeader && headerName.trim() === "") {
+      setError("A header-keyed limit needs a header name.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const response = await addRateLimit(client, {
+      organizationId,
+      key,
+      ...(selected.needsHeader ? { headerName: headerName.trim() } : {}),
+      limit: limitNumber,
+      windowSeconds: windowNumber,
+      ...(note.trim() === "" ? {} : { note: note.trim() }),
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The rate limit could not be set.");
+      return;
+    }
+    setNote("");
+    onAdded();
+  };
+
+  return (
+    <Modal
+      title="Add a rate limit"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Set limit
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Field label="Counted by" hint={selected.hint}>
+          {(id) => (
+            <select
+              id={id}
+              className="input"
+              value={key}
+              onChange={(event) => {
+                setKey(event.target.value as RateLimitSummary["key"]);
+                setError(null);
+              }}
+            >
+              {RATE_LIMIT_KEY_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        {selected.needsHeader ? (
+          <Field
+            label="Header name"
+            hint="The header whose value is budgeted, e.g. x-api-key. Letters, digits and dashes only."
+          >
+            {(id) => (
+              <TextInput id={id} value={headerName} onChange={setHeaderName} placeholder="x-api-key" />
+            )}
+          </Field>
+        ) : null}
+        <Field label="Allowance" hint="Requests allowed in the window. 60 per minute is invisible to a visitor.">
+          {(id) => (
+            <TextInput id={id} value={limit} onChange={setLimit} placeholder="60" />
+          )}
+        </Field>
+        <Field label="Window (seconds)" hint="How long the allowance lasts before it resets. 60 to 86400.">
+          {(id) => (
+            <TextInput id={id} value={windowSeconds} onChange={setWindowSeconds} placeholder="60" />
+          )}
+        </Field>
+        <Field label="Note (optional)" hint="What this limit is for, for the next operator.">
+          {(id) => (
+            <TextInput id={id} value={note} onChange={setNote} placeholder="Scraper budget" />
+          )}
+        </Field>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <p className="muted small">
+          A rate limit is compiled after the allow steps, so a verified crawler or a trusted address
+          is never counted. It throttles the disproportionate rather than blocking the hostile.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
+/** Remove one rate limit. */
+function RemoveRateLimitModal({
+  organizationId,
+  rateLimit,
+  open,
+  onClose,
+  onRemoved,
+}: {
+  readonly organizationId: string;
+  readonly rateLimit: RateLimitSummary | null;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onRemoved: () => void;
+}) {
+  const { client } = useApp();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!rateLimit) return null;
+
+  const close = () => {
+    setError(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    const response = await removeRateLimit(client, {
+      organizationId,
+      rateLimitId: rateLimit.id,
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The rate limit could not be removed.");
+      return;
+    }
+    onRemoved();
+  };
+
+  return (
+    <Modal
+      title="Remove rate limit"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Remove
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p>
+          Remove the limit of{" "}
+          <span className="mono">
+            {rateLimit.limit.toLocaleString()} / {formatWindow(rateLimit.windowSeconds)}
+          </span>{" "}
+          counted by{" "}
+          <span className="mono">
+            {rateLimit.key === "header" ? `header ${rateLimit.headerName ?? ""}` : rateLimit.key}
+          </span>
+          ?
+        </p>
+        <p className="muted small">
+          The route stops throttling this traffic once the edge compiles the change. A scraper would
+          no longer be capped.
+        </p>
+        {error ? (
+          <p className="field__error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
 
 export function ActivityPage({ organizationId }: { readonly organizationId: string }) {
   const { client } = useApp();

@@ -208,6 +208,30 @@ describe("security edge loaders", () => {
           created_at: "2026-01-01T00:00:00.000Z",
         },
       ],
+      security_rate_limits: [
+        {
+          id: "rl-1",
+          organization_id: "org-a",
+          key: "ip",
+          header_name: null,
+          limit_count: 60,
+          window_seconds: 60,
+          note: null,
+          created_by: "user-1",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "rl-2",
+          organization_id: "org-a",
+          key: "header",
+          header_name: "x-api-key",
+          limit_count: 1000,
+          window_seconds: 3600,
+          note: null,
+          created_by: "user-1",
+          created_at: "2026-01-01T00:00:00.000Z",
+        },
+      ],
     });
     const loaders = createSecurityEdgeLoaders(store, securityEdgeConfigFromEnv(ENV)!);
     const input = await loaders.loadPolicy(ref(ORG_A, "pol-1"));
@@ -215,6 +239,12 @@ describe("security edge loaders", () => {
     expect(input?.protection).toBe("attack");
     expect(input?.denyList).toEqual([{ kind: "ip", value: "198.51.100.7" }]);
     expect(input?.trustedSources).toEqual([{ kind: "cidr", value: "203.0.113.0/24" }]);
+    // A header-keyed limit carries its header name; the per-address one carries
+    // none, so the compiler's key/header pairing check is satisfied.
+    expect(input?.rateLimits).toEqual([
+      { id: "rl-1", key: "ip", limit: 60, windowSeconds: 60 },
+      { id: "rl-2", key: "header", headerName: "x-api-key", limit: 1000, windowSeconds: 3600 },
+    ]);
     expect(input?.route.host).toBe("app.example.com");
   });
 
