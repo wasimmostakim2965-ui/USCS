@@ -51,6 +51,7 @@ SQL_STEPS=(
   "security rate limits|supabase/migrations/0018_security_rate_limits.sql"
   "security incidents|supabase/migrations/0019_security_incidents.sql"
   "member management|supabase/migrations/0020_member_management.sql"
+  "deployment source|supabase/migrations/0021_deployment_source.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"

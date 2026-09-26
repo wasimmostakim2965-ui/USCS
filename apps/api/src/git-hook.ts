@@ -27,7 +27,7 @@ import type { ControlPlaneWrites, DataStore, ProjectGitLink } from "@cloud-wai/d
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
 import type { JobQueue } from "@cloud-wai/adapters";
 import type { SecretCipher } from "@cloud-wai/auth";
-import { verifyGitDelivery } from "./procedures/git-links.js";
+import { cloneUrlFor, verifyGitDelivery } from "./procedures/git-links.js";
 import { ensurePreviewTarget, previewKeyFor } from "./procedures/deployments.js";
 
 /** The hosting engine this build wires (ADR-0002: Coolify behind HostingAdapter). */
@@ -275,6 +275,21 @@ export async function deployFromDelivery(
       ? previewKeyFor(delivery.pullRequest, delivery.branch, delivery.commit)
       : null;
 
+  // The engine is handed a *clone URL*, not the stored `owner/name`. The link
+  // stores a normalised repository name (0011); Coolify clones from a URL, so
+  // the two must not be conflated. `deploymentSourceForProject` makes the same
+  // conversion for the Deploy button, and both go through `cloneUrlFor` so a
+  // webhook and a manual deploy build from the same source.
+  //
+  // A `generic` link has no derivable host, so there is nothing honest to hand
+  // the engine. The delivery is accepted (the provider is not wrong) and no
+  // deployment is created, rather than a build attempted against a repository
+  // name Coolify cannot resolve.
+  const gitRepository = cloneUrlFor(link.provider, link.repository);
+  if (!gitRepository) {
+    return { status: 202, body: { ok: true, reason: "repository_url_unknown" } };
+  }
+
   const deployment = await writes.createDeployment({
     organizationId: link.organizationId,
     projectId: link.projectId,
@@ -292,6 +307,7 @@ export async function deployFromDelivery(
     gitCommit: delivery.commit,
     pullRequest: delivery.pullRequest,
     previewKey,
+    gitRepository,
   });
 
   if (kind === "preview" && previewKey) {
@@ -311,7 +327,7 @@ export async function deployFromDelivery(
     projectId: link.projectId,
     action: "create",
     projectSlug: project.slug,
-    gitRepository: link.repository,
+    gitRepository,
     gitBranch: delivery.branch,
     buildPack: null,
     commit: delivery.commit,

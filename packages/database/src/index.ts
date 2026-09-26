@@ -669,6 +669,15 @@ export interface DeploymentCreateInput {
   readonly gitCommit?: string | null;
   readonly pullRequest?: number | null;
   readonly previewKey?: string | null;
+  /**
+   * The clone URL the build was requested with.
+   *
+   * Recorded so a redeploy can replay the same source. It is the request, not an
+   * engine observation, so it is not frozen by `guard_engine_columns`.
+   */
+  readonly gitRepository?: string | null;
+  /** The build pack requested, so a redeploy does not fall back to the default. */
+  readonly buildPack?: string | null;
 }
 
 /**
@@ -1436,6 +1445,16 @@ export interface Deployment {
   readonly isCurrent: boolean;
   readonly failureReason: string | null;
   readonly createdAt: string;
+  /**
+   * The clone URL this deployment was requested with.
+   *
+   * Recorded so "Redeploy" on a past row can replay its exact source instead of
+   * asking the operator to retype it. Null for a row that predates this column or
+   * a rollback, which carries no new source of its own.
+   */
+  readonly gitRepository: string | null;
+  /** The build pack requested, so a redeploy repeats the same build. */
+  readonly buildPack: string | null;
 }
 
 export interface AuditEventInput {

@@ -44,6 +44,14 @@ export interface DeploymentSummary {
   readonly gitBranch: string | null;
   readonly gitCommit: string | null;
   readonly pullRequest: number | null;
+  /**
+   * The clone URL this build was requested from.
+   *
+   * Present so Redeploy can name what it will rebuild, and so the button can be
+   * hidden on a row that recorded no source (a rollback) instead of being
+   * offered and then refused. It is a plain public clone URL, never a credential.
+   */
+  readonly gitRepository: string | null;
 }
 
 /**
@@ -341,6 +349,28 @@ export interface DeploymentLogsSummary {
   readonly source: "deployment" | "application" | null;
   /** The engine's own words when it could not serve logs. */
   readonly engineReason: string | null;
+}
+
+/**
+ * Rebuild a past deployment's source.
+ *
+ * Vercel's "Redeploy", and deliberately not a rollback: the server replays the
+ * row's recorded repository and branch into a fresh build, so the engine builds
+ * the branch's current head. The server refuses a row that recorded no source,
+ * and its refusal is returned to the caller rather than retried into a success.
+ */
+export async function redeployDeployment(
+  client: ApiClient,
+  projectId: string,
+  deploymentId: string,
+  idempotencyKey: string,
+): Promise<Section<DeploymentRequestSummary>> {
+  const response = await client.call<DeploymentRequestSummary>("deployments.redeploy", {
+    projectId,
+    deploymentId,
+    idempotencyKey,
+  });
+  return itemFrom("Deployment", response, "That deployment cannot be redeployed.");
 }
 
 /**

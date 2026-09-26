@@ -99,7 +99,7 @@ object we have not built.
 | P24 | Edge Config | none | **Missing (out of model)** |
 | P25 | Feature flags | none | **Missing** |
 | P26 | Deployment states (Queued→Building→Ready→Error→Canceled) | `EngineStatus` vocabulary + `mapQueueStatus`/`mapDeploymentStatus` (`coolify.ts:67-115`) | **Wired** |
-| P27 | Rollback-images / redeploy same commit | `rollback` with a commit; no "redeploy" of a past deployment row | **Partial** |
+| P27 | Rollback-images / redeploy same commit | `rollback` with a commit (returns to a revision the engine already holds), and `redeploy` of a past row (`deployments.redeploy` → `redeployDeployment`, `apps/api/src/procedures/deployments.ts`), which replays the row's recorded `git_repository`/`git_branch`/`build_pack` into a fresh build. The row records its source because migration `0021` added `git_repository`/`build_pack`; a row that recorded no source (a rollback) is refused, and the dashboard hides the button rather than offering a dead action. A redeploy builds the branch head, so it is not a byte-for-byte replay — that is Rollback, and the dialog says so | **Wired** |
 | P28 | Monorepo support (root dir, ignore-step) | none (a project is one Coolify application) | **Missing** |
 | P29 | Framework detection / build pack | `BuildPack` (`adapters/src/index.ts:45-52`) passed through; default nixpacks | **Wired** |
 

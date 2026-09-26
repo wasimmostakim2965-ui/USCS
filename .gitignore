@@ -27,3 +27,6 @@ infra/aws/terraform/crash.log
 .DS_Store
 .idea/
 *.log
+
+# Local tooling shim (pnpm wrapper for environments without a pnpm binary)
+.bin/

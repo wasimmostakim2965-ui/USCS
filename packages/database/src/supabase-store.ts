@@ -230,6 +230,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       isCurrent: bool(row, "is_current"),
       failureReason: nullableStr(row, "failure_reason"),
       createdAt: str(row, "created_at"),
+      gitRepository: nullableStr(row, "git_repository"),
+      buildPack: nullableStr(row, "build_pack"),
     };
   }
 
@@ -1118,6 +1120,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           ...(input.gitCommit !== undefined ? { git_commit: input.gitCommit } : {}),
           ...(input.pullRequest !== undefined ? { pull_request: input.pullRequest } : {}),
           ...(input.previewKey !== undefined ? { preview_key: input.previewKey } : {}),
+          ...(input.gitRepository !== undefined ? { git_repository: input.gitRepository } : {}),
+          ...(input.buildPack !== undefined ? { build_pack: input.buildPack } : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;

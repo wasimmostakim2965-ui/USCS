@@ -328,6 +328,86 @@ export interface CancelDeploymentResult {
   readonly engineReason: string | null;
 }
 
+export interface RedeployDeploymentInput {
+  readonly projectId: ProjectId;
+  /** The past deployment whose source is being replayed. */
+  readonly deploymentId: string;
+  readonly idempotencyKey?: string | undefined;
+}
+
+/**
+ * Request a fresh build of a past deployment's source.
+ *
+ * This is Vercel's "Redeploy" (P27), and it is deliberately not a rollback: a
+ * rollback returns the engine to a revision it already built, while a redeploy
+ * asks for a new build of the same source. They are different operations and the
+ * dashboard keeps them apart.
+ *
+ * The procedure is a *replay*, not a second deploy path. It reads the source the
+ * row recorded (repository, branch, build pack, preview target) and hands it to
+ * the same `requestDeployment` the Deploy button uses, so authorization,
+ * idempotency, the budget check, preview bookkeeping and the audit row are the
+ * one set of rules — a redeploy cannot drift from a deploy because it does not
+ * reimplement any of them.
+ *
+ * Two honest refusals, neither a fabricated success:
+ *
+ *   * a row with no recorded source (a rollback, or one written before the
+ *     source was stored) cannot be replayed — the operator is told to deploy
+ *     with an explicit repository instead of being handed a build of nothing;
+ *   * the caller gets a fresh idempotency key, so a redeploy is a new deployment
+ *     rather than a replay of the original row (which would return the old row
+ *     and deploy nothing).
+ *
+ * The engine builds the *branch's current head*, not the original commit: that
+ * is what a redeploy is, and the UI says so rather than implying a
+ * byte-for-byte reproduction. Pinning the exact revision is Rollback's job.
+ */
+export async function redeployDeployment(
+  ctx: RequestContext,
+  deps: DeploymentDeps,
+  input: RedeployDeploymentInput,
+): Promise<DeploymentRequestResult> {
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
+  if (!project) throw new ApiError("not_found", "Project not found.");
+  requireCapability(ctx, project.organizationId, "deployment:create");
+
+  const store = writesFor(deps);
+  if (typeof store.getDeployment !== "function") {
+    throw new ApiError("engine_unavailable", "This deployment cannot read a deployment yet.");
+  }
+
+  const source = await store.getDeployment(
+    ctx.principal.userId,
+    input.deploymentId as DeploymentId,
+  );
+  // A deployment outside the tenant, or one that does not exist, is the same
+  // answer: `not_found`, never a hint that another tenant's id is real.
+  if (!source || source.projectId !== project.id) {
+    throw new ApiError("not_found", "Deployment not found.");
+  }
+
+  // A row with no repository and no branch has nothing to replay. A rollback is
+  // exactly that: it returns to a revision of a source the engine already holds,
+  // so there is no repository recorded on the row itself.
+  if (!source.gitRepository && !source.gitBranch) {
+    throw new ApiError(
+      "conflict",
+      "This deployment recorded no source to replay. Deploy with an explicit repository instead.",
+    );
+  }
+
+  return requestDeployment(ctx, deps, {
+    projectId: project.id,
+    ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+    ...(source.gitRepository ? { gitRepository: source.gitRepository } : {}),
+    ...(source.gitBranch ? { gitBranch: source.gitBranch } : {}),
+    ...(source.buildPack ? { buildPack: source.buildPack as BuildPack } : {}),
+    kind: source.kind,
+    ...(source.pullRequest !== null ? { pullRequest: source.pullRequest } : {}),
+  });
+}
+
 /**
  * Cancel an in-flight deployment.
  *
@@ -727,6 +807,8 @@ export async function requestDeployment(
     gitCommit: commit,
     pullRequest,
     previewKey,
+    gitRepository,
+    buildPack,
   });
 
   // A preview build needs its target recorded before the worker runs, so two

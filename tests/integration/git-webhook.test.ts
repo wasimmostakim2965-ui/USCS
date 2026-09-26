@@ -96,6 +96,8 @@ function makeStore(link: ProjectGitLink) {
         deploymentResourceId: null,
         failureReason: input.failureReason,
         createdAt: "2026-01-01T00:00:00Z",
+        gitRepository: input.gitRepository ?? null,
+        buildPack: input.buildPack ?? null,
       };
       deployments.push(deployment);
       return deployment;
@@ -229,9 +231,54 @@ describe("the git webhook receiver", () => {
     // The row is pending: the engine has not answered yet, and a webhook may not
     // claim an outcome it did not observe.
     expect(store.deployments[0]!.status).toBe("pending");
+    // The engine clones from a URL. The link stores `owner/name`, so the row and
+    // the job must carry the derived clone URL — a raw `acme/site` would be a
+    // source Coolify cannot resolve, and the bug would only show at build time.
+    expect(store.deployments[0]!.gitRepository).toBe("https://github.com/acme/site.git");
     expect(store.audit.map((a) => a.event)).toContain("deployment.triggered");
     // No member acted, so the audit row has no actor.
     expect(store.audit.find((a) => a.event === "deployment.triggered")!.actorId).toBeNull();
+  });
+
+  it("enqueues the derived clone URL, not the stored repository name", async () => {
+    const store = makeStore(makeLink());
+    const queue = new InMemoryJobQueue();
+    const d = { ...deps(store), queue };
+    const body = pushBody("main", "f".repeat(40));
+
+    await receiveGitDelivery(d, {
+      organizationId: ORG_A,
+      linkId: LINK_A,
+      event: "push",
+      signature: signed(body),
+      token: null,
+      body,
+    });
+
+    const job = await queue.claim("w-1", 30_000);
+    expect(job?.kind).toBe("deployments.execute");
+    expect(job?.payload).toMatchObject({ gitRepository: "https://github.com/acme/site.git" });
+  });
+
+  it("accepts a generic link but builds nothing, since it has no clone host", async () => {
+    const store = makeStore(makeLink({ provider: "generic" }));
+    const d = deps(store);
+    const body = pushBody("main", "g".repeat(40));
+
+    const outcome = await receiveGitDelivery(d, {
+      organizationId: ORG_A,
+      linkId: LINK_A,
+      event: "push",
+      signature: signed(body),
+      token: null,
+      body,
+    });
+
+    // Accepted (the provider is not wrong) and honestly ignored: there is no
+    // URL to hand the engine, so no deployment is invented.
+    expect(outcome.status).toBe(202);
+    expect(outcome.body.reason).toBe("repository_url_unknown");
+    expect(store.deployments).toHaveLength(0);
   });
 
   it("refuses a body signed with the wrong secret and creates nothing", async () => {

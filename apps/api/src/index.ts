@@ -30,6 +30,7 @@ export {
   listAuditEvents,
   listDeployments,
   rollbackDeployment,
+  redeployDeployment,
   DEPLOYMENT_PROCEDURE_STATES,
 } from "./procedures/deployments.js";
 export type {
@@ -38,6 +39,7 @@ export type {
   DeploymentLogsInput,
   DeploymentLogsResult,
   DeploymentRequestResult,
+  RedeployDeploymentInput,
   RollbackDeploymentInput,
 } from "./procedures/deployments.js";
 export { buildProcedures, procedureNames, ROUTE_SHAPES } from "./procedures/index.js";

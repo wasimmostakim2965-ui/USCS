@@ -779,6 +779,7 @@ export function DeploymentsPage({
   const [viewingLogs, setViewingLogs] = useState<DeploymentSummary | null>(null);
   const [cancelling, setCancelling] = useState<DeploymentSummary | null>(null);
   const [promoting, setPromoting] = useState<DeploymentSummary | null>(null);
+  const [redeploying, setRedeploying] = useState<DeploymentSummary | null>(null);
 
   return (
     <PageShell
@@ -820,6 +821,11 @@ export function DeploymentsPage({
                   {item.status === "succeeded" ? (
                     <Button variant="ghost" size="sm" onClick={() => setRollingBack(item)}>
                       Rollback
+                    </Button>
+                  ) : null}
+                  {item.gitRepository ? (
+                    <Button variant="ghost" size="sm" onClick={() => setRedeploying(item)}>
+                      Redeploy
                     </Button>
                   ) : null}
                   {item.status === "pending" || item.status === "running" ? (
@@ -893,7 +899,102 @@ export function DeploymentsPage({
           reload();
         }}
       />
+
+      <RedeployDeploymentModal
+        // Remount per open, as the deploy form does: the idempotency key must be
+        // fresh for a new redeploy but stable for a retry within one open dialog.
+        key={`redeploy-${redeploying?.id ?? "none"}`}
+        projectId={projectId}
+        deployment={redeploying}
+        onClose={() => setRedeploying(null)}
+        onRedeployed={() => {
+          setRedeploying(null);
+          reload();
+        }}
+      />
     </PageShell>
+  );
+}
+
+/**
+ * Rebuild a past deployment's source.
+ *
+ * Vercel's "Redeploy": the same repository and branch are built again, so the
+ * engine builds the branch's current head rather than re-shipping the original
+ * artifact. The dialog says that, and points to Rollback for the other intent,
+ * because the two are easy to confuse and mean different things.
+ */
+function RedeployDeploymentModal({
+  projectId,
+  deployment,
+  onClose,
+  onRedeployed,
+}: {
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary | null;
+  readonly onClose: () => void;
+  readonly onRedeployed: () => void;
+}) {
+  const { client } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [idempotencyKey] = useState(newRequestId);
+
+  const submit = async () => {
+    if (!deployment) return;
+    setBusy(true);
+    setError(null);
+    const response = await client.call<DeploymentRequestSummary>("deployments.redeploy", {
+      projectId,
+      deploymentId: deployment.id,
+      idempotencyKey,
+    });
+    setBusy(false);
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? "The redeploy could not be requested.");
+      return;
+    }
+    onRedeployed();
+  };
+
+  return (
+    <Modal
+      title="Redeploy"
+      open={deployment !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Redeploy
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="small">
+          This builds the recorded source again, so it picks up the branch&apos;s latest commit.
+          To return to the exact artifact this row built, use Rollback instead.
+        </p>
+        {deployment ? (
+          <dl className="dl">
+            <div>
+              <dt>Repository</dt>
+              <dd>{deployment.gitRepository ?? "Not recorded"}</dd>
+            </div>
+            <div>
+              <dt>Branch</dt>
+              <dd>{deployment.gitBranch ?? "Default branch"}</dd>
+            </div>
+            <div>
+              <dt>Type</dt>
+              <dd>{deployment.kind === "preview" ? "Preview" : "Production"}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {error ? <p className="small error">{error}</p> : null}
+      </div>
+    </Modal>
   );
 }
 

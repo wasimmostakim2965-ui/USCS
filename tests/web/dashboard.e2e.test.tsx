@@ -730,6 +730,7 @@ describe("requesting and rolling back a deployment", () => {
       gitBranch: string | null;
       gitCommit: string | null;
       pullRequest: number | null;
+      gitRepository?: string | null;
     }[] = [
       {
         id: "d-existing",
@@ -742,6 +743,7 @@ describe("requesting and rolling back a deployment", () => {
         gitBranch: "main",
         gitCommit: null,
         pullRequest: null,
+        gitRepository: "https://github.com/acme/site.git",
       },
     ];
     const calls: { procedure: string; input: unknown }[] = [];
@@ -801,6 +803,42 @@ describe("requesting and rolling back a deployment", () => {
           ok: true,
           status: 200,
           data: { deployment, replayed: false, engineReason: null, commit: body.commit },
+        };
+      }
+      if (procedure === "deployments.redeploy") {
+        const body = input as { deploymentId: string };
+        const source = deployments.find((d) => d.id === body.deploymentId);
+        // The server refuses a row with no recorded source; mirror that so the
+        // UI's honest refusal is exercised rather than assumed.
+        if (!source?.gitRepository) {
+          return {
+            ok: false,
+            status: 409,
+            error: {
+              code: "conflict",
+              message: "This deployment recorded no source to replay.",
+            },
+          };
+        }
+        counter += 1;
+        const deployment = {
+          id: `d-redeploy-${counter}`,
+          projectId: "p-1",
+          status: "pending" as const,
+          url: null,
+          failureReason: null,
+          kind: source.kind,
+          isCurrent: false,
+          gitBranch: source.gitBranch,
+          gitCommit: null,
+          pullRequest: source.pullRequest,
+          gitRepository: source.gitRepository,
+        };
+        deployments.push(deployment);
+        return {
+          ok: true,
+          status: 200,
+          data: { deployment, replayed: false, engineReason: null },
         };
       }
       if (procedure === "deployments.promote") {
@@ -950,6 +988,55 @@ describe("requesting and rolling back a deployment", () => {
     expect(keys[0]).toBeTruthy();
     // Same key on the retry: the server can recognise it as the same request.
     expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("redeploys a past deployment through the API", async () => {
+    const { responder, calls, deployments } = deploymentPlane();
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Redeploy" }));
+    const dialog = await screen.findByRole("dialog");
+    // The dialog names what it will rebuild, so Redeploy is not a blind button.
+    expect(within(dialog).getByText("https://github.com/acme/site.git")).toBeTruthy();
+    expect(within(dialog).getByText("main")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Redeploy" }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.procedure === "deployments.redeploy")).toBe(true),
+    );
+    const call = calls.find((c) => c.procedure === "deployments.redeploy");
+    expect(call?.input).toMatchObject({ projectId: "p-1", deploymentId: "d-existing" });
+    // A fresh key, so the redeploy is a new build rather than a replay of the
+    // original row.
+    expect((call?.input as { idempotencyKey?: string }).idempotencyKey).toBeTruthy();
+    expect(deployments.some((d) => d.id.startsWith("d-redeploy-"))).toBe(true);
+  });
+
+  it("does not offer Redeploy on a row that recorded no source", async () => {
+    const { responder, deployments } = deploymentPlane();
+    // A rollback row: it returns to a revision the engine already holds, so it
+    // has no repository to replay. Offering Redeploy here would be a dead
+    // button — the server would only ever refuse it.
+    deployments.push({
+      id: "d-no-source",
+      projectId: "p-1",
+      status: "succeeded",
+      url: null,
+      failureReason: null,
+      kind: "production",
+      isCurrent: false,
+      gitBranch: null,
+      gitCommit: "abc1234",
+      pullRequest: null,
+      gitRepository: null,
+    });
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+
+    await screen.findByText("d-no-source");
+    expect(screen.getAllByRole("button", { name: "Redeploy" })).toHaveLength(1);
   });
 
   it("rolls back a successful deployment through the API", async () => {

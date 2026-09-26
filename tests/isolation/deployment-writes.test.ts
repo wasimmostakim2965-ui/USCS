@@ -30,6 +30,7 @@ import type {
   Domain,
   MembershipStore,
   Organization,
+  PreviewTarget,
   Project,
   ProjectGitLink,
 } from "@cloud-wai/database";
@@ -121,6 +122,7 @@ function makeStore() {
   const apiKeys: ApiKeySummary[] = [];
   const usage: UsageRecord[] = [];
   const gitLinks: ProjectGitLink[] = [];
+  const previewTargets: PreviewTarget[] = [];
 
   const isMember = (userId: UserId, org: OrganizationId) =>
     memberships.some((m) => m.userId === userId && m.organizationId === org);
@@ -242,6 +244,8 @@ function makeStore() {
       gitCommit?: string | null;
       pullRequest?: number | null;
       previewKey?: string | null;
+      gitRepository?: string | null;
+      buildPack?: string | null;
     }) {
       const d: Deployment = {
         id: `d-${deployments.length + 1}` as Deployment["id"],
@@ -259,6 +263,8 @@ function makeStore() {
         isCurrent: false,
         failureReason: input.failureReason,
         createdAt: "2026-01-01T00:00:00Z",
+        gitRepository: input.gitRepository ?? null,
+        buildPack: input.buildPack ?? null,
       };
       deployments.push(d);
       deploymentKeys.set(`${input.organizationId}::${input.idempotencyKey}`, d.id);
@@ -315,6 +321,63 @@ function makeStore() {
       const p = projects.find((x) => x.id === projectId);
       if (!p || !isMember(userId, p.organizationId)) return null;
       return { provider: null, providerResourceId: null };
+    },
+    async getPreviewTargetForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+      previewKey: string,
+    ) {
+      return (
+        previewTargets.find(
+          (t) =>
+            t.organizationId === organizationId &&
+            t.projectId === projectId &&
+            t.previewKey === previewKey,
+        ) ?? null
+      );
+    },
+    async createPreviewTarget(input: {
+      organizationId: OrganizationId;
+      projectId: ProjectId;
+      previewKey: string;
+      branch: string | null;
+      pullRequest: number | null;
+      createdBy: UserId;
+    }) {
+      const target: PreviewTarget = {
+        id: `pt-${previewTargets.length + 1}`,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        previewKey: input.previewKey,
+        branch: input.branch,
+        pullRequest: input.pullRequest,
+        provider: null,
+        providerResourceId: null,
+      };
+      previewTargets.push(target);
+      return target;
+    },
+    async setPreviewTargetProvider(input: {
+      organizationId: OrganizationId;
+      projectId: ProjectId;
+      previewKey: string;
+      provider: string;
+      providerResourceId: string;
+    }) {
+      const at = previewTargets.findIndex(
+        (t) =>
+          t.organizationId === input.organizationId &&
+          t.projectId === input.projectId &&
+          t.previewKey === input.previewKey,
+      );
+      if (at < 0) return null;
+      const updated: PreviewTarget = {
+        ...previewTargets[at]!,
+        provider: input.provider,
+        providerResourceId: input.providerResourceId,
+      };
+      previewTargets[at] = updated;
+      return updated;
     },
     /**
      * The promote move, mirroring the SQL function's rules: only a succeeded
@@ -1310,5 +1373,188 @@ describe("cloneUrlFor", () => {
     expect(cloneUrlFor("gitlab", "acme/site")).toBe("https://gitlab.com/acme/site.git");
     expect(cloneUrlFor("bitbucket", "acme/site")).toBe("https://bitbucket.org/acme/site.git");
     expect(cloneUrlFor("generic", "acme/site")).toBeNull();
+  });
+});
+
+describe("deployments.redeploy replays a past row's source", () => {
+  it("records the source a deployment was requested with", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "src-1",
+        gitRepository: "https://github.com/acme/site.git",
+        gitBranch: "main",
+        buildPack: "railpack",
+      },
+    });
+
+    // Without this the row could not name its own source, and a redeploy would
+    // have nothing to replay — the reason P27 was impossible.
+    expect(deployments[0]!.gitRepository).toBe("https://github.com/acme/site.git");
+    expect(deployments[0]!.buildPack).toBe("railpack");
+  });
+
+  it("requests a fresh build of the same repository, branch and pack", async () => {
+    const { store, deployments } = makeStore();
+    const queue = new InMemoryJobQueue();
+    const router = routerWith(store, workingEngines(), { queue });
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "src-2",
+        gitRepository: "https://github.com/acme/site.git",
+        gitBranch: "main",
+        buildPack: "railpack",
+      },
+    });
+    const original = deployments[0]!;
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: original.id, idempotencyKey: "re-2" },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { deployment: Deployment; replayed: boolean };
+    // A redeploy is a *new* deployment, not a replay of the original row: the
+    // caller's fresh key is what makes that so.
+    expect(data.replayed).toBe(false);
+    expect(data.deployment.id).not.toBe(original.id);
+    expect(deployments).toHaveLength(2);
+
+    const replayed = deployments[1]!;
+    expect(replayed.gitRepository).toBe(original.gitRepository);
+    expect(replayed.gitBranch).toBe(original.gitBranch);
+    expect(replayed.buildPack).toBe(original.buildPack);
+    expect(replayed.kind).toBe("production");
+    // The engine is handed the same source the original build used.
+    const jobs = [await queue.claim("w-1", 30_000)];
+    expect(jobs[0]?.payload).toMatchObject({
+      gitRepository: "https://github.com/acme/site.git",
+      gitBranch: "main",
+      buildPack: "railpack",
+    });
+  });
+
+  it("carries a preview row's kind and pull request so its target is reused", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "src-3",
+        gitRepository: "https://github.com/acme/site.git",
+        gitBranch: "feature-x",
+        kind: "preview",
+        pullRequest: 42,
+      },
+    });
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id, idempotencyKey: "re-3" },
+    });
+
+    expect(res.ok).toBe(true);
+    const replayed = deployments[1]!;
+    expect(replayed.kind).toBe("preview");
+    expect(replayed.pullRequest).toBe(42);
+    expect(replayed.previewKey).toBe("pr-42");
+  });
+
+  it("refuses a row that recorded no source, instead of building nothing", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, idempotencyKey: "src-4" },
+    });
+
+    // A rollback row: it returns to a revision the engine already holds, so it
+    // carries no repository of its own.
+    deployments.push({
+      ...deployments[0]!,
+      id: "d-rollback" as Deployment["id"],
+      gitRepository: null,
+      gitBranch: null,
+    });
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-rollback", idempotencyKey: "re-4" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(409);
+    expect(deployments).toHaveLength(2);
+  });
+
+  it("refuses a deployment in another project as not found", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "src-5",
+        gitRepository: "https://github.com/acme/site.git",
+        gitBranch: "main",
+      },
+    });
+    deployments.push({
+      ...deployments[0]!,
+      id: "d-other" as Deployment["id"],
+      projectId: "proj-other" as ProjectId,
+    });
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: "d-other", idempotencyKey: "re-5" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
+  });
+
+  it("refuses a non-member without revealing the project", async () => {
+    const { store, deployments } = makeStore();
+    const router = routerWith(store, workingEngines());
+    await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "src-6",
+        gitRepository: "https://github.com/acme/site.git",
+        gitBranch: "main",
+      },
+    });
+
+    const res = await router.route({
+      procedure: "deployments.redeploy",
+      accessToken: TOKEN_CAROL,
+      input: { projectId: PROJ_A, deploymentId: deployments[0]!.id, idempotencyKey: "re-6" },
+    });
+
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(404);
   });
 });
