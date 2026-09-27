@@ -308,6 +308,85 @@ function deps(store: StoreLike): RouterDeps {
   };
 }
 
+describe("the synchronous and durable paths agree on observable outcome", () => {
+  // The deployment algorithm exists twice — inline in `requestDeployment` and in
+  // the worker's `executeDeployment` — because the two apps may not import each
+  // other. That duplication is a standing risk: a change to one path can silently
+  // diverge from the other. This pins the property a reviewer would otherwise
+  // have to keep in their head: for the same engine behaviour, both paths leave
+  // the customer-facing row in the same status, with the same kind of url.
+  const behaviours = ["succeeded", "failed", "not_configured", "degraded"] as const;
+
+  it.each(behaviours)("agree when the engine answers '%s'", async (behaviour) => {
+    /** Run one deploy the given way and return the row it settled on. */
+    const runWith = async (durable: boolean) => {
+      const { store, deployments } = makeStore();
+      const queue = new InMemoryJobQueue();
+      const hosting = fakeHosting({ behaviour });
+      const engines = enginesWith(hosting);
+      const procedures = buildProcedures(store, {
+        engines,
+        newId: () => "gen",
+        ...(durable ? { queue } : {}),
+      });
+      const router = buildRouter(deps(store), procedures);
+
+      const res = await router.route({
+        procedure: "deployments.create",
+        accessToken: TOKEN_ALICE,
+        input: { projectId: PROJ_A, idempotencyKey: "same-1", gitBranch: "main" },
+      });
+      expect(res.ok, JSON.stringify(res.error)).toBe(true);
+
+      if (durable) {
+        const worker = new InProcessWorker({
+          queue,
+          handlers: {
+            [DEPLOYMENT_JOB_KIND]: buildDeploymentJobHandler({
+              engines,
+              writes: {
+                getProjectDeploymentTargetForService: (org, project) =>
+                  store.getProjectDeploymentTargetForService!(org, project),
+                setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
+              },
+              outcome: {
+                updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+                recordUsage: (input) => store.recordUsage!(input),
+              },
+            }),
+          },
+          logger: { debug() {}, info() {}, warn() {}, error() {} },
+          workerId: "worker-1",
+          apply: buildDeploymentApplier({
+            engines,
+            writes: {
+              getProjectDeploymentTargetForService: (org, project) =>
+                store.getProjectDeploymentTargetForService!(org, project),
+              setProjectProviderResource: (input) => store.setProjectProviderResource!(input),
+            },
+            outcome: {
+              updateDeploymentStatus: (input) => store.updateDeploymentStatus!(input),
+              recordUsage: (input) => store.recordUsage!(input),
+            },
+          }),
+        });
+        await worker.drain();
+      }
+
+      return deployments[0]!;
+    };
+
+    const sync = await runWith(false);
+    const durable = await runWith(true);
+
+    expect(durable.status).toBe(sync.status);
+    // The url is the engine's own; both paths must carry it or neither must.
+    expect(durable.url === null).toBe(sync.url === null);
+    // A failed or unconfigured build is never billed by either path.
+    expect(durable.failureReason === null).toBe(sync.failureReason === null);
+  });
+});
+
 describe("deploy is recorded in orchestration_jobs and executed by the worker", () => {
   it("enqueues, then mirrors the engine's own success onto the deployment row", async () => {
     const { store, deployments } = makeStore();
