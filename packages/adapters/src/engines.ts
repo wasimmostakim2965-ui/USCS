@@ -76,9 +76,15 @@ export interface EngineConfig {
    * not-configured state instead of falling through to the container engine.
    */
   readonly serverlessCredentials?: Readonly<Record<string, LambdaCredentials>> | undefined;
-  /** Per-organization storage credentials, keyed by organization id. */
+  /**
+   * Per-organization storage credentials, keyed by organization id. The region
+   * is optional and defaults to `us-east-1`; non-AWS S3 implementations such as
+   * Garage require their own region because it is part of the SigV4 scope.
+   */
   readonly storageCredentials?:
-    Readonly<Record<string, { accessKey: string; secretKey: string }>> | undefined;
+    Readonly<
+      Record<string, { accessKey: string; secretKey: string; region?: string | undefined }>
+    > | undefined;
   /**
    * A pre-built security edge adapter, when this deployment can supply one.
    *
@@ -185,17 +191,24 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
 
   const accessKeys: Record<string, string> = {};
   const secretKeys: Record<string, string> = {};
+  const storageRegions: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     const access = key.match(/^STORAGE_ACCESS_KEY__(.+)$/);
     if (access && value && value.trim() !== "") accessKeys[access[1]!] = value;
     const secret = key.match(/^STORAGE_SECRET_KEY__(.+)$/);
     if (secret && value && value.trim() !== "") secretKeys[secret[1]!] = value;
+    const region = key.match(/^STORAGE_REGION__(.+)$/);
+    if (region && value && value.trim() !== "") storageRegions[region[1]!] = value;
   }
 
-  const credentials: Record<string, { accessKey: string; secretKey: string }> = {};
+  const credentials: Record<string, { accessKey: string; secretKey: string; region?: string }> =
+    {};
   for (const org of Object.keys(accessKeys)) {
     const secretKey = secretKeys[org];
-    if (secretKey) credentials[org] = { accessKey: accessKeys[org]!, secretKey };
+    if (secretKey) {
+      const region = storageRegions[org];
+      credentials[org] = { accessKey: accessKeys[org]!, secretKey, ...(region ? { region } : {}) };
+    }
   }
 
   // Per-organization AWS credentials for the serverless engine. The region is
@@ -351,7 +364,14 @@ export function buildEngines(config: EngineConfig): Engines {
       ? createMinioStorage({
           credentials: (organizationId: OrganizationId): StorageCredentials | null => {
             const keys = storageKeys[organizationId];
-            return keys ? { endpoint, accessKey: keys.accessKey, secretKey: keys.secretKey } : null;
+            return keys
+              ? {
+                  endpoint,
+                  accessKey: keys.accessKey,
+                  secretKey: keys.secretKey,
+                  ...(keys.region ? { region: keys.region } : {}),
+                }
+              : null;
           },
         })
       : storageNotConfigured(
