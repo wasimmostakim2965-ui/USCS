@@ -57,7 +57,7 @@ object we have not built.
 | W2 | Projects list + create | `projects.list/create` (`index.ts:205-235`); `ProjectsPage` | **Wired** |
 | W3 | Drill-in project navigation | `navigation.ts:40-110` (workspace→project→database) | **Wired** |
 | W4 | Team members / roles | `organizations.members.list/updateRole/remove` (`index.ts`); `SettingsPage` renders real rows and the `ChangeMemberRoleModal`/`RemoveMemberModal` actions (`apps/web/src/pages/pages.tsx`) | **Partial** — list, change-role, remove and self-leave are wired and rank-bounded (API + RLS, migration `0020`); the RLS **INSERT** ceiling is fixed in `0026`. **Invite-a-new-email is absent**: adding a member needs an email→auth-user resolution the control plane does not have (no GoTrue admin call), so the page offers no dead invite button |
-| W5 | API tokens | `apiKeys.list/create/revoke` (`index.ts:335-360`); secret shown once, hashed | **Wired** |
+| W5 | API tokens | Mint/list/revoke (`apiKeys.*`) **and** a real authentication path: a `cw_live_` bearer is resolved by SHA-256 in `apps/api/src/context.ts`, acts for its owner, and is capped by the owner's current membership + the key's org/scopes in the guard. `last_used_at` is stamped on use. Secret shown once, hashed at rest. `tests/isolation/api-key-auth.test.ts` | **Wired** (bearer auth end to end) |
 | W6 | Activity / audit log | `audit.list` (`index.ts:255`); `ActivityPage`; append-only in DB | **Wired** |
 | W7 | Billing / usage (read) | `billing.usage` (`apps/api/src/procedures/billing.ts`); org roll-up | **Wired (read)** |
 | W8 | Usage **recording** (the row behind the bill) | `recordUsage` writes a row when an engine confirms a deployment (`apps/worker/src/deployment-job.ts`) or a backup (`apps/worker/src/backup-job.ts`) | **Wired** |

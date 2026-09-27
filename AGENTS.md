@@ -426,3 +426,32 @@ first page so accumulated pages cannot mix two projects' rows.
   `reconcile` method here: adding it to the `DeploymentEngine` port would change
   an adapter interface. `tests/integration/deployment-reconcile.test.ts` pins
   each branch.
+
+## API keys are real credentials now (the retired "Wired" claim)
+
+- Before this, `apiKeys.list/create/revoke` existed and the docs called API
+  tokens **Wired**, but nothing accepted a key: `keyAllows`/`apiKeyMatches` were
+  reachable only from a unit test and `last_used_at` was never written. A key you
+  created could not be used. That is the honesty bug this closed.
+- A bearer token is routed by *shape* in `apps/api/src/context.ts`: the public
+  `cw_live_` prefix means a key, and the SHA-256 of the presented secret is
+  resolved through `store.findApiKeyByHash` — never sent to the identity
+  provider. A JWT never reaches the key lookup.
+- A key acts for its owner, and is always the **narrower** authority:
+  `effectiveScopes` intersects the issued scopes with the owner's *current*
+  membership, so an owner demoted after issuance shrinks their keys. The guard
+  (`apps/api/src/guard.ts`) gates both the membership capability *and* the key's
+  own organization + scopes; a key aimed at a foreign org is `not_found`, never a
+  hint the tenant exists. `org:delete`/`billing:manage` remain out of reach
+  because `boundedScopes` never granted them (ADR-0007).
+- `packages/auth` owns `ApiKeyAuthority` (structural: id/org/owner/scopes/dates)
+  so `@cloud-wai/database` can return a key without depending on `@cloud-wai/auth`
+  (the dependency is auth → database, never the reverse). The store methods are
+  `findApiKeyByHash`, `markApiKeyUsed` (best-effort, tenant-scoped) and
+  `getProfileForService` (email only).
+- `tests/isolation/api-key-auth.test.ts` pins authentication, revocation,
+  demotion, unknown secret, org confinement, and that the session path is
+  unchanged. Do not add a client-facing INSERT/UPDATE policy to `api_keys` to
+  make a new key path work — every key write is a service-role operation
+  (migration 0007).
+

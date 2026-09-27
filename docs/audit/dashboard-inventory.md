@@ -33,6 +33,7 @@ them in this order: route/page → procedure → adapter call → live engine.
 | API keys list | `ApiKeysPage` | `apiKeys.list` | Working |
 | Create API key | `ApiKeysPage` | `apiKeys.create` | Working |
 | Revoke API key | `ApiKeysPage` | `apiKeys.revoke` | Working |
+| Use an API key | API client | `Authorization: Bearer cw_live_…` | Working (bearer auth; page shows Created/Last used + the curl form) |
 | Activity list | `ActivityPage` | `audit.list` | Working |
 | Organization profile | `SettingsPage` | `organizations.get` | Working |
 | Engine status | `SettingsPage` | `providers.health` | Working |
