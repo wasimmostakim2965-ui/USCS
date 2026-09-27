@@ -75,7 +75,12 @@ export {
   unconfiguredSessionController,
   withDemoAutoLogin,
 } from "./session.js";
-export type { BrowserSession, DemoCredentials, SessionConfig, SessionController } from "./session.js";
+export type {
+  BrowserSession,
+  DemoCredentials,
+  SessionConfig,
+  SessionController,
+} from "./session.js";
 export { App } from "./App.js";
 export type { AppProps } from "./App.js";
 

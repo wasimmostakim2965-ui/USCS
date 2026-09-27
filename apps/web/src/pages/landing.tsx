@@ -308,16 +308,12 @@ export function LandingPage({
           Pricing
         </h2>
         <p className="landing__band-lede">
-          Per user, per month. The engine work runs on infrastructure you already
-          operate, so the price is the control plane — not a markup on the compute
-          beneath it.
+          Per user, per month. The engine work runs on infrastructure you already operate, so the
+          price is the control plane — not a markup on the compute beneath it.
         </p>
         <div className="plans">
           {PLANS.map((plan) => (
-            <article
-              className={plan.highlight ? "plan plan--highlight" : "plan"}
-              key={plan.name}
-            >
+            <article className={plan.highlight ? "plan plan--highlight" : "plan"} key={plan.name}>
               <h3 className="plan__name">{plan.name}</h3>
               <p className="plan__price">
                 <span className="plan__amount">{plan.price}</span>

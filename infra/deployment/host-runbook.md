@@ -28,6 +28,25 @@ PUBLIC_SUPABASE_URL=https://supabase.example.com ./infra/deployment/deploy.sh
 The rest of this file explains the same steps by hand, for an operator who wants
 to run them individually.
 
+### Container egress and the host MTU
+
+If the host's uplink MTU is below 1500 (common on overlays and some VPCs), a
+freshly created Docker bridge still assumes 1500. Packets larger than the path
+MTU are then dropped rather than fragmented, which shows up as a container that
+cannot clone a repository — `git clone` dies with `Recv failure: Connection
+reset by peer` while `curl` of a small page succeeds. The deploy script clamps
+the TCP MSS to the path MTU once, before any container is built, so the
+connection negotiates a segment size that fits:
+
+```sh
+sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
+  -j TCPMSS --clamp-mss-to-pmtu
+```
+
+This is preferred over recreating every network at a lower MTU, because it does
+not disturb networks that already hold running state. `deploy.sh` adds it
+automatically when passwordless sudo is available.
+
 ## The manual path: two origins
 
 This is the "one VM, two origins" profile. It is what `infra/deployment/docker-compose.yml`

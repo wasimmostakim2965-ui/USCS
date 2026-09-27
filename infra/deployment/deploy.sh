@@ -169,6 +169,25 @@ ensure_supabase() {
   ok "supabase is up"
 }
 
+ensure_container_network() {
+  # Containers egress onto this host's overlay uplink. When the host MTU is
+  # below the 1500 a fresh Docker network assumes, packets larger than the
+  # path MTU are blackholed instead of fragmented, so `git clone` of any
+  # non-trivial repository dies at `Recv failure: Connection reset by peer`.
+  # Clamping the TCP MSS to the path MTU keeps the connection alive without
+  # changing container settings or recreating networks that hold live state.
+  sudo -n true 2>/dev/null || { warn "no passwordless sudo; skipping the container MTU fix"; return; }
+  if sudo iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN \
+      -j TCPMSS --clamp-mss-to-pmtu >/dev/null 2>&1; then
+    ok "container MSS clamp already present"
+    return
+  fi
+  sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
+    -j TCPMSS --clamp-mss-to-pmtu \
+    && ok "clamped container MSS to the path MTU" \
+    || warn "could not add the container MSS clamp"
+}
+
 apply_migrations() {
   # `supabase start` already applies supabase/migrations on a fresh stack, so this
   # only catches migrations added since. It never resets, so a redeploy does not
@@ -312,6 +331,7 @@ cmd_down() {
 cmd_deploy() {
   say "Cloud Wai deploy"
   ensure_docker
+  ensure_container_network
   ensure_supabase
   ensure_env
   apply_migrations

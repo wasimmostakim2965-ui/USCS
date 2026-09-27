@@ -82,9 +82,10 @@ export interface EngineConfig {
    * Garage require their own region because it is part of the SigV4 scope.
    */
   readonly storageCredentials?:
-    Readonly<
-      Record<string, { accessKey: string; secretKey: string; region?: string | undefined }>
-    > | undefined;
+    | Readonly<
+        Record<string, { accessKey: string; secretKey: string; region?: string | undefined }>
+      >
+    | undefined;
   /**
    * A pre-built security edge adapter, when this deployment can supply one.
    *
@@ -201,8 +202,7 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     if (region && value && value.trim() !== "") storageRegions[region[1]!] = value;
   }
 
-  const credentials: Record<string, { accessKey: string; secretKey: string; region?: string }> =
-    {};
+  const credentials: Record<string, { accessKey: string; secretKey: string; region?: string }> = {};
   for (const org of Object.keys(accessKeys)) {
     const secretKey = secretKeys[org];
     if (secretKey) {

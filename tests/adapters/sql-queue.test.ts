@@ -114,8 +114,7 @@ function fakePostgrest() {
       row.started_at = null;
       row.lease_expires_at = null;
       row.last_error = body.p_reason as string;
-      row.deferred_until =
-        seconds > 0 ? new Date(Date.now() + seconds * 1000).toISOString() : null;
+      row.deferred_until = seconds > 0 ? new Date(Date.now() + seconds * 1000).toISOString() : null;
       return respond(200, true);
     }
 
