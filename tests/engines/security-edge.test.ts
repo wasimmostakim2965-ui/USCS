@@ -814,6 +814,159 @@ describe("the decision ladder", () => {
 });
 
 /**
+ * What the ladder does with each class of caller the Security differentiator
+ * promises to handle. This is the product requirement stated as an assertion:
+ * an attacker is stopped while a search-engine bot, a generic scraper, a normal
+ * visitor and a webhook sender all still get through.
+ *
+ * The check is structural — it walks the compiled ladder in evaluation order and
+ * finds the first step whose predicate the fingerprint satisfies — because a
+ * real Coraza/Envoy is gate 7 and stays open. It asserts the *ordering and the
+ * predicates*, which is exactly what the compiler owns; whether a deployed edge
+ * executes them is what the open gate is for.
+ */
+function stageFor(
+  compiled: ReturnType<typeof compileEdge>,
+  fingerprint: {
+    readonly userAgent?: string;
+    readonly confirmedHostname?: string;
+    readonly remoteAddr?: string;
+    readonly internal?: boolean;
+    readonly denyMatch?: boolean;
+    readonly browser?: boolean;
+  },
+): string {
+  for (const step of compiled.ladder) {
+    const d = step.directive;
+    if (step.stage === "allow-verified-bot") {
+      const ua = /@contains ([^"]+)/.exec(d)?.[1];
+      const suffix = /@rx \(\^\|\\\.\)([^$]+)\$/.exec(d)?.[1]?.replace(/\\\./g, ".");
+      if (
+        ua &&
+        fingerprint.userAgent?.includes(ua) &&
+        suffix &&
+        fingerprint.confirmedHostname !== undefined &&
+        new RegExp(`(^|\\.)${suffix.replace(/\./g, "\\.")}$`).test(fingerprint.confirmedHostname)
+      ) {
+        return step.stage;
+      }
+      continue;
+    }
+    if (step.stage === "allow-internal") {
+      if (fingerprint.internal) return step.stage;
+      continue;
+    }
+    if (step.stage === "allow-trusted-ip") {
+      const addr = /@ipMatch ([^"\s]+)/.exec(d)?.[1];
+      if (addr && fingerprint.remoteAddr === addr) return step.stage;
+      continue;
+    }
+    if (step.stage === "block-deny-list") {
+      if (fingerprint.denyMatch) return step.stage;
+      continue;
+    }
+    if (step.stage === "challenge") {
+      if (fingerprint.browser) return step.stage;
+      continue;
+    }
+    if (step.stage === "waf") {
+      // The CRS rule is a threshold: only a request that accumulates enough
+      // anomaly score is stopped by it. Without that score the request falls
+      // through to the default pass.
+      if (fingerprint.crsMatch) return step.stage;
+      continue;
+    }
+  }
+  return "pass";
+}
+
+describe("the five traffic classes the Security differentiator promises to handle", () => {
+  const policies = {
+    riskLevel: "high" as const,
+    action: "block" as const,
+    version: 7,
+  };
+  const compiled = compileEdge({
+    route: route(),
+    policy: policies,
+    protection: "attack",
+    denyList: [{ kind: "cidr", value: "203.0.113.0/24" }],
+    trustedSources: [{ kind: "ip", value: "198.51.100.7" }],
+    rateLimits: [{ id: "rl", key: "ip", limit: 60, windowSeconds: 60 }],
+  });
+
+  it("blocks an attacker whose address is on the deny list, even outside attack mode", () => {
+    const outsideAttack = compileEdge({
+      route: route(),
+      policy: policies,
+      denyList: [{ kind: "cidr", value: "203.0.113.0/24" }],
+    });
+    expect(stageFor(outsideAttack, { remoteAddr: "203.0.113.5", denyMatch: true })).toBe(
+      "block-deny-list",
+    );
+    // In attack mode the deny step is still the one that stops it — a deny does
+    // not wait for a browser challenge.
+    expect(stageFor(compiled, { remoteAddr: "203.0.113.5", denyMatch: true })).toBe(
+      "block-deny-list",
+    );
+  });
+
+  it("lets a search-engine bot through attack mode, but only with a confirmed name", () => {
+    // A real Googlebot: UA matches and the edge forward-confirmed the reverse
+    // name under the suffix.
+    expect(
+      stageFor(compiled, {
+        userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1)",
+        confirmedHostname: "crawl-66-249-66-1.googlebot.com",
+        browser: true,
+      }),
+    ).toBe("allow-verified-bot");
+    // A spoofed UA from a scraper the edge could not confirm falls through to the
+    // challenge, so claiming to be Googlebot is not a bypass.
+    expect(
+      stageFor(compiled, {
+        userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1)",
+        confirmedHostname: "scraper.example.net",
+        browser: true,
+      }),
+    ).toBe("challenge");
+  });
+
+  it("lets a generic scraper past the deny list and the challenge, but counts it for the rate limit", () => {
+    // An ordinary automation with a normal UA: not denied, not a browser to
+    // challenge, and — because it is not an allowed crawler — subject to the
+    // rate limit, which Envoy enforces from the compiled descriptor.
+    const stage = stageFor(compiled, { userAgent: "python-requests/2.32" });
+    expect(stage).toBe("pass");
+    expect(compiled.rateLimits).toEqual([
+      { descriptor: "remote_address", limit: 60, windowSeconds: 60 },
+    ]);
+  });
+
+  it("lets a normal browser through when the route is not under attack", () => {
+    const normal = compileEdge({ route: route(), policy: policies, protection: "normal" });
+    expect(stageFor(normal, { browser: true })).toBe("pass");
+    // ...but challenges one in attack mode, which is the posture's whole point.
+    expect(stageFor(compiled, { browser: true })).toBe("challenge");
+  });
+
+  it("lets a webhook sender through attack mode by its source address", () => {
+    expect(stageFor(compiled, { remoteAddr: "198.51.100.7", browser: true })).toBe(
+      "allow-trusted-ip",
+    );
+    // The fragment names it too, because it is Envoy that serves the interstitial.
+    expect(compiled.envoyConfig.skipChallengeAddresses).toEqual(["198.51.100.7"]);
+  });
+
+  it("stops an attacker the deny list missed once the WAF anomaly threshold trips", () => {
+    // The last line of defence: a request that is neither denied by rule nor
+    // confirmed as a crawler is still inspected by the CRS rule, so an exploit
+    // payload is blocked by the WAF even though no explicit rule names it.
+    expect(stageFor(compiled, { userAgent: "python-requests/2.32", crsMatch: true })).toBe("waf");
+  });
+});
+
+/**
  * The recorded vocabulary must match the recorded-vocabulary *constraint*.
  *
  * `DECISION_STAGES` is the compiler's stage union; `security_events.stage` is a
