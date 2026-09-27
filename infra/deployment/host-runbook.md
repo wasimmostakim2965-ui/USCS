@@ -1,5 +1,35 @@
 # Serving Cloud Wai on a single host
 
+## The one-command path
+
+`infra/deployment/deploy.sh` is the "click deploy" entry point. It brings up the
+whole control plane on one Linux host — Docker, the Supabase stack, the API, the
+worker and both public origins — and leaves it running:
+
+```sh
+./infra/deployment/deploy.sh          # deploy
+./infra/deployment/deploy.sh status   # what is up right now
+./infra/deployment/deploy.sh down     # stop the Cloud Wai processes
+```
+
+It is idempotent: re-running it reuses a running Supabase stack, keeps an existing
+`CLOUD_WAI_SECRET_ENCRYPTION_KEY`, rebuilds, and restarts only the Cloud Wai
+processes. It never runs `supabase db reset`, so a redeploy does not destroy
+control-plane data. Each process is started with `setsid`, so a deploy begun over
+SSH survives the session that started it.
+
+Set `PUBLIC_SUPABASE_URL` to the browser-facing gateway origin before deploying,
+or the bundle bakes in a loopback URL that a browser cannot reach:
+
+```sh
+PUBLIC_SUPABASE_URL=https://supabase.example.com ./infra/deployment/deploy.sh
+```
+
+The rest of this file explains the same steps by hand, for an operator who wants
+to run them individually.
+
+## The manual path: two origins
+
 This is the "one VM, two origins" profile. It is what `infra/deployment/docker-compose.yml`
 does with containers, written for a host that runs the processes directly — the shape
 this repository is validated in. Use it when you have a Supabase stack and a built

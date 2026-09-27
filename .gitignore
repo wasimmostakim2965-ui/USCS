@@ -30,3 +30,6 @@ infra/aws/terraform/crash.log
 
 # Local tooling shim (pnpm wrapper for environments without a pnpm binary)
 .bin/
+
+# One-command deploy runtime state (pids + logs).
+.deploy/
