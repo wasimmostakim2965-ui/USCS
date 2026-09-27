@@ -39,6 +39,26 @@ export type JobHandler<TPayload = unknown> = (
   ctx: JobContext,
 ) => Promise<AdapterResult<unknown>>;
 
+/**
+ * How long a job for an in-flight engine build waits before it is polled again.
+ *
+ * The engine accepted the work and is carrying it out; polling faster would only
+ * burn the engine's API. This is the interval `defer` records as the job's next
+ * due time. A build the engine never settles is still bounded by the worker's
+ * stranded-deployment sweep, whose hard ceiling is an hour.
+ */
+export const DEFAULT_POLL_BACKOFF_MS = 10_000;
+
+/**
+ * How long a job may keep polling an engine build that never settles.
+ *
+ * Deferral spends no attempt, so without a wall-clock ceiling a job whose engine
+ * answers `running` forever would poll forever. This matches the stranded-sweep
+ * hard ceiling (`DEFAULT_HARD_CEILING_MS`): past an hour, "still building" is
+ * not progress, and the job is failed with a reason that says so.
+ */
+export const DEFAULT_POLL_CEILING_MS = 60 * 60_000;
+
 export interface WorkerOptions {
   readonly queue: JobQueue;
   readonly handlers: Readonly<Record<string, JobHandler>>;
@@ -47,6 +67,13 @@ export interface WorkerOptions {
   /** How long a claim is valid before another worker may reap it. */
   readonly leaseMs?: number;
   readonly defaultTimeoutMs?: number;
+  /**
+   * How long a job for an in-flight engine build waits before it is polled
+   * again. See `DEFAULT_POLL_BACKOFF_MS`.
+   */
+  readonly pollBackoffMs?: number;
+  /** Wall-clock ceiling on in-flight polling. See `DEFAULT_POLL_CEILING_MS`. */
+  readonly pollCeilingMs?: number;
   /**
    * Write the job's outcome onto the row the command acted on.
    *
@@ -128,11 +155,66 @@ export class InProcessWorker {
       );
     }
 
-    // Not a success. A transient failure should be retried; an engine we have no
-    // credentials for, or one reporting itself degraded, will not improve by
-    // retrying — fail it terminally. Either way the state is `failed`, never
-    // `succeeded`: the work did not happen.
+    // Not a success. Three kinds of non-success are distinguished, and none of
+    // them is ever recorded as `succeeded`:
+    //
+    //   * in-flight — the engine accepted the work and is still carrying it out
+    //     (`running`/`pending`). This is neither a success nor a failure, so it
+    //     is deferred: the job returns to the queue without spending an attempt
+    //     and is not re-claimed until the poll interval elapses. Spending an
+    //     attempt here was a real bug — a build that outlives the retry budget
+    //     was failed while the engine was still building it.
+    //   * transient — an engine call that failed. `fail` requeues while attempts
+    //     remain, then fails terminally.
+    //   * terminal — an engine we have no credentials for, or one reporting
+    //     itself degraded. Retrying cannot help, so `terminate` goes straight to
+    //     `failed`.
     const reason = result.ok ? `Adapter returned ${result.status}.` : result.reason;
+    if (result.status === "running" || result.status === "pending") {
+      // Polling is bounded by a wall-clock ceiling: deferral spends no attempt,
+      // so an engine that never settles would otherwise poll forever.
+      const ceilingMs = this.options.pollCeilingMs ?? DEFAULT_POLL_CEILING_MS;
+      const ageMs = Date.now() - new Date(job.createdAt).getTime();
+      if (Number.isFinite(ageMs) && ageMs >= ceilingMs) {
+        const ceilingReason =
+          `The engine still reports this build ${result.status} after ` +
+          `${Math.round(ceilingMs / 60_000)} minutes; it is not being worked on.`;
+        await queue.terminate(job.id, ceilingReason);
+        logger.warn("job exceeded the in-flight poll ceiling", {
+          jobId: job.id,
+          kind: job.kind,
+          status: result.status,
+        });
+        return this.settle(
+          job,
+          {
+            jobId: job.id as OrchestrationJobId,
+            kind: job.kind,
+            status: result.status,
+            applied: false,
+            reason: ceilingReason,
+          },
+          err(result.status, ceilingReason),
+        );
+      }
+      await queue.defer(job.id, reason, this.options.pollBackoffMs ?? DEFAULT_POLL_BACKOFF_MS);
+      logger.info("job deferred for an in-flight engine build", {
+        jobId: job.id,
+        kind: job.kind,
+        status: result.status,
+      });
+      return this.settle(
+        job,
+        {
+          jobId: job.id as OrchestrationJobId,
+          kind: job.kind,
+          status: result.status,
+          applied: false,
+          reason: null,
+        },
+        result,
+      );
+    }
     if (result.status === "not_configured" || result.status === "degraded") {
       await queue.terminate(job.id, reason);
     } else {

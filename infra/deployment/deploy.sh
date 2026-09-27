@@ -107,8 +107,18 @@ ensure_env() {
 
   # `supabase status -o env` prints JSON on recent CLI versions and KEY="value"
   # lines on older ones. Parse whichever comes back.
-  local status_out svc_key anon_key
-  status_out="$($SUPABASE_BIN status -o env 2>/dev/null)"
+  # `supabase status` loads .env as a dotenv file and refuses keys it deems
+  # invalid — the per-organization keys this product uses carry a UUID suffix
+  # (`COOLIFY_TOKEN__<organizationId>`), whose hyphens an upstream dotenv parser
+  # rejects, so status would fail on an otherwise valid .env. Read it from a
+  # directory that symlinks config/ but has no .env, so the keys are still read.
+  local status_dir="" status_out svc_key anon_key
+  if [[ -d supabase ]] && [[ -z "${SUPABASE_CONFIG_DIR:-}" ]]; then
+    status_dir="$(mktemp -d)"
+    ln -s "$PWD/supabase" "$status_dir/supabase"
+  fi
+  status_out="$(cd "${SUPABASE_CONFIG_DIR:-${status_dir:-$PWD}}" && $SUPABASE_BIN status -o env 2>/dev/null)"
+  [[ -n "$status_dir" ]] && rm -rf "$status_dir"
   svc_key="$(printf '%s' "$status_out" | node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       const trimmed=d.trim();

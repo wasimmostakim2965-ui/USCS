@@ -25,6 +25,7 @@ import {
 import type { DatabaseAdapter, HostingAdapter } from "@cloud-wai/adapters";
 import type { ProviderRef } from "@cloud-wai/contracts";
 import { InProcessWorker, jobStateFor } from "@cloud-wai/worker";
+import { ok } from "@cloud-wai/contracts";
 import type { JobHandler } from "@cloud-wai/worker";
 import type { OrganizationId } from "@cloud-wai/contracts";
 
@@ -233,5 +234,66 @@ describe("worker job processing", () => {
     });
     const provisioned = await worker.tick();
     expect(provisioned?.applied).toBe(true);
+  });
+
+  it("defers a job whose engine is still building, without spending attempts", async () => {
+    const queue = new InMemoryJobQueue();
+    // A handler that reports the honest in-flight state the hosting adapter
+    // returns while a build is running.
+    const worker = new InProcessWorker({
+      queue,
+      handlers: {
+        "deployment.deploy": async () => ok("running", { providerRef: null, url: null }),
+      },
+      logger: silentLogger(),
+      workerId: "worker-1",
+      pollBackoffMs: 60_000,
+    });
+    const job = await queue.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.deploy",
+      payload: {},
+      idempotencyKey: "running-build",
+      maxAttempts: 1,
+    });
+
+    const outcome = await worker.tick();
+    expect(outcome?.status).toBe("running");
+    // It settles nothing as succeeded, and the job is not failed.
+    expect(outcome?.applied).toBe(false);
+    const deferred = await queue.get(job.id);
+    expect(deferred?.state).toBe("queued");
+    // The attempt the claim spent is returned; polling is not a failure.
+    expect(deferred?.attempts).toBe(0);
+    expect(deferred?.deferredUntil).not.toBeNull();
+
+    // Even with `maxAttempts: 1`, an in-flight build is not failed: the defer
+    // returned the attempt, so the job stays claimable — just not before the
+    // poll interval elapses.
+    expect(await queue.claim("worker-1", 30_000)).toBeNull();
+  });
+
+  it("fails a build the engine reports in flight past the poll ceiling", async () => {
+    const queue = new InMemoryJobQueue();
+    const worker = new InProcessWorker({
+      queue,
+      handlers: {
+        "deployment.deploy": async () => ok("running", { providerRef: null, url: null }),
+      },
+      logger: silentLogger(),
+      workerId: "worker-1",
+      pollBackoffMs: 0,
+      pollCeilingMs: 0,
+    });
+    const job = await queue.enqueue({
+      organizationId: ORG_A,
+      kind: "deployment.deploy",
+      payload: {},
+      idempotencyKey: "stuck-build",
+    });
+
+    const outcome = await worker.tick();
+    expect(outcome?.status).toBe("running");
+    expect((await queue.get(job.id))?.state).toBe("failed");
   });
 });

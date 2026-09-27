@@ -201,6 +201,46 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
     },
   });
 
+  /**
+   * Return a deployment uuid the engine will answer for.
+   *
+   * The uuid Coolify returned is read back first; only if the engine disowns it
+   * (a 404, which is what its same-commit dedup answer produces) is the
+   * application's own deployment list consulted. That list is the engine's record
+   * of its builds, so its newest entry is the one this request is about. A list
+   * read that also fails falls back to the uuid we were given: the read-back will
+   * then report the engine's own reason rather than this adapter inventing one.
+   */
+  const resolveDeploymentUuid = async (
+    ctx: AdapterContext,
+    creds: CoolifyCredentials,
+    applicationUuid: string,
+    candidate: string,
+  ): Promise<string> => {
+    const direct = await call<{ status?: string }>(
+      ctx,
+      creds,
+      "GET",
+      `/api/v1/deployments/${encodeURIComponent(candidate)}`,
+    );
+    if (direct.ok) return candidate;
+
+    const list = await call<{
+      deployments?: readonly { deployment_uuid?: string; id?: number }[];
+    }>(
+      ctx,
+      creds,
+      "GET",
+      `/api/v1/deployments/applications/${encodeURIComponent(applicationUuid)}`,
+    );
+    if (!list.ok) return candidate;
+
+    const rows = [...(list.value.value?.deployments ?? [])];
+    rows.sort((a, b) => (b.id ?? 0) - (a.id ?? 0));
+    const newest = rows.find((row) => row.deployment_uuid)?.deployment_uuid;
+    return newest ?? candidate;
+  };
+
   return {
     /**
      * Coolify has no generic create endpoint. A public application is created at
@@ -289,10 +329,22 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
           "Coolify accepted the deploy request but returned no deployment_uuid.",
         );
       }
-      return ok(
-        "running",
-        opRef(ctx, queued.deployment_uuid, "deployment", queued.deployment_uuid),
+      // Which build is actually running.
+      //
+      // When a deploy is already queued for the same commit Coolify answers with
+      // the dedup message and a `deployment_uuid` that is *not addressable*: a
+      // later read of it 404s. Trusting that uuid would fail a build that is
+      // running correctly — the read-back reports 404 and the job is failed on a
+      // deployment the engine is happily performing. Resolve a handle the engine
+      // will answer for before reporting the work in flight, so the poll reads
+      // the real build rather than a name Coolify never queued.
+      const deploymentUuid = await resolveDeploymentUuid(
+        ctx,
+        resolved.creds,
+        input.applicationRef.resourceId,
+        queued.deployment_uuid,
       );
+      return ok("running", opRef(ctx, deploymentUuid, "deployment", deploymentUuid));
     },
 
     /**

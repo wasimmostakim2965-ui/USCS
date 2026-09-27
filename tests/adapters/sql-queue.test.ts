@@ -34,6 +34,7 @@ interface StoredRow {
   finished_at: string | null;
   last_error: string | null;
   lease_expires_at: string | null;
+  deferred_until?: string | null;
   payload: unknown;
 }
 
@@ -87,16 +88,35 @@ function fakePostgrest() {
     if (path.startsWith("/rpc/claim_orchestration_job")) {
       const workerId = body.p_worker_id as string;
       const leaseSeconds = body.p_lease_seconds as number;
+      const now = Date.now();
       const claimed = [...rows.values()].find(
-        (r) => r.state === "queued" && r.attempts < r.max_attempts,
+        (r) =>
+          r.state === "queued" &&
+          r.attempts < r.max_attempts &&
+          (!r.deferred_until || new Date(r.deferred_until).getTime() <= now),
       );
       if (!claimed) return respond(201, []);
       claimed.state = "running";
       claimed.attempts += 1;
       claimed.started_at = "2026-01-01T00:00:00.000Z";
-      claimed.lease_expires_at = new Date(Date.now() + leaseSeconds * 1000).toISOString();
+      claimed.lease_expires_at = new Date(now + leaseSeconds * 1000).toISOString();
+      claimed.deferred_until = null;
       void workerId;
       return respond(201, [claimed]);
+    }
+
+    if (path.startsWith("/rpc/defer_orchestration_job")) {
+      const row = rows.get(body.p_job_id as string);
+      if (!row || row.state !== "running") return respond(200, false);
+      const seconds = body.p_defer_seconds as number;
+      row.state = "queued";
+      row.attempts = Math.max(0, row.attempts - 1);
+      row.started_at = null;
+      row.lease_expires_at = null;
+      row.last_error = body.p_reason as string;
+      row.deferred_until =
+        seconds > 0 ? new Date(Date.now() + seconds * 1000).toISOString() : null;
+      return respond(200, true);
     }
 
     if (path.startsWith("/rpc/reap_expired_jobs")) {
@@ -134,6 +154,7 @@ function fakePostgrest() {
         finished_at: null,
         last_error: null,
         lease_expires_at: null,
+        deferred_until: null,
         payload: body.payload,
       };
       rows.set(row.id, row);
@@ -297,5 +318,41 @@ describe("sql job queue", () => {
     const reaped = await q.reapExpired();
     expect(reaped).toBe(1);
     expect((await q.get([...fake.rows.keys()][0]!))?.state).toBe("queued");
+  });
+
+  it("defers in-flight work without spending an attempt", async () => {
+    const fake = fakePostgrest();
+    const q = queueWith(fake);
+    const job = await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deployments.execute",
+      payload: {},
+      idempotencyKey: "k1",
+      maxAttempts: 2,
+    });
+
+    await q.claim("worker-1", 30_000);
+    expect((await q.get(job.id))?.attempts).toBe(1);
+
+    // The engine says the build is still running: defer, do not fail — and the
+    // attempt the claim spent is returned, so polling never erodes the budget
+    // that exists for transient failures.
+    await q.defer(job.id, "Adapter returned running.", 60_000);
+    const deferred = await q.get(job.id);
+    expect(deferred?.state).toBe("queued");
+    expect(deferred?.attempts).toBe(0);
+    expect(deferred?.deferredUntil).not.toBeNull();
+
+    // The poll interval has not elapsed, so the job is not claimable yet.
+    expect(await q.claim("worker-1", 30_000)).toBeNull();
+
+    // Once the due time passes it is polled again and the claim spends one
+    // attempt, as any claim does.
+    for (const row of fake.rows.values()) {
+      row.deferred_until = new Date(Date.now() - 1000).toISOString();
+    }
+    const reclaimed = await q.claim("worker-1", 30_000);
+    expect(reclaimed?.id).toBe(job.id);
+    expect(reclaimed?.attempts).toBe(1);
   });
 });

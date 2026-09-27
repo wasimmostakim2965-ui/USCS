@@ -30,6 +30,11 @@ export interface Job<TPayload = unknown> {
   readonly finishedAt: string | null;
   readonly lastError: string | null;
   readonly leaseExpiresAt: string | null;
+  /**
+   * When a deferred job may next be claimed, or null when it is claimable now.
+   * Set by `defer` for in-flight engine work; never a success.
+   */
+  readonly deferredUntil: string | null;
 }
 
 export interface EnqueueInput<TPayload> {
@@ -53,6 +58,25 @@ export interface JobQueue {
    * never `succeeded`: the work did not happen.
    */
   terminate(jobId: string, reason: string): Promise<void>;
+  /**
+   * Return a job to the queue *without* spending an attempt.
+   *
+   * Distinct from `fail`, which consumes the retry budget. This is for work the
+   * engine has accepted and is still carrying out — a build the hosting engine
+   * reports `running`. That is neither a success nor a failure, so it must not
+   * count against `maxAttempts`: a build that takes longer than
+   * `maxAttempts × backoff` would otherwise be failed as a transient error even
+   * though it is progressing. The job is left `queued` with its lease cleared,
+   * so the next poll (subject to the caller's backoff) re-reads the engine and
+   * settles the row when the engine finally answers.
+   *
+   * The job never becomes `succeeded` here; only the engine's own success does.
+   *
+   * `deferMs` is the poll interval: the job is not claimable until it elapses,
+   * so a fast worker loop does not re-poll an engine build thousands of times a
+   * second. A caller that omits it gets an immediate requeue.
+   */
+  defer(jobId: string, reason: string, deferMs?: number): Promise<void>;
   /** Return an expired lease to the queue so another worker can pick it up. */
   reapExpired(now?: Date): Promise<number>;
   get(jobId: string): Promise<Job | null>;
@@ -75,6 +99,7 @@ interface StoredJob extends Job {
   finishedAt: string | null;
   lastError: string | null;
   leaseExpiresAt: string | null;
+  deferredUntil: string | null;
 }
 
 export class InMemoryJobQueue implements JobQueue {
@@ -112,6 +137,7 @@ export class InMemoryJobQueue implements JobQueue {
       finishedAt: null,
       lastError: null,
       leaseExpiresAt: null,
+      deferredUntil: null,
     };
     this.byKey.set(key, job);
     this.byId.set(job.id, job);
@@ -123,10 +149,14 @@ export class InMemoryJobQueue implements JobQueue {
     for (const job of this.byId.values()) {
       if (job.state !== "queued") continue;
       if (job.attempts >= job.maxAttempts) continue;
+      // A deferred job stays invisible until its poll interval elapses, so an
+      // in-flight engine build is not re-polled on every worker tick.
+      if (job.deferredUntil && new Date(job.deferredUntil).getTime() > now.getTime()) continue;
       job.state = "running";
       job.attempts += 1;
       job.startedAt = now.toISOString();
       job.leaseExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
+      job.deferredUntil = null;
       void workerId; // recorded by the SQL implementation; unused in memory
       return job;
     }
@@ -163,6 +193,24 @@ export class InMemoryJobQueue implements JobQueue {
     job.lastError = reason;
     job.finishedAt = this.clock().toISOString();
     job.leaseExpiresAt = null;
+  }
+
+  async defer(jobId: string, reason: string, deferMs = 0): Promise<void> {
+    const job = this.byId.get(jobId);
+    if (!job) return;
+    // No terminal state is written: the engine owns the build and has not
+    // settled it, so the job merely goes back for another poll once the interval
+    // elapses. The attempt the claim just spent is *returned*: `attempts` is the
+    // budget for transient failures, and a poll that found the build still
+    // running is not a failure. Polling is bounded by the caller's wall-clock
+    // ceiling instead.
+    job.state = "queued";
+    job.lastError = reason;
+    job.startedAt = null;
+    job.leaseExpiresAt = null;
+    job.attempts = Math.max(0, job.attempts - 1);
+    job.deferredUntil =
+      deferMs > 0 ? new Date(this.clock().getTime() + deferMs).toISOString() : null;
   }
 
   async reapExpired(now: Date = this.clock()): Promise<number> {

@@ -137,4 +137,35 @@ describe("job queue", () => {
     const q = new InMemoryJobQueue();
     expect(await q.claim("w", 1_000)).toBeNull();
   });
+
+  it("defers in-flight work without spending an attempt, and honours the interval", async () => {
+    let now = new Date("2026-01-01T00:00:00Z");
+    const q = new InMemoryJobQueue(() => now);
+    const job = await q.enqueue({
+      organizationId: ORG_A,
+      kind: "deploy",
+      payload: {},
+      idempotencyKey: "k1",
+      maxAttempts: 2,
+    });
+
+    await q.claim("worker-1", 30_000);
+    expect((await q.get(job.id))?.attempts).toBe(1);
+
+    await q.defer(job.id, "engine is still building", 60_000);
+    const deferred = await q.get(job.id);
+    expect(deferred?.state).toBe("queued");
+    // The defer returns the attempt the claim spent: polling is not a failure.
+    expect(deferred?.attempts).toBe(0);
+    expect(deferred?.deferredUntil).not.toBeNull();
+
+    // Inside the poll interval the job stays invisible.
+    expect(await q.claim("worker-1", 30_000)).toBeNull();
+
+    // Past the interval it is claimable again, and only then does attempts rise.
+    now = new Date("2026-01-01T00:02:00Z");
+    const reclaimed = await q.claim("worker-1", 30_000);
+    expect(reclaimed?.id).toBe(job.id);
+    expect(reclaimed?.attempts).toBe(1);
+  });
 });

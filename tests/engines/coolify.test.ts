@@ -44,6 +44,11 @@ const requests: Recorded[] = [];
 const applications = new Map<string, Map<string, { name: string; status: string; fqdn: string }>>();
 /** Queued deployments per team token, keyed by deployment_uuid. */
 const deployments = new Map<string, Map<string, { status: string }>>();
+/** Builds per application uuid, so the app's deployment history can be listed. */
+const buildsByApplication = new Map<string, { uuid: string; status: string }[]>();
+let deploymentSeq = 0;
+/** Applications whose next deploy answers with a phantom (deduped) uuid. */
+const phantomNextDeploy = new Set<string>();
 /** Environment variables per application uuid, keyed by variable key. */
 const envs = new Map<string, Map<string, Record<string, unknown>>>();
 
@@ -110,13 +115,45 @@ beforeAll(async () => {
       if (req.method === "POST" && url.pathname === "/api/v1/deploy") {
         const uuid = String(parsed.uuid ?? "");
         if (!apps.has(uuid)) return json(404, { message: "No resources found." });
-        const deploymentUuid = `dep-${team}-${deps.size + 1}`;
+        // The dedup answer: a uuid Coolify reports but never queued, so a read
+        // of it 404s. This is what a same-commit redeploy returns.
+        if (phantomNextDeploy.delete(uuid)) {
+          const phantom = `phantom-${team}-${++deploymentSeq}`;
+          return json(200, {
+            deployments: [
+              {
+                message: "Deployment already queued for this commit.",
+                resource_uuid: uuid,
+                deployment_uuid: phantom,
+              },
+            ],
+          });
+        }
+        const deploymentUuid = `dep-${team}-${++deploymentSeq}`;
         deps.set(deploymentUuid, { status: "queued" });
+        const history = buildsByApplication.get(uuid) ?? [];
+        history.push({ uuid: deploymentUuid, status: "queued" });
+        buildsByApplication.set(uuid, history);
         return json(200, {
           deployments: [
             { message: "Deployment queued.", resource_uuid: uuid, deployment_uuid: deploymentUuid },
           ],
         });
+      }
+
+      // GET /api/v1/deployments/applications/{uuid} — the application's own
+      // build history. Coolify exposes this so a deploy that deduped onto an
+      // existing build can be resolved to a uuid that actually addresses it.
+      const listMatch = url.pathname.match(/^\/api\/v1\/deployments\/applications\/([^/]+)$/);
+      if (listMatch && req.method === "GET") {
+        const uuid = decodeURIComponent(listMatch[1]!);
+        if (!apps.has(uuid)) return json(404, { message: "No resources found." });
+        const rows = (buildsByApplication.get(uuid) ?? []).map((row, index) => ({
+          id: index + 1,
+          deployment_uuid: row.uuid,
+          status: deps.get(row.uuid)?.status ?? row.status,
+        }));
+        return json(200, { count: rows.length, deployments: rows });
       }
 
       // GET /api/v1/deployments/{uuid} — the deployment queue record. The real
@@ -384,6 +421,32 @@ describe("Coolify adapter", () => {
     const read = await coolify.getDeployment(ctx(ORG_B, "iso-b"), asB);
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.status).toBe("failed"); // Coolify answered 404
+  });
+
+  it("resolves a deduped deploy to the build that is actually running", async () => {
+    const coolify = adapter();
+    const created = await coolify.createApplication(ctx(ORG_A, "dedup"), CREATE_INPUT);
+    if (!created.ok) throw new Error("setup failed");
+    const applicationRef = created.value.providerRef;
+
+    // First deploy queues a real build.
+    const first = await coolify.deploy(ctx(ORG_A, "dedup"), { applicationRef });
+    if (!first.ok) throw new Error("setup failed");
+    const realUuid = first.value.providerRef.resourceId;
+    expect(realUuid.startsWith("dep-")).toBe(true);
+
+    // Second same-commit deploy gets Coolify's dedup answer: a phantom uuid that
+    // is not addressable. The adapter must not hand that back, or the poll would
+    // 404 and fail a build the engine is performing.
+    phantomNextDeploy.add(applicationRef.resourceId);
+    const second = await coolify.deploy(ctx(ORG_A, "dedup"), { applicationRef });
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error("unreachable");
+    expect(second.value.providerRef.resourceId).toBe(realUuid);
+
+    // And that handle is readable, which the phantom one never was.
+    const state = await coolify.getDeployment(ctx(ORG_A, "dedup"), second.value.providerRef);
+    expect(state.ok).toBe(true);
   });
 
   it("reports a queued deploy as running, with the deployment uuid Coolify returned", async () => {

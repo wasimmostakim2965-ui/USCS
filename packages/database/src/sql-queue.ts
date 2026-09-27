@@ -41,10 +41,11 @@ interface JobRow {
   readonly finished_at: string | null;
   readonly last_error: string | null;
   readonly lease_expires_at: string | null;
+  readonly deferred_until: string | null;
 }
 
 const COLUMNS =
-  "id,organization_id,kind,payload,idempotency_key,state,attempts,max_attempts,created_at,started_at,finished_at,last_error,lease_expires_at";
+  "id,organization_id,kind,payload,idempotency_key,state,attempts,max_attempts,created_at,started_at,finished_at,last_error,lease_expires_at,deferred_until";
 
 function toJob(row: JobRow): Job {
   return {
@@ -61,6 +62,7 @@ function toJob(row: JobRow): Job {
     finishedAt: row.finished_at,
     lastError: row.last_error,
     leaseExpiresAt: row.lease_expires_at,
+    deferredUntil: row.deferred_until,
   };
 }
 
@@ -137,6 +139,7 @@ export class SqlJobQueue implements JobQueue {
       finished_at: new Date().toISOString(),
       lease_expires_at: null,
       last_error: null,
+      deferred_until: null,
     });
   }
 
@@ -149,6 +152,7 @@ export class SqlJobQueue implements JobQueue {
       last_error: reason,
       lease_expires_at: null,
       finished_at: spent ? new Date().toISOString() : null,
+      deferred_until: null,
     });
   }
 
@@ -158,6 +162,20 @@ export class SqlJobQueue implements JobQueue {
       last_error: reason,
       finished_at: new Date().toISOString(),
       lease_expires_at: null,
+      deferred_until: null,
+    });
+  }
+
+  async defer(jobId: string, reason: string, deferMs = 0): Promise<void> {
+    // Done in one RPC so the attempt refund and the state write cannot be split.
+    // `attempts` is the budget for transient failures; a poll that found the
+    // engine's build still running is not one, so the attempt its claim spent is
+    // returned and the job is gated to the poll interval by `deferred_until`.
+    const deferSeconds = deferMs > 0 ? Math.ceil(deferMs / 1000) : 0;
+    await this.must<boolean>("defer", {
+      method: "POST",
+      path: "/rpc/defer_orchestration_job",
+      body: { p_job_id: jobId, p_reason: reason, p_defer_seconds: deferSeconds },
     });
   }
 
