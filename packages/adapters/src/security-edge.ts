@@ -157,8 +157,28 @@ export interface LadderStep {
   readonly directive: string;
 }
 
-/** The default identity of this deployment's own requests (health, probes). */
+/**
+ * The default identity of this deployment's own requests (health, probes).
+ *
+ * This is the one allow step whose evidence is a *request header*, so it is only
+ * trustworthy because the edge strips the header from inbound traffic before the
+ * compiled rules run. That obligation is security-critical and is written down
+ * in `docs/runbooks/deploy-aws.md`: an edge that forwards the header would let
+ * anyone claim to be an internal request and be exempted from the deny list. The
+ * compiler cannot enforce the strip, so it is a contract, not a guarantee.
+ */
 export const INTERNAL_REQUEST_HEADER = "x-cloud-wai-internal";
+
+/**
+ * The transaction variable an internal request sets.
+ *
+ * Set only when the header matches, and consumed by the deny chain exactly like
+ * the trusted-address and confirmed-crawler markers, so "internal" means the
+ * same thing the other allow steps mean: never blocked by a customer's own rule.
+ * It is only meaningful because the edge strips `INTERNAL_REQUEST_HEADER` from
+ * inbound traffic; without that, the marker is attacker-claimable.
+ */
+export const INTERNAL_MARKER_VARIABLE = "cloud_wai_internal";
 
 const HOST_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
 const PATH_PATTERN = /^\/[A-Za-z0-9\-._~\/]{0,200}$/;
@@ -624,11 +644,16 @@ export function compileEdge(input: CompileInput): CompiledEdge {
   }
 
   // 2. Internal requests. This deployment's own health checks and probes carry
-  //    the header; nothing a customer can set grants it, because the edge strips
-  //    the header from inbound traffic before this rule runs.
+  //    the header; the edge strips it from inbound traffic before this rule runs
+  //    (a security-critical obligation recorded in docs/runbooks/deploy-aws.md),
+  //    so nothing a customer can send grants it. The step sets a marker like the
+  //    other allow steps, so an internal request is exempt from the deny list for
+  //    the same reason a trusted address is — otherwise a customer's own sweep
+  //    could block the deployment's probes, which is the silent failure this
+  //    ordering exists to prevent.
   {
     const id = nextId++;
-    const directive = `SecRule REQUEST_HEADERS:${INTERNAL_REQUEST_HEADER} "@streq 1" "id:${id},phase:1,pass,nolog"`;
+    const directive = `SecRule REQUEST_HEADERS:${INTERNAL_REQUEST_HEADER} "@streq 1" "id:${id},phase:1,pass,nolog,setvar:tx.${INTERNAL_MARKER_VARIABLE}=1"`;
     directives.push(directive);
     ladder.push({ id, stage: "allow-internal", action: "allow", directive });
   }
@@ -651,15 +676,17 @@ export function compileEdge(input: CompileInput): CompiledEdge {
   // 4. Deny list. Each value was validated before it reached here; a value that
   //    would not match its grammar never becomes a directive.
   //
-  //    Each deny is a three-rule chain whose members fail when the trusted
-  //    marker or the confirmed-bot marker is set, so a trusted address and a
-  //    confirmed crawler really are "never blocked" — otherwise the allow steps
-  //    above would mark them and this rule would deny them anyway, and the
-  //    operator's own webhook sender would be blocked by a rule they added to
-  //    block someone else, or a broad CIDR/ASN sweep would take Googlebot with
-  //    it and quietly break SEO. Both markers are only ever set from a validated
-  //    address literal and a forward-confirmed DNS name, so neither can be
-  //    claimed by a header.
+  //    Each deny is a four-rule chain whose members fail when the trusted
+  //    marker, the confirmed-bot marker or the internal marker is set, so a
+  //    trusted address, a confirmed crawler and the deployment's own probe
+  //    really are "never blocked" — otherwise the allow steps above would mark
+  //    them and this rule would deny them anyway, and the operator's own webhook
+  //    sender would be blocked by a rule they added to block someone else, or a
+  //    broad CIDR/ASN sweep would take Googlebot with it and quietly break SEO.
+  //    The trusted and internal markers are only ever set from a validated
+  //    address literal and a header the edge strips from inbound traffic, and the
+  //    bot marker only from a forward-confirmed DNS name, so none can be claimed
+  //    by an attacker's own request.
   for (const rule of input.denyList ?? []) {
     const valid = validateDenyRule(rule);
     if (!valid.ok) continue; // never emit a directive from an unvalidated value
@@ -667,13 +694,14 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     const id = nextId++;
     const starter = `SecRule ${target} "${operator}" "id:${id},phase:1,deny,status:403,log,msg:'cloud-wai deny list: ${rule.kind}',chain"`;
     const trustedMember = `SecRule TX:cloud_wai_trusted "!@streq 1" "t:none,chain"`;
+    const internalMember = `SecRule TX:${INTERNAL_MARKER_VARIABLE} "!@streq 1" "t:none,chain"`;
     const botMember = `SecRule TX:${BOT_MARKER_VARIABLE} "!@rx ^\\d+$" "t:none"`;
-    directives.push(starter, trustedMember, botMember);
+    directives.push(starter, trustedMember, internalMember, botMember);
     ladder.push({
       id,
       stage: "block-deny-list",
       action: "block",
-      directive: `${starter}\n${trustedMember}\n${botMember}`,
+      directive: `${starter}\n${trustedMember}\n${internalMember}\n${botMember}`,
     });
   }
 

@@ -421,11 +421,32 @@ describe("the decision ladder", () => {
     });
     const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
     const denyIndex = lines.findIndex((line) => line.includes("cloud-wai deny list"));
-    const members = [lines[denyIndex + 1], lines[denyIndex + 2]];
+    const members = [lines[denyIndex + 1], lines[denyIndex + 2], lines[denyIndex + 3]];
     expect(members[0]).toContain("TX:cloud_wai_trusted");
-    expect(members[1]).toContain("TX:cloud_wai_bot");
+    expect(members[1]).toContain("TX:cloud_wai_internal");
+    expect(members[2]).toContain("TX:cloud_wai_bot");
     // Negated: the chain fails when the crawler marker is present.
-    expect(members[1]).toContain("!@rx");
+    expect(members[2]).toContain("!@rx");
+  });
+
+  it("lets an internal request win when it also trips a deny rule", () => {
+    // The deployment's own health checks and probes are an allow step too, so a
+    // customer's broad sweep must not block them. Without this guard the internal
+    // step would set a marker nothing consumed — an allow that reads correct in
+    // the ladder and does nothing in the emitted rules, the exact class of defect
+    // this file keeps finding.
+    const compiled = compileEdge({
+      route: route(),
+      denyList: [{ kind: "cidr", value: "0.0.0.0/0" }],
+    });
+    const internal = compiled.ladder.find((s) => s.stage === "allow-internal");
+    expect(internal!.directive).toContain("setvar:tx.cloud_wai_internal=1");
+    const lines = compiled.corazaDirectives.flatMap((d) => d.split("\n"));
+    const denyIndex = lines.findIndex((line) => line.includes("cloud-wai deny list"));
+    const internalMember = lines[denyIndex + 2];
+    expect(internalMember).toContain("TX:cloud_wai_internal");
+    expect(internalMember).toContain("!@streq 1");
+    expect(internalMember).not.toMatch(/id:\d+/);
   });
 
   it("sets the crawler marker only when the whole chain matches", () => {

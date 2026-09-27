@@ -139,14 +139,20 @@ so an existing bookmark does not 404.
   the whole transaction — and a request from a verified crawler can still carry
   an attack, so ending inspection on it is the wrong trade. The consequence is
   that an allow step alone does not stop the WAF from denying the request for
-  some other reason. Both cases where that would be wrong are now handled
+  some other reason. All three cases where that would be wrong are now handled
   explicitly: a trusted address is exempt from the deny list (each deny chain
-  fails when `cloud_wai_trusted` is set), and so is a confirmed crawler (the same
-  chain also fails when `cloud_wai_bot` is set), so "trusted" and "a verified
-  crawler" both mean never blocked by a deny rule. What is still not handled is
-  the WAF's anomaly rule itself: a confirmed crawler that carries a CRS-matching
-  payload is still blocked by the WAF, which is the intended trade (inspection is
-  never weakened for anyone).
+  fails when `cloud_wai_trusted` is set), a confirmed crawler likewise (the same
+  chain also fails when `cloud_wai_bot` is set), and the deployment's own probe
+  likewise (`cloud_wai_internal`) — so "trusted", "a verified crawler" and "an
+  internal request" all mean never blocked by a deny rule. The internal marker
+  was the last one added: the step used to emit `pass,nolog` with **no** marker,
+  so it was inert — an allow that read correctly in the ladder and did nothing in
+  the emitted rules. It is only trustworthy because the edge strips
+  `x-cloud-wai-internal` from inbound traffic; that obligation is security-
+  critical and is recorded in `docs/runbooks/deploy-aws.md`. What is still not
+  handled is the WAF's anomaly rule itself: a confirmed crawler that carries a
+  CRS-matching payload is still blocked by the WAF, which is the intended trade
+  (inspection is never weakened for anyone).
 
 - **The bot confirmation is a suffix match, and its marker is set by the chain
   member.** Two defects fixed together, and both were silent. The confirm member

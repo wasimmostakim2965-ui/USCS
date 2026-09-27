@@ -190,6 +190,28 @@ the SEO behaviour only if it also keeps attack mode off. Turning attack mode on
 without this step challenges every crawler. That is why it is written down here
 rather than left to the operator to infer.
 
+### The edge's obligation to the internal-request allow
+
+The compiled ladder's `allow-internal` step matches the request header
+`x-cloud-wai-internal: 1` and sets `tx.cloud_wai_internal`, which exempts the
+request from the customer's deny list. That header is attacker-settable, so the
+allow is only trustworthy if the edge **strips it from every inbound request**
+before the compiled rules run:
+
+- At the listener that faces the internet, remove `x-cloud-wai-internal` from the
+  request before forwarding, then add it back only for the edge's own probes
+  (health checks, origin liveness, the control plane's synthetic requests).
+- Do this the same way regardless of the upstream: an edge that forwards the
+  header untouched lets anyone claim to be an internal request and be exempted
+  from the deny list the customer set.
+
+Unlike the bot confirmation and the ASN variable, this is not a value Coraza can
+produce — it is a stripping obligation on the Envoy side. If the edge cannot
+guarantee the strip, leave the header out of the fragment by treating the step as
+advisory: the deny list's internal guard is inert only when the header never
+reaches the WAF, which is exactly the state a stripping edge produces. An edge
+that does not strip should be considered to have no internal allow at all.
+
 ### The edge's obligation to the challenge skip
 
 Attack mode is enforced by Envoy, which serves the interstitial. Envoy runs
