@@ -56,6 +56,7 @@ SQL_STEPS=(
   "staged deployments|supabase/migrations/0023_staged_deployments.sql"
   "environments|supabase/migrations/0024_environments.sql"
   "env vars per environment|supabase/migrations/0025_env_vars_per_environment.sql"
+  "member insert rank|supabase/migrations/0026_member_insert_rank.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"

@@ -286,6 +286,22 @@ not when a commit message says so.
   application tail. The result carries `source` so the drawer can say which log
   it is rather than presenting one as the other.
 
+- **An admin could mint an owner on INSERT.** Migration `0020` made rank a
+  *ceiling* on `organization_members` UPDATE and DELETE — an admin may not demote
+  an owner, nor grant the owner role, and nobody edits their own role. The
+  **INSERT** policy from `0002` kept the first-cut shape
+  (`with check (role_at_least(organization_id, 'admin') or …)`), which any admin
+  satisfies for any row: an admin could `insert … role = 'owner'` and then rule
+  the organization they were only appointed to administer. Closed by
+  `0026_member_insert_rank.sql`, which restates the INSERT policy with the same
+  ceiling as UPDATE: an owner may add anyone, an admin only a non-owner
+  (`role <> 'owner'`), and the creator may still claim the first ownership row of
+  an organization they created. `tests/isolation/rls/25_member_management_probe.sql`
+  probes 9a–9c cover it, and the negative control (that probe run without `0026`)
+  reproduces the escalation. The general rule, once more: the API's
+  `organizations.members.*` rank check is not enough on its own — a member can
+  reach PostgREST with their own JWT, so the rank rule must hold in the database.
+
 ## List pagination (append-ordered lists)
 
 `deployments` and `audit_logs` are append-ordered and grow without bound, so

@@ -22,6 +22,12 @@
 --   6. A member may remove themselves — leaving is a normal action — but not
 --      anyone else, and an outsider cannot touch the tenant at all.
 --
+--   7. *Adding* a member is bounded by the same rank ceiling (migration 0026).
+--      An admin could otherwise `insert ... role = 'owner'` and mint a second
+--      owner — the escalation 0020 closed for UPDATE, reachable through INSERT
+--      instead. An owner may still add anyone; an admin may still add a
+--      non-owner; the creator still claims their own first membership.
+--
 -- Self-contained: it creates its own fixtures.
 
 \set ON_ERROR_STOP on
@@ -316,3 +322,72 @@ end;
 $$;
 
 reset role;
+
+-- ===========================================================================
+-- Probe 9: adding a member is bounded by rank too (migration 0026)
+-- ===========================================================================
+
+-- Bob left in probe 8, so put him back as an admin before testing the insert
+-- ceiling. Dave (org B's owner) is an outsider to A, so he stands in for any
+-- fourth user an admin might try to add.
+insert into organization_members (organization_id, user_id, role) values
+  ('aaaaaaaa-0000-0000-0000-00000000000a', '22222222-2222-2222-2222-222222222222', 'admin')
+  on conflict (organization_id, user_id) do update set role = 'admin';
+
+-- 9a. An admin cannot mint an owner. This is the hole 0020 left open on INSERT:
+--     the old policy let Bob, an admin, insert a fresh owner row and then rule
+--     the organization through it.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+
+do $$
+begin
+  begin
+    insert into organization_members (organization_id, user_id, role)
+    values ('aaaaaaaa-0000-0000-0000-00000000000a', '44444444-4444-4444-4444-444444444444', 'owner');
+    raise exception 'ESCALATION FAIL: an admin added an owner (the insert succeeded)';
+  exception
+    when insufficient_privilege then
+      null; -- expected: the new row violates the WITH CHECK
+  end;
+end;
+$$;
+
+-- 9b. An admin may still add a non-owner — the ceiling must not over-block.
+do $$
+begin
+  insert into organization_members (organization_id, user_id, role)
+  values ('aaaaaaaa-0000-0000-0000-00000000000a', '44444444-4444-4444-4444-444444444444', 'member');
+exception
+  when insufficient_privilege then
+    raise exception 'FAIL: an admin could not add a member (policy over-blocked)';
+end;
+$$;
+
+reset role;
+
+-- Put the fixture back: Dave belongs to org B, not org A.
+delete from organization_members
+ where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+   and user_id = '44444444-4444-4444-4444-444444444444';
+
+-- 9c. An owner may add an owner. Ownership is the owner's to extend, and a
+--     response to 9a must not also forbid this.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', false);
+
+do $$
+begin
+  insert into organization_members (organization_id, user_id, role)
+  values ('aaaaaaaa-0000-0000-0000-00000000000a', '44444444-4444-4444-4444-444444444444', 'owner');
+exception
+  when insufficient_privilege then
+    raise exception 'FAIL: an owner could not add an owner (policy over-blocked)';
+end;
+$$;
+
+reset role;
+
+delete from organization_members
+ where organization_id = 'aaaaaaaa-0000-0000-0000-00000000000a'
+   and user_id = '44444444-4444-4444-4444-444444444444';
