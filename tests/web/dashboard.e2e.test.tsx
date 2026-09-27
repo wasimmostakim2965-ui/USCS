@@ -2324,7 +2324,15 @@ describe("the dashboard renders every state for every route", () => {
     // nothing at all — the difference between "empty" and "broken".
     const heading = await screen.findByRole("heading", { level: 1 });
     expect(heading.textContent).not.toBe("");
-    expect(await screen.findByText(/No |Nothing |not a member|does not exist/)).toBeTruthy();
+    // Scope to the empty-state body itself. A page's own prose can also match
+    // "No " (the Activity page says "No role can edit or delete an entry"), and
+    // an unscoped text query then finds two nodes and fails nondeterministically.
+    const state = await waitFor(() => {
+      const found = document.querySelector(".state--empty .state__body");
+      if (!found) throw new Error("no empty state yet");
+      return found;
+    });
+    expect(state.textContent ?? "").toMatch(/No |Nothing |not a member|does not exist/);
   });
 
   it.each(routes)("$title shows an error, with a way to retry", async ({ hash, target }) => {

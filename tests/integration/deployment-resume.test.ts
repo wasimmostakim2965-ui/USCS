@@ -182,6 +182,17 @@ function makeRow() {
       providerResourceId: row.providerResourceId,
       deploymentResourceId: row.deploymentResourceId,
     }),
+    // Mirrors `runtime.ts`: the executor writes the engine's handle the moment
+    // `deploy` returns, before the applier runs.
+    markDeploymentInFlight: async (input: {
+      status: string;
+      providerResourceId?: string | null;
+      deploymentResourceId?: string | null;
+    }) => {
+      row.status = input.status;
+      if (input.providerResourceId != null) row.providerResourceId = input.providerResourceId;
+      if (input.deploymentResourceId != null) row.deploymentResourceId = input.deploymentResourceId;
+    },
   };
   const outcome = {
     updateDeploymentStatus: async (input: {
@@ -247,7 +258,34 @@ describe("a requeued deploy polls its in-flight build instead of rebuilding", ()
     expect(deployCalls()).toBe(1);
     expect(result.status).toBe("running");
     expect(result.ok).toBe(true);
-    expect(row.status).toBe("pending");
+    // The new row was not mistaken for a resume — deploy ran — and it now
+    // carries the handle the executor wrote when the engine issued it.
+    expect(row.deploymentResourceId).toBe(ENGINE_DEPLOY_HANDLE);
+  });
+
+  it("persists the in-flight handle before the applier, so a crash cannot double-deploy", async () => {
+    // The dangerous window is between `engine.deploy` returning and the applier
+    // writing the row: a process that dies there would leave the row with no
+    // handle, and the reap would start a second, separately billed build. The
+    // executor must therefore write the handle itself, before it returns — so
+    // this test never calls the applier at all.
+    const { hosting, deployCalls } = runningThenSucceeded();
+    const engines = enginesWith(hosting);
+    const { row, writes, outcome } = makeRow();
+
+    const handler = buildDeploymentJobHandler({ engines, writes, outcome });
+    const first = await handler(payload, ctx);
+    expect(first.ok).toBe(true);
+    expect(first.status).toBe("running");
+    expect(deployCalls()).toBe(1);
+    // No applier ran, yet the handle is already on the row.
+    expect(row.deploymentResourceId).toBe(ENGINE_DEPLOY_HANDLE);
+    expect(row.status).toBe("running");
+
+    // A requeue after the "crash" polls the in-flight build; it does not rebuild.
+    const second = await handler(payload, ctx);
+    expect(second.status).toBe("succeeded");
+    expect(deployCalls()).toBe(1);
   });
 });
 

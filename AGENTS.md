@@ -286,6 +286,20 @@ not when a commit message says so.
   application tail. The result carries `source` so the drawer can say which log
   it is rather than presenting one as the other.
 
+- **A crash mid-deploy could start a second, billed build.** The worker writes a
+  deployment's settled outcome *after* the handler returns, so a process that
+  died between `engine.deploy` returning (the engine has accepted the build and
+  issued its deployment handle) and that write left the row with no handle. A
+  reap then saw an ordinary new deploy and started a second build for one
+  request. The executor now writes the handle itself, via
+  `markDeploymentInFlight`, the moment `deploy` returns — before the state read
+  and before the applier — and the resume path treats any handle on a
+  non-terminal row as in flight, so the requeue polls that build instead of
+  rebuilding. The status written there is the engine's own answer (`running` /
+  `pending`), never `succeeded`; the applier still writes the settled state. Note
+  what is still *not* done: an interrupted build the engine never settles is only
+  ever polled, never force-resolved — `reconcile` remains unused by the worker.
+
 - **An admin could mint an owner on INSERT.** Migration `0020` made rank a
   *ceiling* on `organization_members` UPDATE and DELETE — an admin may not demote
   an owner, nor grant the owner role, and nobody edits their own role. The

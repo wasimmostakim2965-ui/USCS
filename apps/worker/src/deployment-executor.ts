@@ -107,6 +107,27 @@ export interface DeploymentExecutionWrites {
     deploymentId: string,
   ): Promise<StoredDeploymentHandle | null>;
   /**
+   * Persist the engine's own handle the moment `deploy` returns, before the
+   * state is read back.
+   *
+   * The applier writes the settled outcome after the handler returns, so a
+   * process that dies between `deploy` and that write would leave the row with
+   * no handle — and a reap would then re-deploy, starting a *second* billed
+   * build for one request. Writing the handle as soon as the engine issues it
+   * closes that window: a later attempt finds the in-flight handle and polls it
+   * rather than building again. The status written here is the engine's own
+   * answer (`running`/`pending`), never `succeeded`; the applier still writes
+   * the settled state. Optional so a test that pins one attempt need not model
+   * it; an absent port means the applier's write is the only one, as before.
+   */
+  markDeploymentInFlight?(input: {
+    readonly organizationId: OrganizationId;
+    readonly deploymentId: string;
+    readonly status: EngineStatus;
+    readonly providerResourceId: string | null;
+    readonly deploymentResourceId: string | null;
+  }): Promise<unknown>;
+  /**
    * The project's environments, read on the service role.
    *
    * The executor needs the environment a job belongs to in order to select which
@@ -422,7 +443,7 @@ export async function executeDeployment(
   }
 
   const deployed = await engine.deploy(adapterCtx, application, artifact);
-  return confirm(deps, engine, adapterCtx, deployed, application.resourceId);
+  return confirm(deps, engine, adapterCtx, deployed, application.resourceId, input);
 }
 /**
  * Resume a deploy the engine already accepted but has not finished.
@@ -462,8 +483,12 @@ async function resumeRunningDeployment(
   const handle = stored.deploymentResourceId;
   if (handle === null) return null;
   // A terminal row is finished; a requeued job for one is a stale redelivery
-  // and must not re-deploy. Only `running` (and a handle) means "in flight".
-  if (stored.status !== "running") return null;
+  // and must not re-deploy. Any *non-terminal* row with a handle is in flight:
+  // the engine issued the handle but has not settled it, so a re-execution must
+  // poll that build rather than start a second one. (The handle is written the
+  // instant `deploy` returns, so this holds even if the process died before the
+  // applier ran.)
+  if (stored.status !== "running" && stored.status !== "pending") return null;
 
   const ref: ProviderRef = {
     organizationId: input.organizationId,
@@ -513,7 +538,7 @@ async function rollback(
     };
   }
   const result = await engine.rollback(adapterCtx, { ref: application, commit: input.commit });
-  return confirm(deps, engine, adapterCtx, result, null);
+  return confirm(deps, engine, adapterCtx, result, null, input);
 }
 
 /**
@@ -529,6 +554,7 @@ async function confirm(
   adapterCtx: { organizationId: OrganizationId; idempotencyKey: string; timeoutMs: number },
   action: AdapterResult<{ providerRef: ProviderRef }>,
   providerResourceId: string | null,
+  input: ExecuteDeploymentInput,
 ): Promise<DeploymentExecutionResult> {
   if (!action.ok) {
     return {
@@ -548,6 +574,22 @@ async function confirm(
     action.value.providerRef.resourceType === "deployment"
       ? action.value.providerRef.resourceId
       : null;
+
+  // Persist the handle before reading the state back. The applier writes the
+  // settled outcome only after this handler returns, so a crash in between would
+  // leave the row with no handle — and a reap would re-deploy, a second billed
+  // build for one request. The status here is the engine's own answer, never
+  // `succeeded`; the read below and the applier still write the settled state.
+  if (deploymentResourceId !== null && typeof deps.writes.markDeploymentInFlight === "function") {
+    await deps.writes.markDeploymentInFlight({
+      organizationId: input.organizationId,
+      deploymentId: input.deploymentId,
+      status: action.status,
+      providerResourceId: resolvedId,
+      deploymentResourceId,
+    });
+  }
+
   let status: EngineStatus = action.status;
   let url: string | null = null;
   const state = await engine.getDeployment(adapterCtx, action.value.providerRef);

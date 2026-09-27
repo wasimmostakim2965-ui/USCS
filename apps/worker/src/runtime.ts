@@ -99,6 +99,23 @@ export function buildWorkerWiring(
           }
         : null;
     },
+    // Written the instant the engine issues its handle, so a crash before the
+    // applier runs cannot strand a `pending` row with no handle and cause a
+    // reap to start a second, separately billed build.
+    markDeploymentInFlight: (input: {
+      readonly organizationId: string;
+      readonly deploymentId: string;
+      readonly status: Parameters<typeof store.updateDeploymentStatus>[0]["status"];
+      readonly providerResourceId: string | null;
+      readonly deploymentResourceId: string | null;
+    }) =>
+      store.updateDeploymentStatus({
+        id: input.deploymentId,
+        organizationId: input.organizationId,
+        status: input.status,
+        providerResourceId: input.providerResourceId,
+        deploymentResourceId: input.deploymentResourceId,
+      }),
   };
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>
