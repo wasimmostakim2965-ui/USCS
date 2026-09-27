@@ -310,9 +310,11 @@ not when a commit message says so.
   `rollback` throw `budget_exceeded` (402) before a row or job exists, and
   `git-hook.ts` — which has no member to answer and must not report a status the
   provider cannot act on — returns `202 { reason: "budget_exceeded" }` and writes
-  a `deployment.cap_refused` audit row. A soft budget blocks nothing anywhere.
-  When a new build trigger is added, it must call this same helper; the cap is a
-  property of the organization's work, not of one procedure.
+  a `deployment.cap_refused` audit row. `data.backup` carried the same hole for
+  the `backups` metric the worker writes, and calls the helper too. A soft budget
+  blocks nothing anywhere. When a new trigger for billable work is added, it must
+  call this same helper; the cap is a property of the organization's work, not of
+  one procedure.
 
 ## List pagination (append-ordered lists)
 

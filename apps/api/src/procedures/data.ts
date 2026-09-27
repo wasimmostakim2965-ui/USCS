@@ -17,6 +17,7 @@
  */
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
+import { assertWithinBudget } from "./billing.js";
 import type { Engines, JobQueue, LogPage } from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
@@ -279,6 +280,13 @@ export async function backupDataResource(
       "Backing up an object-storage bucket is not available in this build yet.",
     );
   }
+
+  // The worker records one `backups` unit when a backup succeeds, so a backup is
+  // the work its cap governs. Checking it here — before the row and before the
+  // job — is what keeps a hard cap from being a number that only changes after
+  // the spend; it is the same gate `deployments` runs, on the metric the worker
+  // actually writes.
+  await assertWithinBudget({ store: deps.store }, resource.organizationId, "backups");
 
   const id = deps.newId();
   const ref: ProviderRef = {

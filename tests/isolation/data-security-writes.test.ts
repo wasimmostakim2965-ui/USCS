@@ -149,7 +149,9 @@ const membershipStore: MembershipStore = {
  * organization the acting user belongs to. That is what makes the isolation
  * assertions meaningful.
  */
-function makeStore() {
+function makeStore(
+  budget?: { readonly limitQuantity: number; readonly hardCap: boolean; readonly used: number },
+) {
   const organizations: Organization[] = [
     { id: ORG_A, name: "A", slug: "a", createdAt: "2026-01-01T00:00:00Z" },
     { id: ORG_B, name: "B", slug: "b", createdAt: "2026-01-01T00:00:00Z" },
@@ -566,6 +568,31 @@ function makeStore() {
       incidents.push(incident);
       return incident;
     },
+    ...(budget
+      ? {
+          async getBudgetForService() {
+            return {
+              organizationId: ORG_A,
+              metric: "backups",
+              limitQuantity: budget.limitQuantity,
+              period: "monthly",
+              hardCap: budget.hardCap,
+            };
+          },
+          async listUsageForService() {
+            return budget.used === 0
+              ? []
+              : [
+                  {
+                    organizationId: ORG_A,
+                    metric: "backups",
+                    quantity: budget.used,
+                    recordedAt: new Date().toISOString(),
+                  },
+                ];
+          },
+        }
+      : {}),
   } satisfies DataStoreLike;
 
   return {
@@ -847,6 +874,41 @@ describe("data.backup through the registered procedures", () => {
     expect(res.ok).toBe(false);
     expect(res.status).toBe(503);
     expect(backups).toHaveLength(0);
+  });
+
+  it("is refused by a hard cap before the row or the job", async () => {
+    // The worker records one `backups` unit per successful backup, so a backup
+    // is the work the `backups` cap governs. A cap that only reflects spend
+    // after the fact is not a cap: the refusal must land before anything is
+    // written or enqueued.
+    const { store, backups } = makeStore({ limitQuantity: 1, hardCap: true, used: 1 });
+    const router = routerWith(store, workingEngines());
+    const resource = await provision(router);
+
+    const res = await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+
+    expect(res.status).toBe(402);
+    expect(res.error?.code).toBe("budget_exceeded");
+    expect(backups).toHaveLength(0);
+  });
+
+  it("backs up under the cap", async () => {
+    const { store, backups } = makeStore({ limitQuantity: 2, hardCap: true, used: 1 });
+    const router = routerWith(store, workingEngines());
+    const resource = await provision(router);
+
+    const res = await router.route({
+      procedure: "data.backup",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, resourceId: resource.id },
+    });
+
+    expect(res.ok, JSON.stringify(res.error)).toBe(true);
+    expect(backups).toHaveLength(1);
   });
 
   it("lists a resource's backups, scoped to a member", async () => {
