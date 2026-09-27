@@ -54,6 +54,60 @@ const PILLARS = [
 ] as const;
 
 /**
+ * Plans.
+ *
+ * The prices are Cloud Wai's own offer, in euro — not a figure any engine
+ * reported, so they are stated as the product's price rather than as a measured
+ * result. The entry price sits in the €30–€50/user/month band a production
+ * platform is worth; Scale is a real ceiling, not a "contact us".
+ */
+const PLANS = [
+  {
+    name: "Free",
+    price: "€0",
+    cadence: "forever",
+    tagline: "For evaluating the control plane end to end.",
+    features: [
+      "One organization, one project",
+      "Deployments, domains and the audit log",
+      "Engine status reported honestly",
+      "Community support",
+    ],
+    cta: "Start on Free",
+    highlight: false,
+  },
+  {
+    name: "Pro",
+    price: "€50",
+    cadence: "per user / month",
+    tagline: "For production projects that need the full pipeline.",
+    features: [
+      "Unlimited projects and deployments",
+      "Preview deployments per pull request",
+      "Tenant Postgres and object storage",
+      "Compiled edge security policy",
+      "Hard spend budgets that gate every build",
+    ],
+    cta: "Start with Pro",
+    highlight: true,
+  },
+  {
+    name: "Scale",
+    price: "€50+",
+    cadence: "per user / month",
+    tagline: "For teams running many tenants on their own engines.",
+    features: [
+      "Everything in Pro",
+      "Dedicated engine destinations per tenant",
+      "Higher concurrency and retention",
+      "Priority support",
+    ],
+    cta: "Talk to us",
+    highlight: false,
+  },
+] as const;
+
+/**
  * How this differs from a deploy-button platform.
  *
  * Kept as data so the left column cannot drift from the right one. Each row
@@ -245,6 +299,40 @@ export function LandingPage({
               <p className="compare__cell compare__cell--them">{row.generic}</p>
               <p className="compare__cell compare__cell--us">{row.cloudWai}</p>
             </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing__band" aria-labelledby="plans-heading">
+        <h2 id="plans-heading" className="landing__band-title">
+          Pricing
+        </h2>
+        <p className="landing__band-lede">
+          Per user, per month. The engine work runs on infrastructure you already
+          operate, so the price is the control plane — not a markup on the compute
+          beneath it.
+        </p>
+        <div className="plans">
+          {PLANS.map((plan) => (
+            <article
+              className={plan.highlight ? "plan plan--highlight" : "plan"}
+              key={plan.name}
+            >
+              <h3 className="plan__name">{plan.name}</h3>
+              <p className="plan__price">
+                <span className="plan__amount">{plan.price}</span>
+                <span className="plan__cadence">{plan.cadence}</span>
+              </p>
+              <p className="plan__tagline">{plan.tagline}</p>
+              <ul className="plan__features">
+                {plan.features.map((feature) => (
+                  <li key={feature}>{feature}</li>
+                ))}
+              </ul>
+              <Button variant={plan.highlight ? "primary" : "default"} onClick={onEnterDashboard}>
+                {plan.cta}
+              </Button>
+            </article>
           ))}
         </div>
       </section>

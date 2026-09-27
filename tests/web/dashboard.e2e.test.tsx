@@ -568,6 +568,10 @@ describe("the public landing page", () => {
     // promising an engine this deployment may not hold credentials for.
     expect(screen.getByText("The same jobs, answered differently")).toBeTruthy();
     expect(screen.getByText("Bring your first project")).toBeTruthy();
+    // A showcase of the plans the product is offered on, in euro, above the
+    // closing call to action.
+    expect(screen.getByText("Pricing")).toBeTruthy();
+    expect(screen.getByText("€50")).toBeTruthy();
     // The landing page is static: it must not spend the visitor's request budget
     // on an API call it has no session to make.
     expect(called).toBe(false);
