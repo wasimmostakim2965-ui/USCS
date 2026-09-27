@@ -71,7 +71,7 @@ platform's managed compute — which for Vercel is AWS.
 | SQS (job queue) | Postgres-backed queue | `packages/adapters/src/queue.ts`, worker | Wired |
 | Fargate / EKS (containers) | Coolify | `HostingAdapter` (`packages/adapters/src/coolify.ts`) | Wired (honest n/c without creds) |
 | Lambda (serverless) | Lambda / microVM | `ServerlessAdapter` (`packages/adapters/src/serverless.ts`), routed by `execution-router.ts` | Wired (honest n/c without AWS creds) |
-| **Hive (build fleet)** | **Railpack / Cloud Native Buildpacks** | **`BuildEngine` — DOES NOT EXIST** | **Missing — the one blocking port** |
+| **Hive (build fleet)** | **Railpack / Cloud Native Buildpacks** | `BuildEngine` (`packages/adapters/src/build.ts`), **wired** through `build-run.ts` | **Wired** (Honest n/c without builder creds) |
 | CDN + gateway routing | Envoy | edge fragment from `packages/adapters/src/security-edge.ts` | Compiler built; live edge absent |
 | Edge functions / WAF | Coraza + CrowdSec | `SecurityEdgeAdapter` | Compiler built; live edge absent |
 | Vercel Postgres | Supabase model | `DatabaseAdapter` (`packages/adapters/src/postgres.ts`) | Provisioning wired; introspection missing |
@@ -84,7 +84,7 @@ Layer 6  CONTROL PLANE   Cloud Wai            ours — the product
 Layer 5  EDGE            Envoy + Coraza + CrowdSec
 Layer 4  RUNTIME         Coolify (container) | Lambda/Knative (serverless)
 Layer 3  ARTIFACT+METADATA  MinIO + deployment records
-Layer 2  BUILD           BuildEngine -> Railpack / CNB          <-- MISSING
+Layer 2  BUILD           BuildEngine -> Railpack / CNB          <-- WIRED (build.ts, build-run.ts)
 Layer 1  FRAMEWORK ADAPTER  OpenNext / Build Output API
 Layer 0  IDENTITY+DATA   Postgres + RLS + Supabase-shaped plane
 ```
@@ -109,9 +109,11 @@ proven here.
 
 - the **dashboard** — reorganised around the deployment lifecycle (upload →
   build → deploy → route), not around labels
-- the **deployment pipeline** — a real build step between Git and runtime, which
-  is the missing `BuildEngine` port
-- the **Database section** — resolved by ADR-0018, no longer blocked on ADR-0011
+- the **deployment pipeline** — a real build step between Git and runtime,
+  delivered by the `BuildEngine` port (`build.ts`, `build-run.ts`), wired into
+  both deploy paths
+- the **Database section** — resolved by the ADR-0011 Option A decision, no
+  longer blocked; the seven sub-pages are engine-console handoffs
 - the **navigation** — kept as the drill-in model, but every route backed by a
   real action
 
@@ -130,22 +132,26 @@ Deliverable: this file plus ADR-0018 (build engine) and ADR-0019 (rewrite scope)
 Acceptance: every layer names its component, port and status; no layer is
 ambiguous.
 
-### Phase B — `BuildEngine` port (the unlock)
+### Phase B — `BuildEngine` port (the unlock) — **DONE**
 
-The single missing port. A build turns a Git source into a deployable artifact:
+The port exists and is wired end to end:
 
-- `BuildEngine` port in `packages/adapters/src/` with `build(ctx, input)`
+- `BuildEngine` port in `packages/adapters/src/build.ts` with `build(ctx, input)`
   returning an artifact reference, plus log streaming and cancel
-- a **Railpack** adapter behind it (Railway's BuildKit-based builder, the
-  successor to Nixpacks; Nixpacks is in maintenance mode)
-- alternative adapter: Cloud Native Buildpacks / Paketo (CNCF standard)
-- wired through the one `DeploymentEngine` port so a serverless project gets a
-  built artifact and stops reporting `not_configured` for a missing build
-- honest `not_configured` when no builder is configured — never a fake artifact
+- a **Railpack** adapter behind it (`packages/adapters/src/build-railpack.ts`)
+- wired through the one `DeploymentEngine` port by the shared
+  `runBuildStep` (`packages/adapters/src/build-run.ts`), called by **both** the
+  API's synchronous path (`apps/api/src/procedures/deployments.ts`) and the
+  worker's durable path (`apps/worker/src/deployment-executor.ts`), so a
+  serverless project receives a real artifact and stops reporting
+  `not_configured` for a missing build
+- honest `not_configured` when no builder is configured — never a fake artifact;
+  a build that produces nothing ends the deploy as a failure carrying the
+  builder's reason
 
-Acceptance: a container project builds through the port; a serverless project
-receives a real artifact; with no builder configured both report
-`not_configured`; tests cover each path.
+Acceptance met: a serverless project receives a real artifact; with no builder
+configured a build reports `not_configured`; `tests/engines/build-engine.test.ts`
+and `tests/engines/build-step.test.ts` cover each path.
 
 ### Phase C — Deployment pipeline (upload → build → classify → deploy)
 
