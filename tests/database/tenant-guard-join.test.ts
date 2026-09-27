@@ -13,10 +13,7 @@
  * PostgREST rule instead, so the guard cannot silently stop being joinable.
  */
 import { describe, expect, it } from "vitest";
-import {
-  createPostgrestClient,
-  createSupabaseControlPlaneStore,
-} from "@cloud-wai/database";
+import { createPostgrestClient, createSupabaseControlPlaneStore } from "@cloud-wai/database";
 import type { DeploymentId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
 
 type Row = Record<string, unknown>;
@@ -99,8 +96,7 @@ function fakePostgrest(tables: Record<string, Row[]>) {
     const membershipFor = (organizationId: unknown, column: string, want: string) =>
       members.some(
         (m) =>
-          String(m["organization_id"]) === String(organizationId) &&
-          String(m[column]) === want,
+          String(m["organization_id"]) === String(organizationId) && String(m[column]) === want,
       );
 
     const matched = rows.filter(

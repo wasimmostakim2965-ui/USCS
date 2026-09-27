@@ -69,10 +69,7 @@ export interface AuthenticatedRequest {
  */
 export interface ApiKeyResolver {
   findApiKeyByHash(hash: string): Promise<ApiKeyAuthority | null>;
-  markApiKeyUsed(input: {
-    readonly organizationId: string;
-    readonly keyId: string;
-  }): Promise<void>;
+  markApiKeyUsed(input: { readonly organizationId: string; readonly keyId: string }): Promise<void>;
   getProfileForService(userId: string): Promise<{ readonly email: string } | null>;
 }
 
@@ -89,10 +86,7 @@ export interface ContextDeps {
 }
 
 /** The role the key's owner holds in the key's organization, from live membership. */
-function roleForKey(
-  apiKey: ApiKeyAuthority,
-  memberships: readonly Membership[],
-): OrgRole | null {
+function roleForKey(apiKey: ApiKeyAuthority, memberships: readonly Membership[]): OrgRole | null {
   const membership = memberships.find(
     (m) => m.organizationId === apiKey.organizationId && m.userId === apiKey.ownerId,
   );

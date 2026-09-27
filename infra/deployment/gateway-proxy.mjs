@@ -18,8 +18,7 @@ import { createServer, request as httpRequest } from "node:http";
 
 const PORT = Number(process.env.GATEWAY_PORT ?? 12001);
 const HOST = process.env.GATEWAY_HOST ?? "0.0.0.0";
-const SUPABASE_UPSTREAM =
-  process.env.SUPABASE_UPSTREAM ?? "http://127.0.0.1:54321";
+const SUPABASE_UPSTREAM = process.env.SUPABASE_UPSTREAM ?? "http://127.0.0.1:54321";
 
 const upstream = new URL(SUPABASE_UPSTREAM);
 

@@ -166,10 +166,7 @@ function ConsoleHandoff({
   );
 }
 
-function DatabaseTables(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseTables(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -181,10 +178,7 @@ function DatabaseTables(props: {
   );
 }
 
-function DatabaseSql(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseSql(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -196,10 +190,7 @@ function DatabaseSql(props: {
   );
 }
 
-function DatabaseAuth(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseAuth(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -211,10 +202,7 @@ function DatabaseAuth(props: {
   );
 }
 
-function DatabaseApi(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseApi(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -226,10 +214,7 @@ function DatabaseApi(props: {
   );
 }
 
-function DatabaseRoles(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseRoles(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -241,10 +226,7 @@ function DatabaseRoles(props: {
   );
 }
 
-function DatabaseSettings(props: {
-  readonly organizationId: string;
-  readonly projectId: string;
-}) {
+function DatabaseSettings(props: { readonly organizationId: string; readonly projectId: string }) {
   return (
     <ConsoleHandoff
       {...props}
@@ -315,11 +297,7 @@ function DatabaseLogs({
         ) : null}
 
         {active ? (
-          <DatabaseLogPanel
-            key={active.id}
-            organizationId={organizationId}
-            resource={active}
-          />
+          <DatabaseLogPanel key={active.id} organizationId={organizationId} resource={active} />
         ) : (
           <Card>
             <EmptyState

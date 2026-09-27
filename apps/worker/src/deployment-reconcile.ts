@@ -17,7 +17,7 @@
  * *jobs*, and this settles the *deployment rows* those jobs left behind.
  *
  * What it will not do is invent an outcome. It asks the engine the truth through
- * the uniform `DeploymentEngine` port — `getDeployment`, which reads the
+ * the uniform `DeploymentEngine` port ï¿½ `getDeployment`, which reads the
  * deployment queue for a run ref and the application record for an application
  * ref. (The hosting adapter's own `reconcile` stays a read-only view for the API's
  * engine-status page; the port deliberately does not widen to it, because the port
@@ -211,7 +211,7 @@ async function settleOne(
     });
   }
 
-  // Both ref kinds are answered through the one uniform port method — a
+  // Both ref kinds are answered through the one uniform port method ï¿½ a
   // deployment ref by the engine's deployment queue, an application ref by the
   // application record. The sweep imports no adapter: `deploymentEngineFor` chose
   // the engine above, and this call is the port it returned.
@@ -226,7 +226,11 @@ async function settleOne(
       return writeSettled(deps, row, {
         status: "failed",
         url: null,
-        reason: unconfirmedReason(row.status, hardCeilingMs, "the engine still reports it in flight."),
+        reason: unconfirmedReason(
+          row.status,
+          hardCeilingMs,
+          "the engine still reports it in flight.",
+        ),
         now,
       });
     }

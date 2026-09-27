@@ -187,9 +187,9 @@ describe("edge adapter", () => {
     // this it compiled the route alone, so `wafEnabled` was false and the host
     // went live without inspection.
     expect(sent.envoyConfig.wafEnabled).toBe(true);
-    expect(sent.corazaDirectives.some((d: string) => d.includes("BLOCKING_INBOUND_ANOMALY_SCORE"))).toBe(
-      true,
-    );
+    expect(
+      sent.corazaDirectives.some((d: string) => d.includes("BLOCKING_INBOUND_ANOMALY_SCORE")),
+    ).toBe(true);
   });
 
   it("publishes a route-only config when the organization has no policy yet", async () => {
@@ -1006,10 +1006,7 @@ describe("decision-stage vocabulary", () => {
   it("matches the security_events.stage check constraint the migrations install", () => {
     const migrations = ["0010_security_protection_and_events", "0018_security_rate_limits"]
       .map((name) =>
-        readFileSync(
-          new URL(`../../supabase/migrations/${name}.sql`, import.meta.url),
-          "utf8",
-        ),
+        readFileSync(new URL(`../../supabase/migrations/${name}.sql`, import.meta.url), "utf8"),
       )
       .join("\n");
 

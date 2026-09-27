@@ -253,10 +253,7 @@ export interface DataStore {
    * so this is never empty for a project the caller can see. Membership-scoped
    * like every read.
    */
-  listEnvironments(
-    userId: UserId,
-    projectId: ProjectId,
-  ): Promise<readonly ProjectEnvironment[]>;
+  listEnvironments(userId: UserId, projectId: ProjectId): Promise<readonly ProjectEnvironment[]>;
   /**
    * One environment by id, scoped to a member's project.
    *
@@ -469,9 +466,7 @@ export interface ControlPlaneWrites {
    * off the request path — the worker after a rejected distribution — with no
    * session to scope by, so `organization_id` is the tenant boundary.
    */
-  openSecurityIncidentForService(
-    input: SecurityIncidentCreateInput,
-  ): Promise<SecurityIncident>;
+  openSecurityIncidentForService(input: SecurityIncidentCreateInput): Promise<SecurityIncident>;
   listPolicyEvents(
     userId: UserId,
     organizationId: OrganizationId,

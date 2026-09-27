@@ -100,9 +100,11 @@ const membershipStore: MembershipStore = {
  * organization the acting user belongs to, and the membership join decides
  * visibility. That is what makes the isolation assertions meaningful.
  */
-function makeStore(
-  budget?: { readonly limitQuantity: number; readonly hardCap: boolean; readonly used: number },
-) {
+function makeStore(budget?: {
+  readonly limitQuantity: number;
+  readonly hardCap: boolean;
+  readonly used: number;
+}) {
   const organizations: Organization[] = [
     { id: ORG_A, name: "A", slug: "a", createdAt: "2026-01-01T00:00:00Z" },
   ];

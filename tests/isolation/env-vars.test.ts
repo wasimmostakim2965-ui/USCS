@@ -237,7 +237,8 @@ function makeStore() {
         )
         .map((v) => ({
           ...v,
-          valueEncrypted: encrypted.get(refKey(v.organizationId, v.projectId, v.environmentId, v.key)) ?? "",
+          valueEncrypted:
+            encrypted.get(refKey(v.organizationId, v.projectId, v.environmentId, v.key)) ?? "",
         }));
     },
     async setEnvVarEngineRef(input: {
@@ -299,8 +300,7 @@ function makeStore() {
       if (!p || !isMember(userId, p.organizationId)) return null;
       return (
         environments.find(
-          (environment) =>
-            environment.projectId === projectId && environment.id === environmentId,
+          (environment) => environment.projectId === projectId && environment.id === environmentId,
         ) ?? null
       );
     },
@@ -785,4 +785,3 @@ describe("environments.list through the registered procedures", () => {
     expect(res.error?.code).toBe("not_found");
   });
 });
-

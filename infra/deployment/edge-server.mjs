@@ -59,9 +59,7 @@ const SECURITY_HEADERS = {
 const PROXY_PREFIXES = ["/rpc", "/healthz", "/hooks/git/"];
 
 function isProxied(pathname) {
-  return PROXY_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(prefix),
-  );
+  return PROXY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
 }
 
 function proxyToApi(req, res) {

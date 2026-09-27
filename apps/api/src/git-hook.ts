@@ -273,11 +273,7 @@ export async function deployFromDelivery(
   // the Deploy button runs runs here, before a row or a job exists. There is no
   // member to answer with a 402, so the delivery is accepted and skipped — the
   // honest answer to a provider, and the cap is recorded in the audit below.
-  const refusal = await hardCapRefusal(
-    { store: deps.store },
-    link.organizationId,
-    "deployments",
-  );
+  const refusal = await hardCapRefusal({ store: deps.store }, link.organizationId, "deployments");
   if (refusal) {
     await deps.store.recordAuditEvent({
       organizationId: link.organizationId,
@@ -347,7 +343,12 @@ export async function deployFromDelivery(
   // pull request — the same mapping `requestDeployment` uses. A store that
   // cannot list environments leaves it null and the executor resolves the
   // project's default, so a webhook is never blocked on this.
-  const environmentId = await environmentIdForHook(writes, link.organizationId, link.projectId, kind);
+  const environmentId = await environmentIdForHook(
+    writes,
+    link.organizationId,
+    link.projectId,
+    kind,
+  );
 
   const deployment = await writes.createDeployment({
     organizationId: link.organizationId,

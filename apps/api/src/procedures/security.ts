@@ -909,10 +909,7 @@ function incidentWritesFor(deps: SecurityDeps): SecurityIncidentWrites {
   const required = ["listSecurityIncidents", "transitionSecurityIncident"] as const;
   const missing = required.filter((name) => typeof store[name] !== "function");
   if (missing.length > 0) {
-    throw new ApiError(
-      "engine_unavailable",
-      `This deployment cannot read security incidents yet.`,
-    );
+    throw new ApiError("engine_unavailable", `This deployment cannot read security incidents yet.`);
   }
   return store as unknown as SecurityIncidentWrites;
 }

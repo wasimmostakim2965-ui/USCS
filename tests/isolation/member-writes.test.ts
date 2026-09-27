@@ -49,9 +49,19 @@ const TOKEN_CAROL = "t-carol";
 const TOKEN_DAVE = "t-dave";
 
 const sessions: Record<string, SupabaseSession> = {
-  [TOKEN_ALICE]: { userId: ALICE, email: "a@x.test", displayName: "Alice", accessToken: TOKEN_ALICE },
+  [TOKEN_ALICE]: {
+    userId: ALICE,
+    email: "a@x.test",
+    displayName: "Alice",
+    accessToken: TOKEN_ALICE,
+  },
   [TOKEN_BOB]: { userId: BOB, email: "b@x.test", displayName: "Bob", accessToken: TOKEN_BOB },
-  [TOKEN_CAROL]: { userId: CAROL, email: "c@x.test", displayName: "Carol", accessToken: TOKEN_CAROL },
+  [TOKEN_CAROL]: {
+    userId: CAROL,
+    email: "c@x.test",
+    displayName: "Carol",
+    accessToken: TOKEN_CAROL,
+  },
   [TOKEN_DAVE]: { userId: DAVE, email: "d@x.test", displayName: "Dave", accessToken: TOKEN_DAVE },
 };
 
@@ -176,7 +186,11 @@ function makeStore() {
       return isMember(userId, org) ? usage.filter((u) => u.organizationId === org) : [];
     },
     async recordAuditEvent(input: AuditEventInput) {
-      const e: AuditEvent = { ...input, id: `a-${audit.length + 1}`, createdAt: "2026-01-01T00:00:00Z" };
+      const e: AuditEvent = {
+        ...input,
+        id: `a-${audit.length + 1}`,
+        createdAt: "2026-01-01T00:00:00Z",
+      };
       audit.push(e);
       return e;
     },
@@ -185,10 +199,7 @@ function makeStore() {
   return { store, membershipStore, memberships, audit };
 }
 
-function deps(
-  store: DataStore,
-  membershipStore: MembershipStore,
-): RouterDeps {
+function deps(store: DataStore, membershipStore: MembershipStore): RouterDeps {
   return {
     verifier,
     memberships: membershipStore,
@@ -211,11 +222,17 @@ async function call(
 describe("member role changes and removal", () => {
   it("lets an owner change a member's role and persists it", async () => {
     const { store, membershipStore, memberships, audit } = makeStore();
-    const res = await call(store, membershipStore, "organizations.members.updateRole", TOKEN_ALICE, {
-      organizationId: ORG_A,
-      memberId: CAROL,
-      role: "admin",
-    });
+    const res = await call(
+      store,
+      membershipStore,
+      "organizations.members.updateRole",
+      TOKEN_ALICE,
+      {
+        organizationId: ORG_A,
+        memberId: CAROL,
+        role: "admin",
+      },
+    );
     expect(res.ok, JSON.stringify(res)).toBe(true);
     expect(memberships.find((m) => m.userId === CAROL)?.role).toBe("admin");
     expect(audit.map((a) => a.event)).toContain("member.role_changed");
@@ -247,11 +264,17 @@ describe("member role changes and removal", () => {
 
   it("refuses a member who tries to promote themselves", async () => {
     const { store, membershipStore, memberships } = makeStore();
-    const res = await call(store, membershipStore, "organizations.members.updateRole", TOKEN_CAROL, {
-      organizationId: ORG_A,
-      memberId: CAROL,
-      role: "owner",
-    });
+    const res = await call(
+      store,
+      membershipStore,
+      "organizations.members.updateRole",
+      TOKEN_CAROL,
+      {
+        organizationId: ORG_A,
+        memberId: CAROL,
+        role: "owner",
+      },
+    );
     expect(res.ok).toBe(false);
     // Carol lacks member:invite, so the guard refuses before self-promotion.
     expect([403, 404]).toContain(res.status);
@@ -260,11 +283,17 @@ describe("member role changes and removal", () => {
 
   it("refuses an owner who tries to change their own role", async () => {
     const { store, membershipStore, memberships } = makeStore();
-    const res = await call(store, membershipStore, "organizations.members.updateRole", TOKEN_ALICE, {
-      organizationId: ORG_A,
-      memberId: ALICE,
-      role: "admin",
-    });
+    const res = await call(
+      store,
+      membershipStore,
+      "organizations.members.updateRole",
+      TOKEN_ALICE,
+      {
+        organizationId: ORG_A,
+        memberId: ALICE,
+        role: "admin",
+      },
+    );
     expect(res.ok).toBe(false);
     expect(res.status).toBe(400);
     expect(memberships.find((m) => m.userId === ALICE)?.role).toBe("owner");
@@ -321,10 +350,7 @@ describe("member role changes and removal", () => {
 
   it("tells an outsider nothing, indistinguishable from a missing organization", async () => {
     const { store, membershipStore } = makeStore();
-    for (const procedure of [
-      "organizations.members.updateRole",
-      "organizations.members.remove",
-    ]) {
+    for (const procedure of ["organizations.members.updateRole", "organizations.members.remove"]) {
       const res = await call(store, membershipStore, procedure, TOKEN_DAVE, {
         organizationId: ORG_A,
         memberId: CAROL,

@@ -82,7 +82,11 @@ function parseBotAllowList(raw: string | undefined): VerifiedBot[] {
     const parts = trimmed.split(":");
     if (parts.length !== 3) continue;
     const [name, userAgent, confirmSuffix] = parts as [string, string, string];
-    const bot: VerifiedBot = { name: name.trim(), userAgent: userAgent.trim(), confirmSuffix: confirmSuffix.trim() };
+    const bot: VerifiedBot = {
+      name: name.trim(),
+      userAgent: userAgent.trim(),
+      confirmSuffix: confirmSuffix.trim(),
+    };
     if (validateVerifiedBot(bot).ok) bots.push(bot);
   }
   return bots;

@@ -256,11 +256,7 @@ export interface DatabaseAdapter extends NotConfiguredBrand {
    * this is the one database log that exists without entering the data plane.
    * The endpoint has no cursor, so a page's cursor is null rather than invented.
    */
-  getLogs(
-    ctx: AdapterContext,
-    ref: ProviderRef,
-    cursor?: string,
-  ): Promise<AdapterResult<LogPage>>;
+  getLogs(ctx: AdapterContext, ref: ProviderRef, cursor?: string): Promise<AdapterResult<LogPage>>;
 }
 
 export interface StorageAdapter extends NotConfiguredBrand {

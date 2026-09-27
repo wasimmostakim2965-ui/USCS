@@ -829,9 +829,7 @@ describe("projects.update through the registered procedures", () => {
     expect((res.data as Project).rootDirectory).toBe("apps/web");
     expect(projects[0]?.rootDirectory).toBe("apps/web");
     expect(
-      audit.some(
-        (a) => a.event === "project.updated" && a.metadata?.rootDirectory === "apps/web",
-      ),
+      audit.some((a) => a.event === "project.updated" && a.metadata?.rootDirectory === "apps/web"),
     ).toBe(true);
   });
 

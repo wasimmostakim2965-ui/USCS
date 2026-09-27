@@ -155,7 +155,8 @@ describe("security edge environment config", () => {
   it("carries an operator bot allow-list so a webhook sender can be trusted", () => {
     const config = securityEdgeConfigFromEnv({
       ...ENV,
-      SECURITY_EDGE_BOT_ALLOWLIST: "stripe-webhook:Stripebot:stripe.com;custom:MyMonitor:monitor.test",
+      SECURITY_EDGE_BOT_ALLOWLIST:
+        "stripe-webhook:Stripebot:stripe.com;custom:MyMonitor:monitor.test",
     });
     expect(config?.botAllowList).toEqual([
       { name: "stripe-webhook", userAgent: "Stripebot", confirmSuffix: "stripe.com" },
@@ -168,8 +169,7 @@ describe("security edge environment config", () => {
       ...ENV,
       // The first entry is missing its confirm suffix; the second has a public
       // suffix but a bad name. Both are dropped; the valid one survives.
-      SECURITY_EDGE_BOT_ALLOWLIST:
-        "broken:NoSuffix;BAD NAME:ua:example.com;good:Goodbot:good.test",
+      SECURITY_EDGE_BOT_ALLOWLIST: "broken:NoSuffix;BAD NAME:ua:example.com;good:Goodbot:good.test",
     });
     expect(config?.botAllowList).toEqual([
       { name: "good", userAgent: "Goodbot", confirmSuffix: "good.test" },

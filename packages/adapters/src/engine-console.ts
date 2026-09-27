@@ -102,8 +102,7 @@ export interface EngineConsoleInput {
   readonly resourceUuid: string | null;
   /** The tenant's placement in the engine. */
   readonly infra?:
-    | Pick<CoolifyCredentials, "projectUuid" | "environmentUuid" | "environmentName">
-    | undefined;
+    Pick<CoolifyCredentials, "projectUuid" | "environmentUuid" | "environmentName"> | undefined;
   readonly section?: ConsoleSection | undefined;
 }
 

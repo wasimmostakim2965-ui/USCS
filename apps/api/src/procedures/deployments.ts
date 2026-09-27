@@ -1230,7 +1230,12 @@ export async function rollbackDeployment(
 
   // A rollback returns the production pointer to an earlier revision, so it is
   // a Production deployment and belongs to the project's Production environment.
-  const environmentId = await environmentIdFor(deps, ctx.principal.userId, project.id, "production");
+  const environmentId = await environmentIdFor(
+    deps,
+    ctx.principal.userId,
+    project.id,
+    "production",
+  );
 
   let deployment = await store.createDeployment({
     organizationId: project.organizationId,

@@ -118,7 +118,9 @@ function nullableStr(row: Row, key: string): string | null {
 /** A `text[]` column as strings; a non-array is empty, never a fabricated value. */
 function strArray(row: Row, key: string): readonly string[] {
   const value = row[key];
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : [];
 }
 
 /**
@@ -672,8 +674,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const limit = resolveListLimit(options?.limit, DEFAULT_LIST_LIMIT);
       // Keyset: strictly older than the cursor, so page N+1 never repeats a row
       // that landed at the head while page N was being read.
-      const cursor =
-        options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
+      const cursor = options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listDeployments", {
         method: "GET",
         path: `/deployments?select=*,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
@@ -696,8 +697,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       options?: ListPageOptions | undefined,
     ): Promise<readonly AuditEvent[]> {
       const limit = resolveListLimit(options?.limit, DEFAULT_AUDIT_LIMIT);
-      const cursor =
-        options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
+      const cursor = options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listAuditEvents", {
         method: "GET",
         path: `/audit_logs?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
@@ -1157,9 +1157,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
           slug: input.slug,
           created_by: input.createdBy,
           ...(input.executionModel ? { execution_model: input.executionModel } : {}),
-          ...(input.rootDirectory !== undefined
-            ? { root_directory: input.rootDirectory }
-            : {}),
+          ...(input.rootDirectory !== undefined ? { root_directory: input.rootDirectory } : {}),
         },
       });
       const row = Array.isArray(created) ? created[0] : undefined;

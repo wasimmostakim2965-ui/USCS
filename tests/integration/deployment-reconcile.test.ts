@@ -38,7 +38,10 @@ const ORG = "org-a";
  * sweep must not mistake for progress.
  */
 function scriptingHosting(
-  answers: Record<string, ReturnType<HostingAdapter["getDeployment"]> extends Promise<infer R> ? R : never>,
+  answers: Record<
+    string,
+    ReturnType<HostingAdapter["getDeployment"]> extends Promise<infer R> ? R : never
+  >,
 ): { hosting: HostingAdapter; reads: string[] } {
   const reads: string[] = [];
   const hosting: HostingAdapter = {
@@ -133,7 +136,11 @@ function writesFor(rows: readonly StrandedDeployment[]) {
     },
   };
   const outcome = {
-    async updateDeploymentStatus(input: { id: string; status: string; failureReason: string | null }) {
+    async updateDeploymentStatus(input: {
+      id: string;
+      status: string;
+      failureReason: string | null;
+    }) {
       settles.push({ id: input.id, status: input.status, reason: input.failureReason });
       return {};
     },
@@ -174,9 +181,7 @@ describe("the stranded-deployment sweep settles rows the queue left behind", () 
 
     const settled = await reconcile();
     expect(settled).toBe(1);
-    expect(h.settles).toEqual([
-      { id: "dep-1", status: "succeeded", reason: null },
-    ]);
+    expect(h.settles).toEqual([{ id: "dep-1", status: "succeeded", reason: null }]);
     // A confirmed success carries the same two side effects the job applier
     // gives it: the production pointer moves and one unit is billed.
     expect(h.promotions).toEqual(["dep-1"]);
