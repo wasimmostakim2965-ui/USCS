@@ -642,6 +642,26 @@ describe("the public landing page", () => {
 
     expect(await screen.findByRole("button", { name: "Open the dashboard" })).toBeTruthy();
   });
+
+  it("keeps the marketing page (with pricing) at the root under the demo bypass", async () => {
+    const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const base = signedInSession();
+
+    // The demo controller signs in underneath but must not hard-redirect away
+    // from the root, or a visitor would never see the product's own pages.
+    window.history.replaceState(null, "", "#/");
+    render(
+      <ToastProvider>
+        <App session={{ ...base, autoEnter: true }} apiBaseUrl={url} />
+      </ToastProvider>,
+    );
+
+    expect(await screen.findByText("Pricing")).toBeTruthy();
+    // The CTA still reaches the dashboard in one click with the session present.
+    await userEvent.click(screen.getByRole("button", { name: "Open the dashboard" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Organizations" })).toBeTruthy();
+  });
 });
 
 describe("project environment variables", () => {

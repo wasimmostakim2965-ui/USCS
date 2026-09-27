@@ -117,15 +117,11 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
 
   const projectId = "projectId" in router.route ? router.route.projectId : null;
 
-  // Temporary no-login bypass: with the demo controller, `/` (the landing route)
-  // opens the dashboard directly. The redirect is an effect so it runs on mount
-  // and after sign-in, where `navigate` is available; without the bypass the
-  // landing page behaves as before.
-  useEffect(() => {
-    if (session.autoEnter && router.route.name === "landing") {
-      router.navigate({ name: "organizations" });
-    }
-  }, [session, router]);
+  // Temporary no-login bypass: the session signs itself in, but the landing
+  // route still renders the marketing page (with the pricing section), so the
+  // root stays a real product surface rather than a hard redirect. The demo
+  // account is signed in underneath, so the landing CTA opens the dashboard in
+  // one click and a deep link is not blocked behind the sign-in form.
 
   useDocumentTitle(router.route.name === "not_found" ? "Not found" : titleForRoute(router.route));
 
@@ -176,11 +172,10 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   }
 
   if (router.route.name === "landing") {
-    // Signed in, the landing page is the marketing page; its action goes to the
-    // dashboard rather than through the sign-in form again. Under the temporary
-    // no-login bypass the effect above has already redirected to the dashboard;
-    // this branch renders nothing for the one frame before it lands.
-    if (session.autoEnter) return null;
+    // Signed in, the landing page is still the marketing page; its action goes
+    // to the dashboard rather than through the sign-in form again. Under the
+    // temporary no-login bypass the session is already signed in, so the CTA
+    // opens the dashboard in one click.
     return (
       <LandingPage
         signedIn

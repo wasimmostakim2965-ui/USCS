@@ -53,6 +53,14 @@ ok()   { printf '\033[1;32m  ok\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m  !!\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m  xx\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Read a key from `.env`, falling back to a default, for values the build needs
+# but the shell does not export.
+env_value() {
+  local key="$1" fallback="$2" line
+  line="$(grep "^${key}=" .env 2>/dev/null | tail -1)"
+  if [[ -n "$line" ]]; then printf '%s' "${line#*=}"; else printf '%s' "$fallback"; fi
+}
+
 wait_for_http() {
   local url="$1" tries="${2:-60}" i=0
   while (( i < tries )); do
@@ -156,8 +164,36 @@ apply_migrations() {
   # only catches migrations added since. It never resets, so a redeploy does not
   # destroy control-plane data.
   say "applying any migrations added since the stack started"
-  $SUPABASE_BIN migration up >>"$LOG_DIR/supabase.log" 2>&1 \
-    || die "Migrations failed. See $LOG_DIR/supabase.log"
+  if $SUPABASE_BIN migration up >>"$LOG_DIR/supabase.log" 2>&1; then
+    ok "migrations applied"
+    return
+  fi
+
+  # The CLI talks to the database over the host-published 54322 port, which a
+  # container restart can leave unmapped while the stack itself is healthy. Fall
+  # back to the database container's own psql, applying only the files whose
+  # version is not yet recorded, so a redeploy of an unchanged schema is a no-op.
+  local db_container
+  db_container="$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)"
+  [[ -n "$db_container" ]] || die "Migrations failed and no Supabase DB container was found. See $LOG_DIR/supabase.log"
+
+  warn "CLI could not reach the database port; applying migrations through $db_container"
+  local applied file version
+  applied="$(docker exec "$db_container" psql -U postgres -d postgres -tAc \
+    'select version from supabase_migrations.schema_migrations' 2>/dev/null | tr -d ' ')"
+  for file in supabase/migrations/*.sql; do
+    [[ -e "$file" ]] || continue
+    version="$(basename "$file")"
+    version="${version%%_*}"
+    if printf '%s\n' "$applied" | grep -qx "$version"; then continue; fi
+    say "  applying $(basename "$file")"
+    docker exec -i "$db_container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 \
+      <"$file" >>"$LOG_DIR/supabase.log" 2>&1 \
+      || die "Migration $(basename "$file") failed. See $LOG_DIR/supabase.log"
+    docker exec "$db_container" psql -U postgres -d postgres -tAc \
+      "insert into supabase_migrations.schema_migrations(version) values ('$version') on conflict do nothing" \
+      >>"$LOG_DIR/supabase.log" 2>&1
+  done
   ok "migrations applied"
 }
 
@@ -175,13 +211,14 @@ build() {
   # left empty and the edge server proxies /rpc.
   local anon public_supabase
   anon="$(grep '^SUPABASE_ANON_KEY=' .env | cut -d= -f2-)"
-  public_supabase="${PUBLIC_SUPABASE_URL:-http://127.0.0.1:${GATEWAY_PORT}}"
-  # Temporary no-login bypass. Off unless `DEMO_AUTOLOGIN=1` is exported, which
-  # signs a fixed demo account in so the dashboard opens without a sign-in form.
+  public_supabase="${PUBLIC_SUPABASE_URL:-$(env_value PUBLIC_SUPABASE_URL "http://127.0.0.1:${GATEWAY_PORT}")}"
+  # Temporary no-login bypass. Read from the shell first, then `.env`, so a
+  # plain `deploy.sh deploy` honours the values the operator already wrote there
+  # instead of silently building with the bypass off.
   local demo_autologin demo_email demo_password
-  demo_autologin="${DEMO_AUTOLOGIN:-0}"
-  demo_email="${DEMO_EMAIL:-}"
-  demo_password="${DEMO_PASSWORD:-}"
+  demo_autologin="${DEMO_AUTOLOGIN:-$(env_value DEMO_AUTOLOGIN 0)}"
+  demo_email="${DEMO_EMAIL:-$(env_value DEMO_EMAIL "")}"
+  demo_password="${DEMO_PASSWORD:-$(env_value DEMO_PASSWORD "")}"
   VITE_SUPABASE_URL="$public_supabase" \
   VITE_SUPABASE_ANON_KEY="$anon" \
   VITE_CLOUD_WAI_API_URL="" \
