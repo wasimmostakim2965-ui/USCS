@@ -11,7 +11,12 @@ create schema if not exists auth;
 
 create table if not exists auth.users (
   id    uuid primary key,
-  email text not null unique
+  email text not null unique,
+  -- Real Supabase (GoTrue) stores signup metadata here, and migration 0027's
+  -- `handle_new_user` trigger reads `raw_user_meta_data ->> 'display_name'`.
+  -- Without the column the shim cannot apply 0027, so the profiles half of the
+  -- schema went unproven; this keeps the shim honest about the contract.
+  raw_user_meta_data jsonb
 );
 
 -- Supabase pre-creates these roles. `authenticated` is subject to RLS;

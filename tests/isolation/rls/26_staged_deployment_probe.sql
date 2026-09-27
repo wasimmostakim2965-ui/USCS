@@ -32,7 +32,8 @@ insert into auth.users (id, email) values
 
 insert into profiles (id, email, display_name) values
   ('11111111-1111-1111-1111-111111111111', 'alice@example.com', 'Alice'),
-  ('22222222-2222-2222-2222-222222222222', 'bob@example.com', 'Bob');
+  ('22222222-2222-2222-2222-222222222222', 'bob@example.com', 'Bob')
+on conflict (id) do update set display_name = excluded.display_name, email = excluded.email;
 
 insert into organizations (id, name, slug, created_by) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'Org A', 'org-a', '11111111-1111-1111-1111-111111111111'),

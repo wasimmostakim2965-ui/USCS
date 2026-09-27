@@ -35,7 +35,8 @@ insert into profiles (id, email, display_name) values
   ('22222222-2222-2222-2222-222222222222', 'bob@example.com', 'Bob'),
   ('33333333-3333-3333-3333-333333333333', 'carol@example.com', 'Carol'),
   ('44444444-4444-4444-4444-444444444444', 'dave@example.com', 'Dave'),
-  ('55555555-5555-5555-5555-555555555555', 'erin@example.com', 'Erin');
+  ('55555555-5555-5555-5555-555555555555', 'erin@example.com', 'Erin')
+on conflict (id) do update set display_name = excluded.display_name, email = excluded.email;
 
 insert into organizations (id, name, slug, created_by) values
   ('aaaaaaaa-0000-0000-0000-00000000000a', 'Org A', 'org-a', '11111111-1111-1111-1111-111111111111'),
