@@ -455,3 +455,33 @@ first page so accumulated pages cannot mix two projects' rows.
   make a new key path work — every key write is a service-role operation
   (migration 0007).
 
+
+## PostgREST tenant-guard filters (verified against a real PostgREST)
+
+The membership re-check every scoped query carries —
+`organization_members.user_id=eq.<caller>` — is a *dotted filter*, and PostgREST
+refuses a dotted filter unless the embedded resource also appears in `select`
+(PGRST108) and the relationship is reachable (PGRST200). Two forms are correct
+and must be used per table shape; the pinned PostgREST v14.17 behaves the same as
+v16.3, so this is not a version regression:
+
+- Table is `organizations` (the child is a direct FK):
+  `select=*,organization_members!inner(user_id)&organization_members.user_id=eq.<caller>`
+- Table is anything else (the path runs back through `organizations`):
+  `select=*,organizations!inner(organization_members!inner(user_id))&organizations.organization_members.user_id=eq.<caller>`
+
+On the `organization_members` table itself the guard still runs through
+`organizations!inner(...)` — the row's own `user_id` is the *target* of the
+write, so it cannot double as the caller filter.
+
+The store tests once used in-process stand-ins that *skipped* dotted keys, so the
+whole control plane shipped with queries a real PostgREST rejects while the suite
+stayed green. `tests/database/tenant-guard-join.test.ts` now models the embed rule
+instead: a dotted filter on a resource missing from `select` is rejected exactly
+as PostgREST rejects it. Do not reintroduce a fake that ignores dotted keys.
+
+`profiles` is populated by the `on_auth_user_created` trigger on `auth.users`
+(migration `0027`), and `organization_members.user_id` has a FK to `profiles.id`
+so the `profiles(...)` embed resolves. PostgREST returns a to-one embed as an
+**object**, not an array — `toOrganizationMember` accepts both, because reading
+only the array made every member email/display name silently null.

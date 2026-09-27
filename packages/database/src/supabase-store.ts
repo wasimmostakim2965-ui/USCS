@@ -212,13 +212,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
   /**
    * A membership joined with its profile.
    *
-   * PostgREST returns an embedded table as an array here (a to-one embed is
-   * still shaped as a list by the client), so the profile is read from the first
-   * element. A missing profile is a null address, never a fabricated one.
+   * A missing profile is a null address, never a fabricated one.
    */
   function toOrganizationMember(row: Row): OrganizationMember {
+    // `user_id` is a to-one relationship, so PostgREST returns the embed as an
+    // object rather than the array a to-many embed produces. Both shapes are
+    // accepted; reading only the array made every address and name silently
+    // null.
     const embedded = row["profiles"];
-    const profile = Array.isArray(embedded) ? (embedded[0] as Row | undefined) : undefined;
+    const profile = Array.isArray(embedded)
+      ? (embedded[0] as Row | undefined)
+      : embedded && typeof embedded === "object"
+        ? (embedded as Row)
+        : undefined;
     return {
       organizationId: str(row, "organization_id") as OrganizationId,
       userId: str(row, "user_id") as UserId,
@@ -573,7 +579,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       // correct even when the server uses a service-role key.
       const found = await rows("listOrganizations", {
         method: "GET",
-        path: `/organizations?select=*&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/organizations?select=*,organization_members!inner(user_id)&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toOrganization);
     },
@@ -588,7 +594,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       // "co-member" rule is what decides whose address is visible.
       const found = await rows("listOrganizationMembers", {
         method: "GET",
-        path: `/organization_members?select=*,profiles(email,display_name)&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.asc&limit=200`,
+        path: `/organization_members?select=*,profiles(email,display_name),organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.asc&limit=200`,
       });
       return found.map(toOrganizationMember);
     },
@@ -605,7 +611,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       // row's own `user_id` is the *target*, so it is filtered separately.
       const updated = await rows("updateOrganizationMemberRole", {
         method: "PATCH",
-        path: `/organization_members?select=*,profiles(email,display_name)&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organization_members.user_id=eq.${q(input.userId)}`,
+        path: `/organization_members?select=*,profiles(email,display_name),organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organizations.organization_members.user_id=eq.${q(input.userId)}`,
         prefer: "return=representation",
         body: { role: input.role },
       });
@@ -620,7 +626,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     }): Promise<boolean> {
       const removed = await rows("removeOrganizationMember", {
         method: "DELETE",
-        path: `/organization_members?select=user_id&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organization_members.user_id=eq.${q(input.userId)}`,
+        path: `/organization_members?select=user_id,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(input.organizationId)}&user_id=eq.${q(input.memberId)}&organizations.organization_members.user_id=eq.${q(input.userId)}`,
         prefer: "return=representation",
       });
       return removed.length > 0;
@@ -632,7 +638,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly Project[]> {
       const found = await rows("listProjects", {
         method: "GET",
-        path: `/projects?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/projects?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toProject);
     },
@@ -640,7 +646,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async getProject(userId: UserId, projectId: ProjectId): Promise<Project | null> {
       const found = await rows("getProject", {
         method: "GET",
-        path: `/projects?select=*&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/projects?select=*,organizations!inner(organization_members!inner(user_id))&id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toProject(row) : null;
@@ -670,7 +676,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listDeployments", {
         method: "GET",
-        path: `/deployments?select=*&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
+        path: `/deployments?select=*,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
       });
       return found.map(toDeployment);
     },
@@ -678,7 +684,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async getDeployment(userId: UserId, deploymentId: DeploymentId): Promise<Deployment | null> {
       const found = await rows("getDeployment", {
         method: "GET",
-        path: `/deployments?select=*&id=eq.${q(deploymentId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/deployments?select=*,organizations!inner(organization_members!inner(user_id))&id=eq.${q(deploymentId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toDeployment(row) : null;
@@ -694,7 +700,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listAuditEvents", {
         method: "GET",
-        path: `/audit_logs?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
+        path: `/audit_logs?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
       });
       return found.map(toAuditEvent);
     },
@@ -702,7 +708,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async listDomains(userId: UserId, organizationId: OrganizationId): Promise<readonly Domain[]> {
       const found = await rows("listDomains", {
         method: "GET",
-        path: `/domains?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/domains?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toDomain);
     },
@@ -710,7 +716,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async getDomain(userId: UserId, domainId: DomainId): Promise<Domain | null> {
       const found = await rows("getDomain", {
         method: "GET",
-        path: `/domains?select=*&id=eq.${q(domainId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/domains?select=*,organizations!inner(organization_members!inner(user_id))&id=eq.${q(domainId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toDomain(row) : null;
@@ -723,7 +729,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       const deleted = await rows("deleteDomain", {
         method: "DELETE",
-        path: `/domains?select=id&id=eq.${q(domainId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/domains?select=id,organizations!inner(organization_members!inner(user_id))&id=eq.${q(domainId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;
@@ -751,7 +757,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly DataResource[]> {
       const found = await rows("listDataResources", {
         method: "GET",
-        path: `/data_resources?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/data_resources?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toDataResource);
     },
@@ -762,7 +768,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<DataResource | null> {
       const found = await rows("getDataResource", {
         method: "GET",
-        path: `/data_resources?select=*&id=eq.${q(resourceId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/data_resources?select=*,organizations!inner(organization_members!inner(user_id))&id=eq.${q(resourceId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toDataResource(row) : null;
@@ -786,7 +792,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly DataBackup[]> {
       const found = await rows("listDataBackups", {
         method: "GET",
-        path: `/data_backups?select=*&data_resource_id=eq.${q(resourceId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=50`,
+        path: `/data_backups?select=*,organizations!inner(organization_members!inner(user_id))&data_resource_id=eq.${q(resourceId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=50`,
       });
       return found.map(toDataBackup);
     },
@@ -797,7 +803,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly ApiKeySummary[]> {
       const found = await rows("listApiKeys", {
         method: "GET",
-        path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toApiKey);
     },
@@ -807,7 +813,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         method: "GET",
         // The secret columns are not named here, and are not in the client
         // SELECT grant either, so even a widened select cannot return them.
-        path: `/project_git_links?select=id,organization_id,project_id,provider,repository,production_branch,previews_enabled,secret_prefix,created_by,created_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
+        path: `/project_git_links?select=id,organization_id,project_id,provider,repository,production_branch,previews_enabled,secret_prefix,created_by,created_at,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc`,
       });
       return found.map(toGitLink);
     },
@@ -817,7 +823,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         method: "GET",
         // `value_encrypted` is not named here, and is not in the client SELECT
         // grant either, so even a widened select cannot return it.
-        path: `/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=key.asc`,
+        path: `/project_env_vars?select=id,organization_id,project_id,environment_id,key,value_prefix,is_build_time,updated_by,created_at,updated_at,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=key.asc`,
       });
       return found.map(toEnvVar);
     },
@@ -831,7 +837,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         // Production first, then Preview, then a customer's own: the order the
         // dashboard's environment picker and the deploy path both want, and the
         // order Vercel's own Environment Variables dialog lists them in.
-        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=kind.asc,name.asc`,
+        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=kind.asc,name.asc`,
       });
       return found.map(toEnvironment);
     },
@@ -843,7 +849,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectEnvironment | null> {
       const found = await rows("getEnvironment", {
         method: "GET",
-        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at&project_id=eq.${q(projectId)}&id=eq.${q(environmentId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/environments?select=id,organization_id,project_id,name,kind,is_default,created_at,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&id=eq.${q(environmentId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toEnvironment(row) : null;
@@ -855,7 +861,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly UsageRecord[]> {
       const found = await rows("listUsageRecords", {
         method: "GET",
-        path: `/usage_records?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=recorded_at.desc&limit=500`,
+        path: `/usage_records?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=recorded_at.desc&limit=500`,
       });
       return found.map(toUsageRecord);
     },
@@ -892,7 +898,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async listBudgets(userId: UserId, organizationId: OrganizationId): Promise<readonly Budget[]> {
       const found = await rows("listBudgets", {
         method: "GET",
-        path: `/organization_budgets?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=metric.asc`,
+        path: `/organization_budgets?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=metric.asc`,
       });
       return found.map(toBudget);
     },
@@ -937,7 +943,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       const deleted = await rows("deleteBudget", {
         method: "DELETE",
-        path: `/organization_budgets?select=organization_id,metric&organization_id=eq.${q(organizationId)}&metric=eq.${q(metric)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/organization_budgets?select=organization_id,metric,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&metric=eq.${q(metric)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;
@@ -949,7 +955,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly OrchestrationJob[]> {
       const found = await rows("listOrchestrationJobs", {
         method: "GET",
-        path: `/orchestration_jobs?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=500`,
+        path: `/orchestration_jobs?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=500`,
       });
       return found.map(toOrchestrationJob);
     },
@@ -960,7 +966,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<SecurityPolicy | null> {
       const found = await rows("getSecurityPolicy", {
         method: "GET",
-        path: `/security_policies?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=version.desc&limit=1`,
+        path: `/security_policies?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=version.desc&limit=1`,
       });
       const row = found[0];
       return row ? toPolicy(row) : null;
@@ -1033,7 +1039,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly SecurityPolicyEvent[]> {
       const found = await rows("listPolicyEvents", {
         method: "GET",
-        path: `/security_policy_events?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=100`,
+        path: `/security_policy_events?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=100`,
       });
       return found.map(toPolicyEvent);
     },
@@ -1044,7 +1050,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly SecurityRule[]> {
       const found = await rows("listSecurityRules", {
         method: "GET",
-        path: `/security_rules?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+        path: `/security_rules?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toSecurityRule);
     },
@@ -1059,7 +1065,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       const bounded = Math.max(1, Math.min(limit, 200));
       const found = await rows("listSecurityEvents", {
         method: "GET",
-        path: `/security_events?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=observed_at.desc&limit=${bounded}`,
+        path: `/security_events?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=observed_at.desc&limit=${bounded}`,
       });
       return found.map(toSecurityEvent);
     },
@@ -1072,7 +1078,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       // states its window rather than paging forever.
       const found = await rows("listSecurityIncidents", {
         method: "GET",
-        path: `/security_incidents?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=opened_at.desc&limit=200`,
+        path: `/security_incidents?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=opened_at.desc&limit=200`,
       });
       return found.map(toSecurityIncident);
     },
@@ -1091,7 +1097,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       };
       const updated = await must<Row[]>("transitionSecurityIncident", {
         method: "PATCH",
-        path: `/security_incidents?id=eq.${q(input.incidentId)}&organization_id=eq.${q(input.organizationId)}&organization_members.user_id=eq.${q(input.triagedBy)}`,
+        path: `/security_incidents?select=organizations!inner(organization_members!inner(user_id))&id=eq.${q(input.incidentId)}&organization_id=eq.${q(input.organizationId)}&organizations.organization_members.user_id=eq.${q(input.triagedBy)}`,
         prefer: "return=representation",
         body,
       });
@@ -1220,7 +1226,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<Deployment | null> {
       const found = await rows("findDeploymentByIdempotencyKey", {
         method: "GET",
-        path: `/deployments?select=*&organization_id=eq.${q(organizationId)}&idempotency_key=eq.${q(idempotencyKey)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/deployments?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&idempotency_key=eq.${q(idempotencyKey)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       return row ? toDeployment(row) : null;
@@ -1385,7 +1391,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<ProjectDeploymentTarget | null> {
       const found = await rows("getProjectDeploymentTarget", {
         method: "GET",
-        path: `/projects?select=provider,provider_resource_id,execution_model,root_directory&id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/projects?select=provider,provider_resource_id,execution_model,root_directory,organizations!inner(organization_members!inner(user_id))&id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       const row = found[0];
       if (!row) return null;
@@ -1516,7 +1522,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       // must not turn this into a cross-tenant delete.
       await must<Row[]>("deleteSecurityRule", {
         method: "DELETE",
-        path: `/security_rules?id=eq.${q(ruleId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/security_rules?select=organizations!inner(organization_members!inner(user_id))&id=eq.${q(ruleId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return true;
@@ -1528,7 +1534,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly TrustedSource[]> {
       const found = await rows("listTrustedSources", {
         method: "GET",
-        path: `/security_trusted_sources?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+        path: `/security_trusted_sources?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toTrustedSource);
     },
@@ -1559,7 +1565,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       await must<Row[]>("deleteTrustedSource", {
         method: "DELETE",
-        path: `/security_trusted_sources?id=eq.${q(sourceId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/security_trusted_sources?select=organizations!inner(organization_members!inner(user_id))&id=eq.${q(sourceId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return true;
@@ -1571,7 +1577,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly RateLimit[]> {
       const found = await rows("listRateLimits", {
         method: "GET",
-        path: `/security_rate_limits?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+        path: `/security_rate_limits?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toRateLimit);
     },
@@ -1604,7 +1610,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       await must<Row[]>("deleteRateLimit", {
         method: "DELETE",
-        path: `/security_rate_limits?id=eq.${q(rateLimitId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/security_rate_limits?select=organizations!inner(organization_members!inner(user_id))&id=eq.${q(rateLimitId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return true;
@@ -1758,7 +1764,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<readonly DataRestore[]> {
       const found = await rows("listDataRestores", {
         method: "GET",
-        path: `/data_restores?select=*&data_resource_id=eq.${q(resourceId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=50`,
+        path: `/data_restores?select=*,organizations!inner(organization_members!inner(user_id))&data_resource_id=eq.${q(resourceId)}&organizations.organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=50`,
       });
       return found.map(toDataRestore);
     },
@@ -1790,7 +1796,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       const updated = await rows("revokeApiKey", {
         method: "PATCH",
-        path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at&id=eq.${q(keyId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/api_keys?select=id,organization_id,name,key_prefix,scopes,last_used_at,revoked_at,created_at,organizations!inner(organization_members!inner(user_id))&id=eq.${q(keyId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
         body: { revoked_at: iso() },
       });
@@ -1917,7 +1923,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       const deleted = await rows("deleteGitLink", {
         method: "DELETE",
-        path: `/project_git_links?select=id&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/project_git_links?select=id,organizations!inner(organization_members!inner(user_id))&id=eq.${q(linkId)}&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;
@@ -1999,7 +2005,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<string | null> {
       const found = await rows("getEnvVarEngineRef", {
         method: "GET",
-        path: `/project_env_vars?select=engine_ref&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}&limit=1`,
+        path: `/project_env_vars?select=engine_ref,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
       });
       return found.length > 0 ? nullableStr(found[0]!, "engine_ref") : null;
     },
@@ -2013,7 +2019,7 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     ): Promise<boolean> {
       const deleted = await rows("deleteEnvVar", {
         method: "DELETE",
-        path: `/project_env_vars?select=id&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organization_members.user_id=eq.${q(userId)}`,
+        path: `/project_env_vars?select=id,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&project_id=eq.${q(projectId)}&environment_id=eq.${q(environmentId)}&key=eq.${q(key)}&organizations.organization_members.user_id=eq.${q(userId)}`,
         prefer: "return=representation",
       });
       return deleted.length > 0;
