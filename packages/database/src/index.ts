@@ -313,6 +313,24 @@ export interface ControlPlaneWrites {
     deploymentId: DeploymentId,
   ): Promise<Deployment | null>;
   /**
+   * Deployments still non-terminal after a cutoff, across every tenant.
+   *
+   * The one cross-tenant read in this interface, and deliberately so. The
+   * requeue rule polls an in-flight build, but only while a job for it is being
+   * redelivered. A build the engine accepted and then never settled leaves a row
+   * reading `running`/`pending` with no job left to requeue it, and a
+   * tenant-scoped read cannot find those rows because the sweeper does not know
+   * which organizations to look in. The sweep is the worker's own maintenance
+   * pass, not a request path: nothing a browser or a procedure calls reaches
+   * this method, the caller names how stale a row must be, and the returned rows
+   * carry their own `organizationId`, so the write that follows is scoped to the
+   * org the row belongs to — the boundary is preserved on the way back in.
+   */
+  listStrandedDeploymentsForService(
+    olderThan: string,
+    options?: ListPageOptions | undefined,
+  ): Promise<readonly Deployment[]>;
+  /**
    * Remember the hosting engine's application for a project.
    *
    * The first deployment creates the engine-side application; without persisting

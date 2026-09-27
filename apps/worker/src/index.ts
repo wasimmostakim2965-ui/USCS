@@ -7,6 +7,16 @@ export const APP_NAME = "worker" as const;
 export { InProcessWorker, jobStateFor } from "./processor.js";
 export type { JobOutcome, JobContext, JobHandler, WorkerOptions } from "./processor.js";
 export {
+  buildDeploymentReconciler,
+  DEFAULT_STALE_AFTER_MS,
+  DEFAULT_HARD_CEILING_MS,
+  DEFAULT_SWEEP_LIMIT,
+  type DeploymentReconciler,
+  type DeploymentReconcilerDeps,
+  type DeploymentReconcileWrites,
+  type StrandedDeployment,
+} from "./deployment-reconcile.js";
+export {
   executeDeployment,
   type DeploymentExecutionWrites,
   type DeploymentExecutionResult,

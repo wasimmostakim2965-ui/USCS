@@ -388,3 +388,41 @@ first page so accumulated pages cannot mix two projects' rows.
   `security_incidents` is in the `10_isolation_probe.sql` sweep — a new
   tenant-owned table must be added to both, or a leak in it goes unnoticed.
 
+
+
+## Publishing a route must carry the policy (not a bare fragment)
+
+- `securityEdge.publishRoute` is called when a domain **verifies**, to put the
+  hostname on the edge. It used to compile `compileEdge({ route })` — the route
+  alone — so the published fragment said `wafEnabled: false`, carried no WAF rule
+  and no deny/allow ladder, and told the edge to serve the host *without
+  inspection* exactly when it went live. That silently undid any policy the
+  customer had saved. It now loads the organization's policy through the same
+  `loadPolicy` loader `applyPolicy` uses and compiles the route as the primary
+  fragment. A route-only compile remains only for the honest case where no policy
+  exists yet. `tests/engines/security-edge.test.ts` pins both halves.
+
+## Stranded deployments: the sweep a queue reap cannot do (C7 residual)
+
+- A requeued deploy polls its in-flight build (`resumeRunningDeployment`), but
+  only while a job for that deployment is being redelivered. A job that reached a
+  terminal state while its deployment row stayed `pending`/`running` leaves a row
+  the customer reads as still progressing, forever. The queue's `reapExpired`
+  reaps *jobs*; it cannot settle the *rows* those jobs left.
+- `buildDeploymentReconciler` (`apps/worker/src/deployment-reconcile.ts`) is that
+  settlement. It runs on the worker loop (throttled, `sweepIntervalMs`, 60s) and
+  reads rows non-terminal past `DEFAULT_STALE_AFTER_MS` (10 min) through
+  `listStrandedDeploymentsForService` — the one service-role **cross-tenant** read
+  in the store, deliberately so: the sweeper does not know which organizations to
+  look in. Each row carries its own `organizationId`, so the write is scoped to
+  the row the read returned; a cross-tenant read never becomes a cross-tenant write.
+- It asks each row's engine through the *shared router* (`deploymentEngineFor`),
+  never an adapter directly, and writes only the engine's answer: a confirmed
+  `succeeded` is promoted and billed exactly as the job applier does (a staged
+  production build is not promoted); an engine with no record of the build fails
+  the row with that reason; a row past `DEFAULT_HARD_CEILING_MS` (1 hour) the
+  engine still calls in-flight is failed with a reason naming the ceiling. It
+  never writes `succeeded` from a timeout. We do not use the adapter's
+  `reconcile` method here: adding it to the `DeploymentEngine` port would change
+  an adapter interface. `tests/integration/deployment-reconcile.test.ts` pins
+  each branch.

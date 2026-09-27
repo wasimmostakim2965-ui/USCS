@@ -30,6 +30,8 @@ import {
   buildPolicyJobHandler,
   buildRestoreApplier,
   buildRestoreJobHandler,
+  buildDeploymentReconciler,
+  type DeploymentReconciler,
   BACKUP_JOB_KIND,
   DEPLOYMENT_JOB_KIND,
   POLICY_JOB_KIND,
@@ -44,6 +46,14 @@ export interface WorkerStartupOptions {
   /** Overridable so tests can drive the loop deterministically. */
   readonly pollIntervalMs?: number;
   readonly leaseMs?: number;
+  /**
+   * How often the stranded-deployment sweep runs.
+   *
+   * Its own interval, longer than the poll, because it costs a cross-tenant read
+   * and nothing it fixes is urgent to the second: a row is only a candidate ten
+   * minutes after it was created. Defaults to a minute.
+   */
+  readonly sweepIntervalMs?: number;
   readonly signal?: AbortSignal;
   readonly onCycle?: (outcomes: number) => void;
 }
@@ -60,6 +70,15 @@ type Engines = ReturnType<typeof buildDeploymentEngines>;
 interface WorkerWiring {
   readonly handlers: Record<string, JobHandler>;
   readonly apply: JobOutcomeWriter;
+  /**
+   * The stranded-deployment sweep the loop runs alongside the queue drain.
+   *
+   * Exposed on the wiring so a test can drive it directly, and so the loop has
+   * one object to call rather than re-deriving the stores. It shares the same
+   * store and engines the handlers use, so it can never ask a different engine
+   * than a deploy would.
+   */
+  readonly reconcile: DeploymentReconciler;
 }
 
 /**
@@ -207,7 +226,39 @@ export function buildWorkerWiring(
     buildPolicyApplier({ securityEdge: engines.securityEdge, writes: policyWrites, newId, now }),
   );
 
-  return { handlers, apply };
+  // The stranded-deployment sweep (C7, residual). The queue reaps expired
+  // *jobs*; a job that terminated while its deployment row stayed `pending` or
+  // `running` leaves a build the customer sees as still in progress and no job
+  // left to requeue it. This reads those rows across tenants, asks each row's
+  // engine the truth through the shared router, and writes only the engine's own
+  // answer — never `succeeded` from a timeout.
+  const reconcile = buildDeploymentReconciler({
+    engines,
+    writes: {
+      listStrandedDeploymentsForService: async (olderThan, options) => {
+        const found = await store.listStrandedDeploymentsForService(olderThan, options);
+        return found.map((row) => ({
+          id: row.id,
+          organizationId: row.organizationId,
+          projectId: row.projectId,
+          status: row.status,
+          providerResourceId: row.providerResourceId,
+          deploymentResourceId: row.deploymentResourceId,
+          createdAt: row.createdAt,
+          kind: row.kind,
+          staged: row.staged,
+        }));
+      },
+      getProjectDeploymentTargetForService: async (organizationId, projectId) => {
+        const target = await store.getProjectDeploymentTargetForService(organizationId, projectId);
+        return target ? { executionModel: target.executionModel } : null;
+      },
+    },
+    outcome: deploymentOutcome,
+    now,
+  });
+
+  return { handlers, apply, reconcile };
 }
 
 /**
@@ -238,7 +289,7 @@ export async function startWorker(
   const store = createSupabaseControlPlaneStore({ client, newId });
   const engines = buildDeploymentEngines(env, store);
   const queue = new SqlJobQueue(client);
-  const { handlers, apply } = buildWorkerWiring(
+  const { handlers, apply, reconcile } = buildWorkerWiring(
     store,
     engines,
     newId,
@@ -256,8 +307,10 @@ export async function startWorker(
   });
 
   const intervalMs = options.pollIntervalMs ?? 2_000;
+  const sweepIntervalMs = options.sweepIntervalMs ?? 60_000;
   const signal = options.signal ?? new AbortController().signal;
   let stopped = false;
+  let lastSweepAt = 0;
 
   const loop = async () => {
     while (!stopped && !signal.aborted) {
@@ -266,8 +319,24 @@ export async function startWorker(
         // crashed worker is retried rather than stuck in `running` forever.
         const reaped = await queue.reapExpired();
         const outcomes = await worker.drain(50);
-        options.onCycle?.(outcomes.length + reaped);
-        if (outcomes.length === 0 && reaped === 0) {
+        // Settle deployment rows stranded by a job that terminated before its
+        // row did. Throttled: the sweep reads across tenants, and a candidate is
+        // only ever ten minutes old, so running it every poll would be waste.
+        let settled = 0;
+        if (Date.now() - lastSweepAt >= sweepIntervalMs) {
+          lastSweepAt = Date.now();
+          try {
+            settled = await reconcile();
+          } catch (error) {
+            process.stderr.write(
+              `Cloud Wai worker deployment sweep failed: ${
+                error instanceof Error ? error.message : String(error)
+              }\n`,
+            );
+          }
+        }
+        options.onCycle?.(outcomes.length + reaped + settled);
+        if (outcomes.length === 0 && reaped === 0 && settled === 0) {
           await delay(intervalMs, signal);
         }
       } catch (error) {

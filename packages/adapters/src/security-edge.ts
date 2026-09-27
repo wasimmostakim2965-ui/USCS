@@ -888,7 +888,29 @@ export function createEnvoySecurityEdge(options: SecurityEdgeOptions): SecurityE
       const resolved = credentialsFor<OperationRef>(ctx);
       if (!resolved.ok) return resolved.result;
 
-      const compiled = compileEdge({ route });
+      // Publish the organization's compiled policy for this host, not a bare
+      // route fragment. Each `routes` publication carries the shared Coraza
+      // directives, so compiling without the policy here would push a rule set
+      // with no WAF rule, no deny list and no allow ladder — and the fragment's
+      // `wafEnabled: false` would tell the edge to serve the host *without
+      // inspection*, exactly when verifying a domain brings it live. That is the
+      // one thing the edge exists to prevent, and it would silently undo a policy
+      // the customer had saved. When the organization has no policy yet, the
+      // route-only compile is the honest artifact: there is nothing to enforce.
+      const policy = await policyFor(input.routeRef);
+      const compiled = policy
+        ? compileEdge({
+            ...policy,
+            route,
+            // Every other host the policy already names stays a fragment, so a
+            // second publication cannot drop a host's protection either. The
+            // policy's own primary host is included when it is not the one being
+            // published, since the loader keeps that host out of `routes`.
+            routes: [policy.route, ...(policy.routes ?? [])].filter(
+              (one) => one.host !== route.host,
+            ),
+          })
+        : compileEdge({ route });
 
       const response = await call<{ version?: number }>(
         ctx,

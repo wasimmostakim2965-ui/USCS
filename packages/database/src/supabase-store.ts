@@ -1246,6 +1246,26 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     },
 
     /**
+     * Deployments stranded in a non-terminal state, oldest first.
+     *
+     * Cross-tenant by design and service-role only: the sweeper looks for rows no
+     * tenant list would surface because it does not know the tenants. The filter
+     * is `status` plus a `created_at` cutoff, ordered ascending so the oldest
+     * stranded row is resolved first and the sweep makes progress across runs.
+     */
+    async listStrandedDeploymentsForService(
+      olderThan: string,
+      options?: ListPageOptions | undefined,
+    ): Promise<readonly Deployment[]> {
+      const limit = resolveListLimit(options?.limit, DEFAULT_LIST_LIMIT);
+      const found = await rows("listStrandedDeploymentsForService", {
+        method: "GET",
+        path: `/deployments?select=*&status=in.(pending,running)&created_at=lt.${q(olderThan)}&order=created_at.asc&limit=${limit}`,
+      });
+      return found.map(toDeployment);
+    },
+
+    /**
      * Advance a deployment's state.
      *
      * Two filters make this safe even with the service role: the row must be in

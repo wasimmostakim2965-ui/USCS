@@ -182,6 +182,30 @@ describe("edge adapter", () => {
     const sent = JSON.parse(call.body);
     expect(sent.envoyConfig.privateOrigin).toBe("10.0.0.7:3000");
     expect(sent.corazaDirectives.some((d: string) => d.includes("SecRuleEngine On"))).toBe(true);
+    // The publication carries the organization's policy, not a bare fragment: a
+    // route published at verify time must arrive with the firewall on. Before
+    // this it compiled the route alone, so `wafEnabled` was false and the host
+    // went live without inspection.
+    expect(sent.envoyConfig.wafEnabled).toBe(true);
+    expect(sent.corazaDirectives.some((d: string) => d.includes("BLOCKING_INBOUND_ANOMALY_SCORE"))).toBe(
+      true,
+    );
+  });
+
+  it("publishes a route-only config when the organization has no policy yet", async () => {
+    // The honest other half: with nothing saved there is nothing to enforce, so
+    // the fragment says so rather than implying a firewall that does not exist.
+    const bare = createEnvoySecurityEdge({
+      credentials: () => ({ adminUrl, token: "edge-token" }),
+      resolveRoute: () => route(),
+      resolvePolicy: () => null,
+    });
+    const result = await bare.publishRoute(ctx("no-policy"), {
+      routeRef: routeRef("app.example.com"),
+    });
+    expect(result.ok).toBe(true);
+    const sent = JSON.parse(seen.at(-1)!.body);
+    expect(sent.envoyConfig.wafEnabled).toBe(false);
   });
 
   it("refuses to publish a route whose origin is public", async () => {
