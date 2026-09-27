@@ -4384,3 +4384,113 @@ describe("the Security policy write path", () => {
     expect(await screen.findByText(/cannot read security incidents yet/)).toBeTruthy();
   });
 });
+
+/**
+ * Walking a list older than one page.
+ *
+ * The Deployments and Activity pages used to load a single fixed window, so a
+ * project with more rows than fit in it could never reach the older ones. These
+ * drive the real pages (real `ApiClient`, real HTTP server) against a store that
+ * answers page-size requests: a full first page offers "Load older", the request
+ * carries the `createdAt` of the last row already shown, and the older rows are
+ * *appended*. A short page ends the walk and the action disappears, because the
+ * store clamps the page size and only a short page proves there is nothing older.
+ */
+describe("paging an append-ordered list", () => {
+  const SIZE = 200;
+  const iso = (index: number) => `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`;
+
+  /** A run of deployments, newest first, each one second apart. */
+  const deployPage = (fromIndex: number, count: number) =>
+    Array.from({ length: count }, (_, offset) => {
+      const index = fromIndex - offset;
+      return {
+        id: `d-${String(index)}`,
+        projectId: "p-1",
+        status: "succeeded",
+        url: `https://d${String(index)}.example.test`,
+        failureReason: null,
+        createdAt: iso(index),
+      };
+    });
+
+  it("loads the newest page first, then appends the older page on request", async () => {
+    const inputs: unknown[] = [];
+    const responder: Responder = (procedure, input) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "deployments.list") {
+        inputs.push(input);
+        const before = (input as { before?: string }).before;
+        // 300 rows in total: 200 on the first page, 100 on the second.
+        return before === undefined
+          ? { ok: true, status: 200, data: deployPage(300, SIZE) }
+          : { ok: true, status: 200, data: deployPage(100, 100) };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/deployments");
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("https://d300.example.test")).toBeTruthy();
+    // The oldest row is not there yet, and no first-page request carried a cursor.
+    expect(screen.queryByText("https://d100.example.test")).toBeNull();
+    expect((inputs[0] as { before?: string }).before).toBeUndefined();
+    expect((inputs[0] as { limit?: number }).limit).toBe(SIZE);
+
+    await user.click(screen.getByRole("button", { name: "Load older deployments" }));
+
+    // An older row from the second page is appended, not swapped in, and the
+    // request carried the oldest timestamp already on screen as its cursor.
+    expect(await screen.findByText("https://d100.example.test")).toBeTruthy();
+    expect(screen.getByText("https://d300.example.test")).toBeTruthy();
+    expect((inputs[1] as { before?: string }).before).toBe(iso(101));
+    // The second page was short, so the walk ends rather than offering a button
+    // that would fetch nothing.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Load older deployments" })).toBeNull(),
+    );
+    expect(screen.getByText("That is the full history for this project.")).toBeTruthy();
+  });
+
+  it("pages the audit log with the same cursor and appends older entries", async () => {
+    const inputs: unknown[] = [];
+    const auditPage = (fromIndex: number, count: number) =>
+      Array.from({ length: count }, (_, offset) => {
+        const index = fromIndex - offset;
+        return {
+          id: `a-${String(index)}`,
+          event: `event-${String(index)}`,
+          actorEmail: "operator@cloud-wai.test",
+          createdAt: iso(index),
+        };
+      });
+    const responder: Responder = (procedure, input) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "audit.list") {
+        inputs.push(input);
+        const before = (input as { before?: string }).before;
+        return before === undefined
+          ? { ok: true, status: 200, data: auditPage(300, SIZE) }
+          : { ok: true, status: 200, data: auditPage(100, 100) };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/audit");
+    const user = userEvent.setup();
+
+    expect(await screen.findByText("event-300")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Load older activity" }));
+
+    expect(await screen.findByText("event-100")).toBeTruthy();
+    expect(screen.getByText("event-300")).toBeTruthy();
+    expect((inputs[1] as { before?: string }).before).toBe(iso(101));
+  });
+});

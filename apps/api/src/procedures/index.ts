@@ -50,6 +50,8 @@ import {
   type CreateDeploymentInput,
   type DeploymentDeps,
   type DeploymentLogsInput,
+  type ListAuditEventsInput,
+  type ListDeploymentsInput,
   type PromoteDeploymentRequest,
   type RedeployDeploymentInput,
   type RollbackDeploymentInput,
@@ -358,7 +360,7 @@ export function buildProcedures(
     {
       name: "deployments.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
-        listDeployments(ctx, depDeps, inputOf<{ projectId: ProjectId }>(input).projectId),
+        listDeployments(ctx, depDeps, inputOf<ListDeploymentsInput>(input)),
     },
     {
       name: "deployments.create",
@@ -393,11 +395,7 @@ export function buildProcedures(
     {
       name: "audit.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
-        listAuditEvents(
-          ctx,
-          depDeps,
-          inputOf<{ organizationId: OrganizationId }>(input).organizationId,
-        ),
+        listAuditEvents(ctx, depDeps, inputOf<ListAuditEventsInput>(input)),
     },
     {
       name: "git.links.list",

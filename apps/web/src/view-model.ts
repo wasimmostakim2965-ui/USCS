@@ -73,6 +73,13 @@ export interface DeploymentSummary {
    * offered and then refused. It is a plain public clone URL, never a credential.
    */
   readonly gitRepository: string | null;
+  /**
+   * When the request was recorded.
+   *
+   * The store returns newest-first and the Deployments page pages with a keyset
+   * cursor on this field, so it is part of the row, not decoration.
+   */
+  readonly createdAt: string;
 }
 
 /**
@@ -332,13 +339,24 @@ export async function loadProjects(
   return sectionFrom("Projects", response);
 }
 
-/** Load the deployments of one project. */
+/**
+ * Load a page of a project's deployments, newest first.
+ *
+ * `before` is the `createdAt` of the oldest row already loaded: the server
+ * returns strictly older rows, so "Load older" appends without repeating or
+ * skipping. Absent returns the newest page. The page size is explicit so the
+ * caller can tell a full page (there may be more) from a short one (the end).
+ */
 export async function loadDeployments(
   client: ApiClient,
   projectId: string,
+  before?: string,
+  limit?: number,
 ): Promise<Section<DeploymentSummary>> {
   const response = await client.call<readonly DeploymentSummary[]>("deployments.list", {
     projectId,
+    ...(before !== undefined ? { before } : {}),
+    ...(limit !== undefined ? { limit } : {}),
   });
   return sectionFrom("Deployments", response);
 }
@@ -974,12 +992,23 @@ export async function loadSecurityPolicyEvents(
   return ready("Policy history", response.data?.events ?? []);
 }
 
-/** Load the audit log of one organization. */
+/**
+ * Load a page of an organization's audit log, newest first.
+ *
+ * The cursor is `before`, as `loadDeployments`; the audit log is append-only, so
+ * this is the only way to walk it without the newest event shifting every page.
+ */
 export async function loadAudit(
   client: ApiClient,
   organizationId: string,
+  before?: string,
+  limit?: number,
 ): Promise<Section<AuditSummary>> {
-  const response = await client.call<readonly AuditSummary[]>("audit.list", { organizationId });
+  const response = await client.call<readonly AuditSummary[]>("audit.list", {
+    organizationId,
+    ...(before !== undefined ? { before } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  });
   return sectionFrom("Recent activity", response);
 }
 

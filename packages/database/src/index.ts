@@ -78,6 +78,34 @@ export interface MembershipStore {
   membershipsFor(userId: string): Promise<readonly Membership[]>;
 }
 
+/**
+ * A keyset page request for an append-ordered list.
+ *
+ * `before` is the `created_at` of the last row of the previous page: the next
+ * page is strictly older rows. Keyset rather than offset because these lists are
+ * append-mostly (a new deployment or audit event lands at the head while a reader
+ * pages), and an offset would then skip or repeat rows. `limit` is a caller's
+ * wish, not a grant: every store clamps it to `MAX_LIST_LIMIT`, so a request can
+ * never pull an unbounded table.
+ */
+export interface ListPageOptions {
+  readonly before?: string | undefined;
+  readonly limit?: number | undefined;
+}
+
+/** The most rows any single list call returns, regardless of what a caller asks. */
+export const MAX_LIST_LIMIT = 200;
+/** What a list call returns when the caller does not name a limit. */
+export const DEFAULT_LIST_LIMIT = 100;
+/** What the audit list returns by default, matching its historical `LIMIT`. */
+export const DEFAULT_AUDIT_LIMIT = 200;
+
+/** Clamp a caller's `limit` into `[1, MAX_LIST_LIMIT]`, defaulting when absent. */
+export function resolveListLimit(limit: number | undefined, fallback: number): number {
+  if (limit === undefined || !Number.isInteger(limit) || limit < 1) return fallback;
+  return Math.min(limit, MAX_LIST_LIMIT);
+}
+
 export interface DataStore {
   listOrganizations(userId: UserId): Promise<readonly Organization[]>;
   createOrganization(input: {
@@ -135,8 +163,33 @@ export interface DataStore {
     /** The monorepo subdirectory to build from; null is the repository root. */
     rootDirectory?: string | null;
   }): Promise<Project>;
-  listDeployments(userId: UserId, projectId: ProjectId): Promise<readonly Deployment[]>;
-  listAuditEvents(userId: UserId, organizationId: OrganizationId): Promise<readonly AuditEvent[]>;
+  /**
+   * A page of a project's deployments, newest first.
+   *
+   * `options` is optional so an older caller keeps the historical behaviour (the
+   * newest `LIMIT`). When given, `before` is a keyset cursor: only rows strictly
+   * older than that timestamp are returned, which is what lets a page walk the
+   * whole history without an offset that shifts under concurrent inserts. The
+   * store enforces its own upper bound on `limit`, so a caller cannot ask for the
+   * entire table.
+   */
+  listDeployments(
+    userId: UserId,
+    projectId: ProjectId,
+    options?: ListPageOptions | undefined,
+  ): Promise<readonly Deployment[]>;
+  /**
+   * A page of an organization's audit events, newest first.
+   *
+   * Cursor semantics are identical to `listDeployments`; `before` is a
+   * `created_at` keyset, so an append-only log is walked without gaps or
+   * duplicates even while new events arrive.
+   */
+  listAuditEvents(
+    userId: UserId,
+    organizationId: OrganizationId,
+    options?: ListPageOptions | undefined,
+  ): Promise<readonly AuditEvent[]>;
   /** Append-only: returns the recorded event. */
   recordAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
 

@@ -239,8 +239,7 @@ function procedures(): Procedure[] {
     },
     {
       name: "deployments.list",
-      handler: (ctx, deps, input) =>
-        listDeployments(ctx, deps as never, (input as { projectId: ProjectId }).projectId),
+      handler: (ctx, deps, input) => listDeployments(ctx, deps as never, input as never),
     },
   ];
 }
@@ -330,12 +329,12 @@ describe("API scope enforcement", () => {
       { accessToken: TOKEN_ALICE },
     );
 
-    const own = await listDeployments(ctx, { store }, PROJ_A);
+    const own = await listDeployments(ctx, { store }, { projectId: PROJ_A });
     expect(own.map((d) => d.id)).toEqual(["dep-a"]);
 
     // Alice is a viewer in B, so she can list B's deployments — but they are
     // B's rows, and org A's are never included.
-    const foreign = await listDeployments(ctx, { store }, PROJ_B);
+    const foreign = await listDeployments(ctx, { store }, { projectId: PROJ_B });
     expect(foreign.map((d) => d.id)).toEqual(["dep-b"]);
     expect(foreign.some((d) => d.organizationId === ORG_A)).toBe(false);
   });

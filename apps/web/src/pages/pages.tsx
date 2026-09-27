@@ -30,7 +30,7 @@ import {
   presentDeploymentStatus,
 } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
-import { useSection } from "../react/hooks.js";
+import { usePagedSection, useSection } from "../react/hooks.js";
 import { newRequestId } from "../ids.js";
 import type { Route } from "../routes.js";
 import {
@@ -187,6 +187,11 @@ function DeploymentColumns(): readonly Column<DeploymentSummary>[] {
         ) : (
           <span className="faint">—</span>
         ),
+    },
+    {
+      key: "when",
+      header: "Requested",
+      render: (item) => <Timestamp value={item.createdAt} />,
     },
   ];
 }
@@ -671,8 +676,10 @@ export function ProjectSettingsPage({
     (name !== project!.name ||
       slug !== project!.slug ||
       executionModel !== project!.executionModel ||
-      rootDirectory.trim().replace(/^\.\/+/, "").replace(/\/+$/, "") !==
-        (project!.rootDirectory ?? ""));
+      rootDirectory
+        .trim()
+        .replace(/^\.\/+/, "")
+        .replace(/\/+$/, "") !== (project!.rootDirectory ?? ""));
 
   // The slug names the engine application once one exists, and the engine has no
   // rename the API is allowed to call — `projects.update` refuses the change. The
@@ -831,10 +838,11 @@ export function DeploymentsPage({
   readonly projectId: string;
 }) {
   const { client } = useApp();
-  const { section, reload } = useSection(
-    () => loadDeployments(client, projectId),
+  const { section, reload, loadMore, loadingMore, hasMore } = usePagedSection<DeploymentSummary>(
+    (before) => loadDeployments(client, projectId, before, LIST_PAGE_SIZE),
     [client, projectId],
     "Deployments",
+    LIST_PAGE_SIZE,
   );
   const [deploying, setDeploying] = useState(false);
   const [rollingBack, setRollingBack] = useState<DeploymentSummary | null>(null);
@@ -908,6 +916,20 @@ export function DeploymentsPage({
           filterLabel="Filter deployments"
         />
       </Card>
+
+      {section.state.kind === "ready" && section.state.items.length > 0 ? (
+        <div className="row" style={{ justifyContent: "center", marginTop: "var(--space-4)" }}>
+          {hasMore ? (
+            <Button onClick={() => loadMore()} busy={loadingMore}>
+              Load older deployments
+            </Button>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>
+              That is the full history for this project.
+            </p>
+          )}
+        </div>
+      ) : null}
 
       <NewDeploymentModal
         // Remount per open so the idempotency key is fresh for a new request
@@ -1035,8 +1057,8 @@ function RedeployDeploymentModal({
     >
       <div className="stack">
         <p className="small">
-          This builds the recorded source again, so it picks up the branch&apos;s latest commit.
-          To return to the exact artifact this row built, use Rollback instead.
+          This builds the recorded source again, so it picks up the branch&apos;s latest commit. To
+          return to the exact artifact this row built, use Rollback instead.
         </p>
         {deployment ? (
           <dl className="dl">
@@ -2031,6 +2053,14 @@ function RemoveDomainModal({
 
 /* ------------------------------------------------------------------ git */
 
+/**
+ * How many rows a list page asks for.
+ *
+ * Matches the store's default; the server clamps anything larger. The pages use
+ * it to tell a full page (there may be more) from a short one (the end).
+ */
+const LIST_PAGE_SIZE = 200;
+
 const GIT_PROVIDERS = [
   { value: "github", label: "GitHub" },
   { value: "gitlab", label: "GitLab" },
@@ -2627,9 +2657,7 @@ export function EnvVarsPage({
             {
               key: "environment",
               header: "Environment",
-              render: (item) => (
-                <span>{environmentName(item.environmentId)}</span>
-              ),
+              render: (item) => <span>{environmentName(item.environmentId)}</span>,
             },
             {
               key: "value",
@@ -2801,7 +2829,8 @@ function EnvVarModal({
     setRedeploying(false);
     if (!response.ok || !response.data) {
       setRedeployError(
-        response.error?.message ?? "The redeploy could not be requested. Is a repository connected?",
+        response.error?.message ??
+          "The redeploy could not be requested. Is a repository connected?",
       );
       return;
     }
@@ -2850,8 +2879,8 @@ function EnvVarModal({
               </p>
               {redeployOutcome ? (
                 <p className="small" role="status">
-                  A redeployment was queued. Its status is the hosting engine&apos;s to report, on the
-                  Deployments page.
+                  A redeployment was queued. Its status is the hosting engine&apos;s to report, on
+                  the Deployments page.
                 </p>
               ) : (
                 <>
@@ -5021,15 +5050,16 @@ function RemoveRateLimitModal({
 
 export function ActivityPage({ organizationId }: { readonly organizationId: string }) {
   const { client } = useApp();
-  const { section, reload } = useSection(
-    () => loadAudit(client, organizationId),
+  const { section, reload, loadMore, loadingMore, hasMore } = usePagedSection<AuditSummary>(
+    (before) => loadAudit(client, organizationId, before, LIST_PAGE_SIZE),
     [client, organizationId],
     "Recent activity",
+    LIST_PAGE_SIZE,
   );
 
-  // Export the rows already on screen. It is the newest slice the API returns
-  // (200 rows), not the whole history, and the button says so — a file that
-  // silently stopped at the cap while looking complete would be a lie.
+  // Export the rows already on screen. It is what has been paged in, not the
+  // whole history, and the caption says so — a file that silently stopped while
+  // looking complete would be a lie.
   const exportCsv = (items: readonly AuditSummary[]) => {
     const blob = new Blob([auditCsv(items)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -5077,9 +5107,19 @@ export function ActivityPage({ organizationId }: { readonly organizationId: stri
                 ]}
               />
               <p className="muted small" style={{ margin: 0 }}>
-                The export contains the {items.length} most recent entries shown here, not the full
-                history.
+                The export contains the {items.length} entries loaded here, not the full history.
               </p>
+              {hasMore ? (
+                <div className="row" style={{ justifyContent: "center" }}>
+                  <Button onClick={() => loadMore()} busy={loadingMore}>
+                    Load older activity
+                  </Button>
+                </div>
+              ) : (
+                <p className="muted small" style={{ margin: 0, textAlign: "center" }}>
+                  That is every recorded entry.
+                </p>
+              )}
             </div>
           )}
         />
@@ -6046,8 +6086,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
   const [removing, setRemoving] = useState<OrganizationMemberSummary | null>(null);
 
   const currentUserId = session.current()?.userId ?? null;
-  const memberRows =
-    members.section.state.kind === "ready" ? members.section.state.items : [];
+  const memberRows = members.section.state.kind === "ready" ? members.section.state.items : [];
   const myRole = memberRows.find((m) => m.userId === currentUserId)?.role ?? null;
   const isOwner = myRole === "owner";
   const canInvite = isOwner || myRole === "admin";
@@ -6060,9 +6099,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
   const canRemove = (item: OrganizationMemberSummary) => {
     if (item.userId === currentUserId) {
       // Leaving is always allowed, except when you are the last owner.
-      return item.role === "owner"
-        ? memberRows.filter((m) => m.role === "owner").length > 1
-        : true;
+      return item.role === "owner" ? memberRows.filter((m) => m.role === "owner").length > 1 : true;
     }
     return canInvite && (isOwner || item.role !== "owner");
   };
@@ -6139,9 +6176,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                   {
                     key: "role",
                     header: "Role",
-                    render: (item) => (
-                      <StatusBadge label={roleLabel(item.role)} tone="neutral" />
-                    ),
+                    render: (item) => <StatusBadge label={roleLabel(item.role)} tone="neutral" />,
                   },
                   {
                     key: "since",

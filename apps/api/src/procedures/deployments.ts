@@ -32,7 +32,13 @@ import type {
 import type { BuildPack, Engines, JobQueue, ServerlessArtifact } from "@cloud-wai/adapters";
 import { BUILD_PACKS, deploymentEngineFor, runBuildStep } from "@cloud-wai/adapters";
 import { DEPLOYMENT_JOB_KIND, type DeploymentJobPayload } from "@cloud-wai/contracts";
-import type { AuditEvent, ControlPlaneWrites, DataStore, Deployment } from "@cloud-wai/database";
+import type {
+  AuditEvent,
+  ControlPlaneWrites,
+  DataStore,
+  Deployment,
+  ListPageOptions,
+} from "@cloud-wai/database";
 import type { RequestContext } from "../context.js";
 
 /** A hosting operation is bounded; a hung engine must not hang a request. */
@@ -273,26 +279,67 @@ function optionalBuildPack(value: string | undefined): BuildPack | null {
   return trimmed as BuildPack;
 }
 
+export interface ListDeploymentsInput {
+  readonly projectId: ProjectId;
+  /**
+   * Keyset cursor: the `createdAt` of the last row of the previous page. Absent
+   * returns the newest page. This is what lets the Deployments page walk the
+   * whole history without loading it in one response.
+   */
+  readonly before?: string | undefined;
+  /** A wish, clamped by the store to `MAX_LIST_LIMIT`. */
+  readonly limit?: number | undefined;
+}
+
 export async function listDeployments(
   ctx: RequestContext,
   deps: DeploymentDeps,
-  projectId: ProjectId,
+  input: ListDeploymentsInput,
 ): Promise<readonly Deployment[]> {
-  const project = await deps.store.getProject(ctx.principal.userId, projectId);
+  const project = await deps.store.getProject(ctx.principal.userId, input.projectId);
   if (!project) {
     throw new ApiError("not_found", "Project not found.");
   }
   requireCapability(ctx, project.organizationId, "deployment:read");
-  return deps.store.listDeployments(ctx.principal.userId, projectId);
+  return deps.store.listDeployments(ctx.principal.userId, input.projectId, pageOf(input));
+}
+
+export interface ListAuditEventsInput {
+  readonly organizationId: OrganizationId;
+  /** Keyset cursor, as `deployments.list`. */
+  readonly before?: string | undefined;
+  readonly limit?: number | undefined;
 }
 
 export async function listAuditEvents(
   ctx: RequestContext,
   deps: DeploymentDeps,
-  organizationId: OrganizationId,
+  input: ListAuditEventsInput,
 ): Promise<readonly AuditEvent[]> {
-  requireCapability(ctx, organizationId, "audit:read");
-  return deps.store.listAuditEvents(ctx.principal.userId, organizationId);
+  requireCapability(ctx, input.organizationId, "audit:read");
+  return deps.store.listAuditEvents(ctx.principal.userId, input.organizationId, pageOf(input));
+}
+
+/**
+ * Extract a store page from a list input.
+ *
+ * The `before` cursor is passed through only when it is a parseable timestamp: a
+ * garbage cursor would otherwise become an invariant PostgREST filter that either
+ * errors or silently matches nothing, and "no rows" is a worse answer than "start
+ * from the newest page". A cursor the caller cannot read is treated as absent.
+ */
+function pageOf(input: {
+  readonly before?: string | undefined;
+  readonly limit?: number | undefined;
+}): ListPageOptions {
+  const before =
+    typeof input.before === "string" && !Number.isNaN(Date.parse(input.before))
+      ? input.before
+      : undefined;
+  return {
+    ...(before !== undefined ? { before } : {}),
+    ...(typeof input.limit === "number" ? { limit: input.limit } : {}),
+  };
 }
 
 export interface CreateDeploymentInput {

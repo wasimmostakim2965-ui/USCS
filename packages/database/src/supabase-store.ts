@@ -82,6 +82,12 @@ import type {
   UsageRecord,
   UsageRecordInput,
 } from "./index.js";
+import {
+  DEFAULT_AUDIT_LIMIT,
+  DEFAULT_LIST_LIMIT,
+  resolveListLimit,
+  type ListPageOptions,
+} from "./index.js";
 
 /** A procedure could not reach the control-plane database. */
 export class ControlPlaneUnavailableError extends Error {
@@ -645,10 +651,19 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return row ? toProject(row) : null;
     },
 
-    async listDeployments(userId: UserId, projectId: ProjectId): Promise<readonly Deployment[]> {
+    async listDeployments(
+      userId: UserId,
+      projectId: ProjectId,
+      options?: ListPageOptions | undefined,
+    ): Promise<readonly Deployment[]> {
+      const limit = resolveListLimit(options?.limit, DEFAULT_LIST_LIMIT);
+      // Keyset: strictly older than the cursor, so page N+1 never repeats a row
+      // that landed at the head while page N was being read.
+      const cursor =
+        options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listDeployments", {
         method: "GET",
-        path: `/deployments?select=*&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=100`,
+        path: `/deployments?select=*&project_id=eq.${q(projectId)}&organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
       });
       return found.map(toDeployment);
     },
@@ -665,10 +680,14 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     async listAuditEvents(
       userId: UserId,
       organizationId: OrganizationId,
+      options?: ListPageOptions | undefined,
     ): Promise<readonly AuditEvent[]> {
+      const limit = resolveListLimit(options?.limit, DEFAULT_AUDIT_LIMIT);
+      const cursor =
+        options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
       const found = await rows("listAuditEvents", {
         method: "GET",
-        path: `/audit_logs?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}&order=created_at.desc&limit=200`,
+        path: `/audit_logs?select=*&organization_id=eq.${q(organizationId)}&organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
       });
       return found.map(toAuditEvent);
     },

@@ -112,6 +112,99 @@ export function useSection<T>(
   return { section, reload };
 }
 
+/**
+ * Run a keyset-paged loader and accumulate its pages.
+ *
+ * The first page is `loading` until it arrives; "load more" fetches the page
+ * after the last row's cursor and *appends* it, so the list grows instead of
+ * being replaced by a later window. It never claims completeness: the caller
+ * renders `hasMore` and offers the action only while a full page came back,
+ * because a store clamps the page size — a short page is the only honest signal
+ * that there is nothing older.
+ *
+ * A reload (a mutation, a project change) resets to the first page, so the
+ * accumulated pages cannot mix a previous project's rows with the current one.
+ */
+export function usePagedSection<T extends { readonly createdAt: string }>(
+  loader: (before?: string) => Promise<Section<T>>,
+  deps: readonly unknown[],
+  title: string,
+  pageSize: number,
+): {
+  readonly section: Section<T>;
+  readonly reload: () => void;
+  readonly loadMore: () => void;
+  readonly loadingMore: boolean;
+  readonly hasMore: boolean;
+} {
+  const [section, setSection] = useState<Section<T>>(() => loading<T>(title));
+  const [nonce, setNonce] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const requestId = useRef(0);
+  const items = useRef<readonly T[]>([]);
+
+  useEffect(() => {
+    const id = ++requestId.current;
+    let cancelled = false;
+    items.current = [];
+    setHasMore(false);
+    void loader()
+      .then((next) => {
+        if (cancelled || id !== requestId.current) return;
+        const loaded = next.state.kind === "ready" ? next.state.items : [];
+        items.current = loaded;
+        setHasMore(next.state.kind === "ready" && loaded.length >= pageSize);
+        setSection(next);
+      })
+      .catch((error: unknown) => {
+        if (cancelled || id !== requestId.current) return;
+        setSection({
+          title,
+          state: {
+            kind: "error",
+            message: error instanceof Error ? error.message : "The request failed.",
+          },
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // The caller owns the dependency list, exactly as with useEffect.
+  }, [...deps, nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadMore = useCallback(() => {
+    const oldest = items.current[items.current.length - 1];
+    if (!oldest || loadingMore) return;
+    const id = requestId.current;
+    setLoadingMore(true);
+    void loader(oldest.createdAt)
+      .then((next) => {
+        // Dropped if a reload happened while this page was in flight.
+        if (id !== requestId.current) return;
+        const page = next.state.kind === "ready" ? next.state.items : [];
+        const seen = new Set(items.current.map((item) => item.createdAt));
+        const fresh = page.filter((item) => !seen.has(item.createdAt));
+        items.current = [...items.current, ...fresh];
+        // A full page means there may be more; the last short page ends it.
+        setHasMore(page.length >= pageSize);
+        setSection({
+          title,
+          state: { kind: "ready", items: items.current },
+        });
+      })
+      .catch(() => {
+        // A failed "load more" leaves the loaded pages intact; the action can be
+        // tried again. It must not clear what is already on screen.
+      })
+      .finally(() => setLoadingMore(false));
+  }, [loader, loadingMore, title, pageSize]);
+
+  const reload = useCallback(() => setNonce((value) => value + 1), []);
+
+  return { section, reload, loadMore, loadingMore, hasMore };
+}
+
 /** Persist a small value, tolerating a browser with storage disabled. */
 export function usePersistentState(
   key: string,

@@ -286,6 +286,22 @@ not when a commit message says so.
   application tail. The result carries `source` so the drawer can say which log
   it is rather than presenting one as the other.
 
+## List pagination (append-ordered lists)
+
+`deployments` and `audit_logs` are append-ordered and grow without bound, so
+neither is ever read in full. `packages/database/src/index.ts` defines
+`ListPageOptions` (`before` cursor + `limit`); the store clamps `limit` to
+`MAX_LIST_LIMIT` (200) through `resolveListLimit`, which treats a non-positive or
+fractional value as absent, and emits `created_at=lt.<before>&order=created_at.desc`
+— a keyset cursor, never an offset. An offset would repeat or skip a row the
+moment something is inserted at the head; the cursor cannot.
+
+`deployments.list` / `audit.list` carry `before`/`limit` and take an object input.
+`usePagedSection` (`apps/web/src/react/hooks.ts`) accumulates pages: it offers
+"Load older" only while a *full* page comes back and ends on the first short one,
+because only a short page proves there is nothing older. A reload resets to the
+first page so accumulated pages cannot mix two projects' rows.
+
 ## The security page's edge banner
 
 - The banner text is derived from `providers.health` (the adapter's report of the
