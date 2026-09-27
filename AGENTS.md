@@ -302,6 +302,18 @@ not when a commit message says so.
   `organizations.members.*` rank check is not enough on its own — a member can
   reach PostgREST with their own JWT, so the rank rule must hold in the database.
 
+- **A hard spend cap must gate *every* trigger that builds, not only the button.**
+  `deployments.rollback` asks the engine to build, and the git webhook receiver
+  enqueues the same build job, so a cap enforced only on `deployments.create` is
+  escapable by rolling back or by pushing. The single check is
+  `hardCapRefusal` (`apps/api/src/procedures/billing.ts`); `create` and
+  `rollback` throw `budget_exceeded` (402) before a row or job exists, and
+  `git-hook.ts` — which has no member to answer and must not report a status the
+  provider cannot act on — returns `202 { reason: "budget_exceeded" }` and writes
+  a `deployment.cap_refused` audit row. A soft budget blocks nothing anywhere.
+  When a new build trigger is added, it must call this same helper; the cap is a
+  property of the organization's work, not of one procedure.
+
 ## List pagination (append-ordered lists)
 
 `deployments` and `audit_logs` are append-ordered and grow without bound, so

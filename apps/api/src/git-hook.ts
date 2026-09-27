@@ -30,6 +30,7 @@ import type { JobQueue } from "@cloud-wai/adapters";
 import type { SecretCipher } from "@cloud-wai/auth";
 import { cloneUrlFor, verifyGitDelivery } from "./procedures/git-links.js";
 import { ensurePreviewTarget, previewKeyFor } from "./procedures/deployments.js";
+import { hardCapRefusal } from "./procedures/billing.js";
 
 /** The hosting engine this build wires (ADR-0002: Coolify behind HostingAdapter). */
 const HOSTING_PROVIDER = "coolify";
@@ -264,6 +265,30 @@ export async function deployFromDelivery(
   if (!project) {
     // A link whose project is gone is a stale row, not a reason to guess.
     return { status: 202, body: { ok: true, reason: "project_not_found" } };
+  }
+
+  // A cap is a control on *all* work the organization triggers, not only work a
+  // member starts from the dashboard. A push that builds past a hard cap would
+  // be the surprise-invoice case the cap exists to prevent, so the same check
+  // the Deploy button runs runs here, before a row or a job exists. There is no
+  // member to answer with a 402, so the delivery is accepted and skipped — the
+  // honest answer to a provider, and the cap is recorded in the audit below.
+  const refusal = await hardCapRefusal(
+    { store: deps.store },
+    link.organizationId,
+    "deployments",
+  );
+  if (refusal) {
+    await deps.store.recordAuditEvent({
+      organizationId: link.organizationId,
+      actorId: null,
+      actorEmail: null,
+      event: "deployment.cap_refused",
+      targetType: "project",
+      targetId: link.projectId,
+      metadata: { reason: "budget_exceeded", metric: refusal.metric },
+    });
+    return { status: 202, body: { ok: true, reason: "budget_exceeded" } };
   }
 
   if (delivery.branch === null && delivery.pullRequest === null) {

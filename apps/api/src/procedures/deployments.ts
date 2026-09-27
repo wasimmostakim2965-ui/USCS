@@ -1222,6 +1222,12 @@ export async function rollbackDeployment(
     return { deployment: existing, replayed: true, engineReason: existing.failureReason };
   }
 
+  // A rollback asks the engine to build too, so it is work a hard cap governs
+  // exactly as a fresh deploy is. Without this a capped organization could keep
+  // spending by rolling back, which is the surprise-invoice case the cap exists
+  // to prevent.
+  await assertWithinBudget({ store: deps.store }, project.organizationId, "deployments");
+
   // A rollback returns the production pointer to an earlier revision, so it is
   // a Production deployment and belongs to the project's Production environment.
   const environmentId = await environmentIdFor(deps, ctx.principal.userId, project.id, "production");

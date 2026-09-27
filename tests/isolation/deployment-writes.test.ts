@@ -100,7 +100,9 @@ const membershipStore: MembershipStore = {
  * organization the acting user belongs to, and the membership join decides
  * visibility. That is what makes the isolation assertions meaningful.
  */
-function makeStore() {
+function makeStore(
+  budget?: { readonly limitQuantity: number; readonly hardCap: boolean; readonly used: number },
+) {
   const organizations: Organization[] = [
     { id: ORG_A, name: "A", slug: "a", createdAt: "2026-01-01T00:00:00Z" },
   ];
@@ -414,6 +416,31 @@ function makeStore() {
       projects[pAt] = { ...projects[pAt]!, productionDeploymentId: promoted.id };
       return { deployment: promoted, previousDeploymentId: previous };
     },
+    ...(budget
+      ? {
+          async getBudgetForService() {
+            return {
+              organizationId: ORG_A,
+              metric: "deployments",
+              limitQuantity: budget.limitQuantity,
+              period: "monthly",
+              hardCap: budget.hardCap,
+            };
+          },
+          async listUsageForService() {
+            return budget.used === 0
+              ? []
+              : [
+                  {
+                    organizationId: ORG_A,
+                    metric: "deployments",
+                    quantity: budget.used,
+                    recordedAt: new Date().toISOString(),
+                  },
+                ];
+          },
+        }
+      : {}),
   } satisfies DataStoreLike;
 
   return { store, deployments, audit, projects, gitLinks };
@@ -770,6 +797,38 @@ describe("deployments.rollback through the registered procedures", () => {
     expect(data.deployment.status).toBe("not_configured");
     expect(data.engineReason).toMatch(/nothing to roll back/i);
     expect(audit.some((a) => a.event === "deployment.rolled_back")).toBe(true);
+  });
+
+  it("is refused by a hard cap, because a rollback builds too", async () => {
+    // A rollback asks the engine to build, so it is the same work a fresh deploy
+    // is and the same cap governs it. Without the guard, a capped organization
+    // could keep spending by rolling back and the cap would not be a cap.
+    const { store, deployments } = makeStore({ limitQuantity: 2, hardCap: true, used: 2 });
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.rollback",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, commit: "abc123", idempotencyKey: "rb-cap" },
+    });
+
+    expect(res.status).toBe(402);
+    expect(res.error?.code).toBe("budget_exceeded");
+    expect(deployments).toHaveLength(0);
+  });
+
+  it("rolls back under the cap", async () => {
+    const { store, deployments } = makeStore({ limitQuantity: 2, hardCap: true, used: 1 });
+    const router = routerWith(store, workingEngines());
+
+    const res = await router.route({
+      procedure: "deployments.rollback",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, commit: "abc123", idempotencyKey: "rb-under" },
+    });
+
+    expect(res.ok).toBe(true);
+    expect(deployments).toHaveLength(1);
   });
 
   it("requires the commit to return to", async () => {

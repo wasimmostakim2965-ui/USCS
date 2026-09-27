@@ -52,7 +52,10 @@ const CIPHER = createSecretCipher(Buffer.alloc(32, 7).toString("base64"))!;
  * SQL layer applies: every lookup carries an organization, and a row from
  * another tenant is null.
  */
-function makeStore(link: ProjectGitLink) {
+function makeStore(
+  link: ProjectGitLink,
+  budget?: { readonly limitQuantity: number; readonly hardCap: boolean; readonly used: number },
+) {
   // Real ciphertext, so the receiver's decrypt is exercised rather than stubbed.
   const secretCiphertext = CIPHER.encrypt(SECRET);
   const deployments: Deployment[] = [];
@@ -141,6 +144,35 @@ function makeStore(link: ProjectGitLink) {
       const found = deployments.find((d) => d.id === input.deploymentId);
       return found ?? null;
     },
+    // The cap read the receiver shares with the Deploy button, present only when
+    // the test configures one — the way a real store without the method skips it.
+    ...(budget
+      ? {
+          async getBudgetForService() {
+            return {
+              organizationId: ORG_A,
+              metric: "deployments",
+              limitQuantity: budget.limitQuantity,
+              period: "monthly",
+              hardCap: budget.hardCap,
+            };
+          },
+          async listUsageForService() {
+            return budget.used === 0
+              ? []
+              : [
+                  {
+                    organizationId: ORG_A,
+                    metric: "deployments",
+                    quantity: budget.used,
+                    // Inside the current period, so the fixture is honest even
+                    // though this store does not itself filter by `since`.
+                    recordedAt: new Date().toISOString(),
+                  },
+                ];
+          },
+        }
+      : {}),
     async recordAuditEvent(input: AuditEventInput) {
       const event: AuditEvent = {
         ...input,
@@ -450,6 +482,63 @@ describe("the git webhook receiver", () => {
     expect(outcome.status).toBe(202);
     expect(outcome.body.reason).toBe("not_a_deployable_event");
     expect(store.deployments).toHaveLength(0);
+  });
+
+  it("skips a push when the organization is at its hard cap, and builds under it", async () => {
+    // Reached: a push must not become a build the cap forbids, and no row or job
+    // may exist. Below the cap the same delivery deploys as usual, so the guard
+    // is a gate on the one case, not a blanket refusal.
+    const capped = makeStore(makeLink(), { limitQuantity: 3, hardCap: true, used: 3 });
+    const cappedDeps = deps(capped);
+    const body = pushBody("main", "abc1234");
+
+    const refused = await receiveGitDelivery(cappedDeps, {
+      organizationId: ORG_A,
+      linkId: LINK_A,
+      event: "push",
+      signature: signed(body),
+      token: null,
+      body,
+    });
+
+    expect(refused.status).toBe(202);
+    expect(refused.body.reason).toBe("budget_exceeded");
+    expect(capped.deployments).toHaveLength(0);
+    expect(capped.audit.some((e) => e.event === "deployment.cap_refused")).toBe(true);
+
+    const under = makeStore(makeLink(), { limitQuantity: 3, hardCap: true, used: 2 });
+    const underOutcome = await receiveGitDelivery(deps(under), {
+      organizationId: ORG_A,
+      linkId: LINK_A,
+      event: "push",
+      signature: signed(body),
+      token: null,
+      body,
+    });
+
+    expect(underOutcome.status).toBe(202);
+    expect(underOutcome.body.ok).toBe(true);
+    expect(underOutcome.body.reason).toBeUndefined();
+    expect(under.deployments).toHaveLength(1);
+  });
+
+  it("does not refuse a push when the budget is soft, only when it is a hard cap", async () => {
+    const store = makeStore(makeLink(), { limitQuantity: 3, hardCap: false, used: 99 });
+    const body = pushBody("main", "abc1234");
+
+    const outcome = await receiveGitDelivery(deps(store), {
+      organizationId: ORG_A,
+      linkId: LINK_A,
+      event: "push",
+      signature: signed(body),
+      token: null,
+      body,
+    });
+
+    // A soft budget is informational: it blocks nothing, so the build happens.
+    expect(outcome.status).toBe(202);
+    expect(outcome.body.reason).toBeUndefined();
+    expect(store.deployments).toHaveLength(1);
   });
 });
 

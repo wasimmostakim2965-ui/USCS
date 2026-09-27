@@ -171,37 +171,62 @@ export async function readBudgets(
   return { budgets: budgets.sort((a, b) => a.metric.localeCompare(b.metric)), periodStart };
 }
 
+export interface HardCapRefusal {
+  readonly message: string;
+  readonly metric: string;
+  readonly limitQuantity: number;
+  readonly usedQuantity: number;
+}
+
 /**
- * Refuse new work when a metric's hard cap is already reached.
+ * The hard cap's refusal, or null when the work may proceed.
  *
- * This runs on the request path *before* a job is enqueued — the point of a hard
- * cap is that the work does not start, not that it is reported after the fact.
- * Only a `hard_cap = true` budget refuses; a soft budget is informational and
- * blocks nothing, which is stated rather than implied.
+ * A hard cap refuses new work; only `hardCap = true` refuses, and a soft budget
+ * is informational and blocks nothing. The check is deliberately a "gate, not a
+ * throttle": it refuses when usage is at or over the limit and does not reserve
+ * the next unit, so concurrent requests can overshoot it — the honest word for
+ * that is "cap", not "quota".
  *
- * The check is deliberately a "gate, not a throttle": it refuses when usage is at
- * or over the limit, and it does not try to reserve the next unit. A cap can
- * therefore be overshot by concurrent requests, and the honest word for that is
- * "cap", not "quota".
+ * Split from `assertWithinBudget` so a caller that is not a procedure — the git
+ * webhook receiver, which has no session and answers a provider rather than a
+ * member — can ask the same question and act on the answer in its own error
+ * vocabulary. Both paths share this one calculation, so a cap cannot be enforced
+ * on one trigger and not another.
  */
+export async function hardCapRefusal(
+  deps: BillingDeps,
+  organizationId: OrganizationId,
+  metric: string,
+): Promise<HardCapRefusal | null> {
+  const store = deps.store as Partial<ControlPlaneWrites>;
+  if (typeof store.getBudgetForService !== "function") return null;
+  const budget = await store.getBudgetForService(organizationId, metric);
+  if (!budget || !budget.hardCap) return null;
+
+  const clock = deps.now ?? (() => new Date());
+  const used = await usageSince(deps, organizationId, metric, monthlyPeriodStart(clock()));
+  if (used < budget.limitQuantity) return null;
+  return {
+    message: `This organization has reached its hard cap of ${budget.limitQuantity} ${metric} for this month. Raise the cap in Billing to continue.`,
+    metric,
+    limitQuantity: budget.limitQuantity,
+    usedQuantity: used,
+  };
+}
+
+/** Refuse new work when a metric's hard cap is already reached. */
 export async function assertWithinBudget(
   deps: BillingDeps,
   organizationId: OrganizationId,
   metric: string,
 ): Promise<void> {
-  const store = deps.store as Partial<ControlPlaneWrites>;
-  if (typeof store.getBudgetForService !== "function") return;
-  const budget = await store.getBudgetForService(organizationId, metric);
-  if (!budget || !budget.hardCap) return;
-
-  const clock = deps.now ?? (() => new Date());
-  const used = await usageSince(deps, organizationId, metric, monthlyPeriodStart(clock()));
-  if (used >= budget.limitQuantity) {
-    throw new ApiError(
-      "budget_exceeded",
-      `This organization has reached its hard cap of ${budget.limitQuantity} ${metric} for this month. Raise the cap in Billing to continue.`,
-      { metric, limitQuantity: budget.limitQuantity, usedQuantity: used },
-    );
+  const refusal = await hardCapRefusal(deps, organizationId, metric);
+  if (refusal) {
+    throw new ApiError("budget_exceeded", refusal.message, {
+      metric: refusal.metric,
+      limitQuantity: refusal.limitQuantity,
+      usedQuantity: refusal.usedQuantity,
+    });
   }
 }
 
