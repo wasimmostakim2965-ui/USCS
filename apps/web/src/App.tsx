@@ -117,6 +117,16 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
 
   const projectId = "projectId" in router.route ? router.route.projectId : null;
 
+  // Temporary no-login bypass: with the demo controller, `/` (the landing route)
+  // opens the dashboard directly. The redirect is an effect so it runs on mount
+  // and after sign-in, where `navigate` is available; without the bypass the
+  // landing page behaves as before.
+  useEffect(() => {
+    if (session.autoEnter && router.route.name === "landing") {
+      router.navigate({ name: "organizations" });
+    }
+  }, [session, router]);
+
   useDocumentTitle(router.route.name === "not_found" ? "Not found" : titleForRoute(router.route));
 
   // The top bar and breadcrumb need the project's name; the page itself loads
@@ -136,6 +146,16 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   );
 
   if (!current) {
+    // Temporary no-login bypass: while the demo controller is signing in, the
+    // visitor sees a minimal loading state rather than the landing page or a
+    // sign-in form. It resolves to the dashboard once the session exists.
+    if (session.autoEnter) {
+      return (
+        <main style={{ padding: "4rem", textAlign: "center" }}>
+          <p role="status">Connecting to Cloud Wai…</p>
+        </main>
+      );
+    }
     // A signed-out visitor gets the landing page at `/`, and the sign-in form at
     // every other route they tried to reach — so a deep link is still one step
     // from signing in rather than a dead end or a blank shell.
@@ -157,7 +177,10 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
 
   if (router.route.name === "landing") {
     // Signed in, the landing page is the marketing page; its action goes to the
-    // dashboard rather than through the sign-in form again.
+    // dashboard rather than through the sign-in form again. Under the temporary
+    // no-login bypass the effect above has already redirected to the dashboard;
+    // this branch renders nothing for the one frame before it lands.
+    if (session.autoEnter) return null;
     return (
       <LandingPage
         signedIn

@@ -176,9 +176,18 @@ build() {
   local anon public_supabase
   anon="$(grep '^SUPABASE_ANON_KEY=' .env | cut -d= -f2-)"
   public_supabase="${PUBLIC_SUPABASE_URL:-http://127.0.0.1:${GATEWAY_PORT}}"
+  # Temporary no-login bypass. Off unless `DEMO_AUTOLOGIN=1` is exported, which
+  # signs a fixed demo account in so the dashboard opens without a sign-in form.
+  local demo_autologin demo_email demo_password
+  demo_autologin="${DEMO_AUTOLOGIN:-0}"
+  demo_email="${DEMO_EMAIL:-}"
+  demo_password="${DEMO_PASSWORD:-}"
   VITE_SUPABASE_URL="$public_supabase" \
   VITE_SUPABASE_ANON_KEY="$anon" \
   VITE_CLOUD_WAI_API_URL="" \
+  VITE_CLOUD_WAI_DEMO_AUTOLOGIN="$demo_autologin" \
+  VITE_CLOUD_WAI_DEMO_EMAIL="$demo_email" \
+  VITE_CLOUD_WAI_DEMO_PASSWORD="$demo_password" \
     pnpm --filter @cloud-wai/web build:web >"$LOG_DIR/webbuild.log" 2>&1 \
     || die "Dashboard build failed. See $LOG_DIR/webbuild.log"
   ok "build complete"

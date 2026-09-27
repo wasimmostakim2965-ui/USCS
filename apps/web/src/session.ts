@@ -48,6 +48,13 @@ export interface SessionController {
   subscribe(listener: (session: BrowserSession | null) => void): () => void;
   /** False when Supabase is not configured, which the UI reports honestly. */
   readonly configured: boolean;
+  /**
+   * True when this controller signs a fixed demo account in automatically, with
+   * no sign-in form. It is a deliberate, temporary bypass used only while the
+   * product is being demonstrated before public sign-up exists; the dashboard
+   * skips the landing page when it is set. Absent means the normal behaviour.
+   */
+  readonly autoEnter?: boolean;
 }
 
 function toBrowserSession(session: Session | null): BrowserSession | null {
@@ -150,4 +157,53 @@ export function createSessionController(config: SessionConfig): SessionControlle
       return () => listeners.delete(listener);
     },
   };
+}
+
+/**
+ * The fixed demo account used by the temporary no-login bypass.
+ *
+ * It is only supplied to `withDemoAutoLogin` when a build turns the bypass on
+ * (`VITE_CLOUD_WAI_DEMO_AUTOLOGIN=1`). The account is a real Supabase user, so
+ * the API verifies a real JWT and the demo workspace is ordinary tenant data —
+ * nothing downstream is special-cased.
+ */
+export interface DemoCredentials {
+  readonly email: string;
+  readonly password: string;
+}
+
+/**
+ * Wrap a controller so it signs the demo account in with no user action.
+ *
+ * This is a deliberate bypass for a pre-launch demonstration, not a production
+ * identity model: it removes the sign-in step only, and every request still
+ * carries a verified session. The retry loop tolerates the auth endpoint not yet
+ * being reachable on first paint; it stops as soon as a session exists.
+ */
+export function withDemoAutoLogin(
+  base: SessionController,
+  credentials: DemoCredentials,
+): SessionController {
+  let inFlight = false;
+  const attempt = async (): Promise<void> => {
+    if (inFlight || base.current()) return;
+    inFlight = true;
+    try {
+      await base.signInWithPassword(credentials.email, credentials.password);
+    } catch {
+      // Retried by the loop below; a first-paint failure is not fatal.
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  void (async () => {
+    for (let i = 0; i < 60 && !base.current(); i += 1) {
+      await attempt();
+      if (base.current()) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  })();
+
+  return { ...base, autoEnter: true };
 }
