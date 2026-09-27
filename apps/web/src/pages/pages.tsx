@@ -5798,7 +5798,7 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
   return (
     <PageShell
       title="API keys"
-      subtitle="A key's secret is shown once, at creation, and stored only as a hash. This list can never contain it."
+      subtitle="A key's secret is shown once, at creation, and stored only as a hash. Send it as an Authorization: Bearer header to call the API."
       actions={
         <Button variant="primary" onClick={() => setCreating(true)}>
           Create key
@@ -5819,6 +5819,21 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
               key: "scopes",
               header: "Scopes",
               render: (item) => <span className="small">{item.scopes.join(", ") || "—"}</span>,
+            },
+            {
+              key: "created",
+              header: "Created",
+              render: (item) => <Timestamp value={item.createdAt} />,
+            },
+            {
+              key: "used",
+              header: "Last used",
+              render: (item) =>
+                item.lastUsedAt ? (
+                  <Timestamp value={item.lastUsedAt} />
+                ) : (
+                  <span className="small muted">Never</span>
+                ),
             },
             {
               key: "state",
@@ -5956,6 +5971,16 @@ function CreateApiKeyModal({
               <span className="mono">{issued.key.scopes.join(", ") || "none"}</span>
             </p>
           ) : null}
+          <p className="small muted">
+            Call the API by sending the secret as a bearer credential. The key is bound to this
+            organization and cannot be used against another one:
+          </p>
+          <pre className="mono small" style={{ overflowX: "auto" }}>
+            {`curl -X POST $CLOUD_WAI_API/rpc \\
+  -H "Authorization: Bearer ${issued.secret}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"procedure":"projects.list","input":{"organizationId":"${organizationId}"}}'`}
+          </pre>
         </div>
       ) : (
         <div className="stack">

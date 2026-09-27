@@ -63,7 +63,17 @@ export function createDeployment(deps: ApiDeploymentDeps): Deployment {
     ...(deps.secretCipher ? { secretCipher: deps.secretCipher } : {}),
     ...(deps.consoleLink ? { consoleLink: deps.consoleLink } : {}),
   });
-  const router = buildRouter({ verifier: deps.verifier, memberships: deps.store }, procedures);
+  const router = buildRouter(
+    {
+      verifier: deps.verifier,
+      memberships: deps.store,
+      // The control-plane store also resolves API keys, so a key lands on the
+      // same context path as a session. The store already carries the
+      // service-role client, which is the only thing that can read a key row.
+      apiKeys: deps.store,
+    },
+    procedures,
+  );
   return { router, engines: deps.engines };
 }
 

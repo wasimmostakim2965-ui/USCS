@@ -29,6 +29,7 @@ import type { PostgrestClient, PostgrestRequest } from "./postgrest.js";
 import type {
   ApiKeyCreateInput,
   ApiKeySummary,
+  ResolvedApiKey,
   AuditEvent,
   AuditEventInput,
   Budget,
@@ -112,6 +113,12 @@ function str(row: Row, key: string): string {
 function nullableStr(row: Row, key: string): string | null {
   const value = row[key];
   return typeof value === "string" ? value : null;
+}
+
+/** A `text[]` column as strings; a non-array is empty, never a fabricated value. */
+function strArray(row: Row, key: string): readonly string[] {
+  const value = row[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
 /**
@@ -1788,6 +1795,71 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         body: { revoked_at: iso() },
       });
       return updated.length > 0;
+    },
+
+    /**
+     * The key row behind a presented secret, addressed by the hash of it.
+     *
+     * The hash is `unique` in the schema, so this is at most one row. Reads run
+     * with the service role because a key is not yet a session: there is no
+     * `auth.uid()` to scope by, and `api_keys` has no client SELECT policy that
+     * could match a not-yet-authenticated caller. The row carries the tenant, so
+     * the caller does not have to trust or look one up.
+     */
+    async findApiKeyByHash(hash: string): Promise<ResolvedApiKey | null> {
+      const found = await rows("findApiKeyByHash", {
+        method: "GET",
+        path: `/api_keys?select=id,organization_id,owner_id,scopes,created_at,revoked_at&key_hash=eq.${q(hash)}&limit=1`,
+      });
+      const row = found[0];
+      if (!row) return null;
+      return {
+        id: str(row, "id") as ApiKeyId,
+        organizationId: str(row, "organization_id") as OrganizationId,
+        ownerId: str(row, "owner_id") as UserId,
+        scopes: strArray(row, "scopes"),
+        createdAt: str(row, "created_at"),
+        revokedAt: nullableStr(row, "revoked_at"),
+      };
+    },
+
+    /**
+     * Record that a key authenticated a request.
+     *
+     * Bounded by `organization_id` as well as the id, so a stale key id from
+     * another tenant can never be stamped. This is the only write a key-auth
+     * request performs, and it is deliberately not failure-fatal: a lost
+     * `last_used_at` update must not fail an otherwise valid request.
+     */
+    async markApiKeyUsed(input: {
+      readonly organizationId: OrganizationId;
+      readonly keyId: ApiKeyId;
+    }): Promise<void> {
+      await must<Row[]>("markApiKeyUsed", {
+        method: "PATCH",
+        path: `/api_keys?select=id&id=eq.${q(input.keyId)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: { last_used_at: iso() },
+      });
+    },
+
+    /**
+     * A profile row by user id.
+     *
+     * Service-role, because the key path has no session to satisfy
+     * `profiles_select`. Only the email is selected: the audit trail needs an
+     * actor address and nothing else here, so the read cannot leak more than
+     * that even if a caller mishandled the result.
+     */
+    async getProfileForService(userId: UserId): Promise<{ readonly email: string } | null> {
+      const found = await rows("getProfileForService", {
+        method: "GET",
+        path: `/profiles?select=email&id=eq.${q(userId)}&limit=1`,
+      });
+      const row = found[0];
+      if (!row) return null;
+      const email = nullableStr(row, "email");
+      return email === null ? null : { email };
     },
 
     async createGitLink(input: GitLinkCreateInput): Promise<ProjectGitLink> {

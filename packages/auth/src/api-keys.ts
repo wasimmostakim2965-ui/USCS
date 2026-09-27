@@ -13,24 +13,43 @@
  *      a key and a list response cannot leak one.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { hasCapability, type Capability, type OrgRole } from "@cloud-wai/authorization";
+import {
+  CAPABILITIES,
+  hasCapability,
+  type Capability,
+  type Membership,
+  type OrgRole,
+} from "@cloud-wai/authorization";
 import type { ApiKeyId, OrganizationId, UserId } from "@cloud-wai/contracts";
 
 /** A key's scopes are organization capabilities — never a new axis of authority. */
 export type ApiKeyScope = Capability;
 
-export interface ApiKeyRecord {
-  readonly id: ApiKeyId;
-  readonly organizationId: OrganizationId;
+export interface ApiKeyRecord extends ApiKeyAuthority {
   readonly name: string;
   /** SHA-256 of the secret. The secret itself is never stored. */
   readonly keyHash: string;
   /** A short, non-secret prefix shown in the dashboard, e.g. `cw_live_ab12`. */
   readonly keyPrefix: string;
-  readonly ownerId: UserId;
-  readonly scopes: readonly ApiKeyScope[];
-  readonly createdAt: string;
   readonly lastUsedAt: string | null;
+}
+
+/**
+ * The fields an *authority decision* needs, without the secret material.
+ *
+ * Split out because the store that resolves a key lives in a package that must
+ * not depend on this one (`@cloud-wai/database` ← `@cloud-wai/auth`), while the
+ * decision functions live here. A structural interface lets the store hand back
+ * exactly these fields — `scopes` as plain strings — and this package still do
+ * the authority check, with no cast and no duplicated logic.
+ */
+export interface ApiKeyAuthority {
+  readonly id: ApiKeyId;
+  readonly organizationId: OrganizationId;
+  readonly ownerId: UserId;
+  /** The scopes the key was issued with, as the store returned them. */
+  readonly scopes: readonly string[];
+  readonly createdAt: string;
   readonly revokedAt: string | null;
 }
 
@@ -102,8 +121,20 @@ export function issueApiKey(input: {
   return { record, secret };
 }
 
-export function isKeyActive(record: ApiKeyRecord, now: Date = new Date()): boolean {
+export function isKeyActive(record: ApiKeyAuthority, now: Date = new Date()): boolean {
   return record.revokedAt === null && new Date(record.createdAt).getTime() <= now.getTime();
+}
+
+/**
+ * Whether a presented string is shaped like a Cloud Wai key.
+ *
+ * Checked before any lookup so an ordinary Supabase bearer token — which is a
+ * JWT, not a key — is not mistaken for one, and a lookup is not spent on a
+ * string that could never be a key. The prefix is the whole test: it is a public
+ * constant, so it leaks nothing an attacker does not already know.
+ */
+export function looksLikeApiKey(presented: string): boolean {
+  return presented.startsWith(SECRET_PREFIX) && presented.length > SECRET_PREFIX.length + 20;
 }
 
 /**
@@ -115,12 +146,45 @@ export function isKeyActive(record: ApiKeyRecord, now: Date = new Date()): boole
  * would silently not revoke it.
  */
 export function keyAllows(
-  record: ApiKeyRecord,
+  record: ApiKeyAuthority,
   scope: ApiKeyScope,
   now: Date = new Date(),
 ): boolean {
   if (!isKeyActive(record, now)) return false;
   return record.scopes.includes(scope);
+}
+
+/**
+ * Narrow a key's stored scopes by its owner's *current* membership.
+ *
+ * A key's authority is the intersection of what it was issued with and what its
+ * owner may still do. `keyAllows` alone would not notice an owner demoted after
+ * issuance: the key's stored scopes are a snapshot, and a snapshot can claim
+ * more than the person holds today. The member list is loaded server-side like
+ * every other scope decision, so this is the same boundary the session path
+ * uses, applied one level down.
+ *
+ * An empty intersection means the key can do nothing, which is the honest answer
+ * for a key whose owner lost the organization.
+ */
+export function effectiveScopes(
+  record: ApiKeyAuthority,
+  memberships: readonly Membership[],
+  now: Date = new Date(),
+): readonly ApiKeyScope[] {
+  if (!isKeyActive(record, now)) return [];
+  const membership = memberships.find(
+    (m) => m.organizationId === record.organizationId && m.userId === record.ownerId,
+  );
+  if (!membership) return [];
+  // A stored scope is a string from the database, so it is validated against the
+  // known capability set before it is trusted as one: a scope the vocabulary no
+  // longer contains is dropped, never coerced into a capability.
+  return record.scopes.filter(
+    (scope): scope is ApiKeyScope =>
+      (CAPABILITIES as readonly string[]).includes(scope) &&
+      hasCapability(membership.role, scope as ApiKeyScope),
+  );
 }
 
 /** The record as it may leave the API: never the hash, never the secret. */

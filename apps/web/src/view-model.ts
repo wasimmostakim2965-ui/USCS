@@ -772,6 +772,8 @@ export interface ApiKeySummaryRow {
   readonly name: string;
   readonly keyPrefix: string;
   readonly scopes: readonly string[];
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
   readonly revokedAt: string | null;
 }
 

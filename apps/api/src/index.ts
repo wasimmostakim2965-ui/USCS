@@ -6,7 +6,13 @@ export const APP_NAME = "api" as const;
 
 export { ApiError, isApiError } from "./errors.js";
 export { buildContext } from "./context.js";
-export type { RequestContext, AuthenticatedRequest, ContextDeps } from "./context.js";
+export type {
+  RequestContext,
+  AuthenticatedRequest,
+  ContextDeps,
+  ApiKeyAuth,
+  ApiKeyResolver,
+} from "./context.js";
 export { allowed, requireCapability, roleFor } from "./guard.js";
 export { buildRouter } from "./router.js";
 export type { RouterDeps, RpcRequest, RpcResponse } from "./router.js";

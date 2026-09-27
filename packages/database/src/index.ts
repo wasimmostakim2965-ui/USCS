@@ -313,6 +313,31 @@ export interface ControlPlaneWrites {
     deploymentId: DeploymentId,
   ): Promise<Deployment | null>;
   /**
+   * Resolve a presented API key to its record, by the hash of the secret.
+   *
+   * The hash is the lookup key, so a presented secret is hashed once and the
+   * database holds no recoverable copy. There is no organization filter here for
+   * the same reason there is none on `getDeploymentForService`: a caller holding
+   * a key does not yet have a tenant, and the record it returns carries the
+   * organization the key is bound to. That organization is then used — never a
+   * request-supplied one — for every scope decision that follows.
+   *
+   * `hash` must already be a SHA-256 hex digest; this method never sees the
+   * secret. A revoked key is still returned (the caller decides), so the
+   * revocation is a fact the caller can log rather than an invisible miss.
+   */
+  findApiKeyByHash(hash: string): Promise<ResolvedApiKey | null>;
+  /**
+   * Stamp a key's last use. Service-role: this is the engine's own observation
+   * that the key authenticated a request, not something a client asserts.
+   */
+  markApiKeyUsed(input: {
+    readonly organizationId: OrganizationId;
+    readonly keyId: ApiKeyId;
+  }): Promise<void>;
+  /** A single tenant's profile row, or null. Service-role read, for key auth. */
+  getProfileForService(userId: UserId): Promise<{ readonly email: string } | null>;
+  /**
    * Deployments still non-terminal after a cutoff, across every tenant.
    *
    * The one cross-tenant read in this interface, and deliberately so. The
@@ -1468,6 +1493,24 @@ export interface ApiKeySummary {
   readonly scopes: readonly string[];
   readonly createdAt: string;
   readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+}
+
+/**
+ * A key row resolved for authentication, authority fields only.
+ *
+ * Deliberately *not* `ApiKeySummary` plus extras: a summary is a dashboard
+ * shape, this is the shape an authority decision consumes. It carries the
+ * organization and owner the key is bound to (so the caller never reads a
+ * tenant from the request) and the issued scopes as plain strings, which
+ * `@cloud-wai/auth` narrows against the owner's live role.
+ */
+export interface ResolvedApiKey {
+  readonly id: ApiKeyId;
+  readonly organizationId: OrganizationId;
+  readonly ownerId: UserId;
+  readonly scopes: readonly string[];
+  readonly createdAt: string;
   readonly revokedAt: string | null;
 }
 
