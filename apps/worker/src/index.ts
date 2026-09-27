@@ -6,8 +6,6 @@ export const APP_NAME = "worker" as const;
 
 export { InProcessWorker, jobStateFor } from "./processor.js";
 export type { JobOutcome, JobContext, JobHandler, WorkerOptions } from "./processor.js";
-export { JOB_KINDS, buildHandlers } from "./handlers.js";
-export type { JobKind, WorkerEngines } from "./handlers.js";
 export {
   executeDeployment,
   type DeploymentExecutionWrites,

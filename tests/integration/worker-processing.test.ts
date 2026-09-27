@@ -5,6 +5,14 @@
  * adapter, and the persisted job state is asserted. The unconfigured case is the
  * important one: an engine we have no credentials for must leave the job
  * non-successful and must be visible as such.
+ *
+ * The handlers here are deliberately local: this file probes the *processor* —
+ * claiming, retrying, lease handling, honest state — so it injects the smallest
+ * table that exercises that machinery (two adapter calls, one field-shuffling
+ * case). The production table lives in `apps/worker/src/runtime.ts` and is
+ * covered end to end by `durable-deploy` / `data-security-writes`. A second
+ * production table here would be free to drift from it, which is exactly the
+ * mistake this file no longer makes.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -14,7 +22,10 @@ import {
   hostingNotConfigured,
   databaseNotConfigured,
 } from "@cloud-wai/adapters";
-import { InProcessWorker, buildHandlers, jobStateFor } from "@cloud-wai/worker";
+import type { DatabaseAdapter, HostingAdapter } from "@cloud-wai/adapters";
+import type { ProviderRef } from "@cloud-wai/contracts";
+import { InProcessWorker, jobStateFor } from "@cloud-wai/worker";
+import type { JobHandler } from "@cloud-wai/worker";
 import type { OrganizationId } from "@cloud-wai/contracts";
 
 const ORG_A = "org-a" as OrganizationId;
@@ -24,10 +35,40 @@ function silentLogger() {
   return { debug() {}, info() {}, warn() {}, error() {} };
 }
 
-function workerWith(engines: Parameters<typeof buildHandlers>[0], queue = new InMemoryJobQueue()) {
+interface ProbeEngines {
+  readonly hosting: HostingAdapter;
+  readonly database: DatabaseAdapter;
+}
+
+/** The smallest handler table that exercises the processor over real adapters. */
+function probeHandlers(engines: ProbeEngines): Record<string, JobHandler> {
+  const adapterCtx = (ctx: {
+    organizationId: string;
+    idempotencyKey: string;
+    timeoutMs: number;
+  }) => ({
+    organizationId: ctx.organizationId as never,
+    idempotencyKey: ctx.idempotencyKey,
+    timeoutMs: ctx.timeoutMs,
+  });
+  return {
+    "deployment.create": (payload, ctx) => {
+      const input = payload as { name: string };
+      return engines.hosting.createApplication(adapterCtx(ctx), { name: input.name });
+    },
+    "deployment.deploy": (payload, ctx) =>
+      engines.hosting.deploy(adapterCtx(ctx), {
+        applicationRef: (payload as { applicationRef: ProviderRef }).applicationRef,
+      }),
+    "data.provision": (payload, ctx) =>
+      engines.database.provision(adapterCtx(ctx), { name: (payload as { name: string }).name }),
+  };
+}
+
+function workerWith(engines: ProbeEngines, queue = new InMemoryJobQueue()) {
   const worker = new InProcessWorker({
     queue,
-    handlers: buildHandlers(engines),
+    handlers: probeHandlers(engines),
     logger: silentLogger(),
     workerId: "worker-1",
   });
