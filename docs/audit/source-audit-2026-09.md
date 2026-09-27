@@ -116,30 +116,38 @@ Traced from the code, not from prose:
 
 | # | Finding | Where | Status |
 |---|---|---|---|
-| H1 | `pnpm verify` is green: 507 tests / 30 files. `pnpm verify:rls` runs a real PostgreSQL 17 probe. | reproduced this session | Implemented |
+| H1 | `pnpm verify` is green: 815 tests / 46 files (the count in the original pass was 507/30; the gap-closing work since then added the pagination, incident and env-var suites). `pnpm verify:rls` runs a real PostgreSQL 17 probe. | reproduced on `main` | Implemented |
 | H2 | No `TODO`/`FIXME`/`@ts-ignore`/`as any` in `apps`/`packages`. | grep, this session | Implemented |
 | H3 | Fakes are refused in production (`buildEngines` throws when `useFakes` and `NODE_ENV=production`). | `packages/adapters/src/engines.ts:150-170` | Implemented |
 
-## The five things that most hold the product back
+## The five things that most held the product back — current state
 
-Ordered by impact on the brief's goal ("better than Vercel, provably"):
+Ordered by impact on the brief's goal ("better than Vercel, provably"). This
+list was the opening audit; the status line under each item is where the work
+stands on `main` now.
 
-1. **No git integration / preview deployments (D4).** Vercel's defining feature.
-   Without it, "deploy" is a manual button and the product cannot be called
-   Vercel-grade. This needs a webhook receiver that enqueues the existing
-   `deployment.create` job — the durable path already exists, so the work is the
-   receiver + a project↔repo link + a preview deployment kind.
-2. **No allow-list / known-bot pass, and no attack mode (S5, S6).** This is the
-   owner's own question, and it is a real gap: the edge can block, but it cannot
-   yet *distinguish* a crawler from an attacker. This is squarely in the
-   Security differentiator and is the highest-leverage security work.
-3. **Environment variables (D5).** The most-used project setting in the category,
-   and Coolify already exposes the routes.
-4. **The Database sub-pages (B2).** The first differentiator is two-ninths
-   built; the blocker is a genuine ADR decision, recorded and not papered over.
-5. **Edge traffic view (X16 ✅, S7).** The "built but unreachable" class keeps
-   shrinking: cancel, restore and the edge decided-traffic view are now wired end
-   to end with tests. X16 was previously **missing** — the `security_events` table
+1. **Git integration / preview deployments (D4).** **Closed.** A repository is
+   connected through the Git page (`git.connect`), a push or PR delivered to
+   `/hooks/git/{org}/{link}` is HMAC-verified and enqueues the same
+   `deployments.execute` job the button does, and a non-production branch is a
+   preview with its own target (`preview_targets`) and a promote path.
+2. **Allow-list / known-bot pass, and attack mode (S5, S6).** **Closed at the
+   compile and control-plane layer.** The ladder (`compileEdge`) puts
+   `allow-verified-bot` / `allow-internal` / `allow-trusted-ip` before the deny
+   list and the attack-mode challenge; `protectionMode` + expiry live on
+   `security_policies`. The live-edge application stays an open release gate
+   (6/7) — not claimed.
+3. **Environment variables (D5).** **Closed.** `project_env_vars` (org RLS,
+   encrypted values, guarded engine columns), `env.list/set/remove` per
+   environment, Coolify `/envs` through the adapter, worker reconciliation
+   before each build, and the `EnvVarsPage`.
+4. **The Database sub-pages (B2).** **Closed by ADR-0011 Option A.** The seven
+   sub-pages are engine-console handoffs with a resolved deep link, plus real
+   control-plane reads (Overview, Storage, Logs); an unconfigured console says
+   so rather than showing a fake editor.
+5. **Edge traffic view (X16 ✅, S7).** **Closed.** cancel, restore and the edge
+   decided-traffic view are wired end to end with tests. X16 was previously
+   **missing** — the `security_events` table
    existed (migration `0010`) with org-scoped, append-only RLS, but had no read
    path. It is now reachable: `security.events.list`
    (`apps/api/src/procedures/security.ts`) reads it membership-scoped, the store
@@ -149,8 +157,10 @@ Ordered by impact on the brief's goal ("better than Vercel, provably"):
    answers with the honest `engine_unavailable`, surfaced as degraded rather than
    empty. What remains is not code: rows appear only when a **live edge** writes
    them, so the view is honest n/c until the edge host exists (gate 6–8
-   territory). The incident lifecycle (`IncidentTracker`, X15) is still
-   contract-only and stays that way.
+   territory). The incident lifecycle (`IncidentTracker`, X15) is wired too:
+   `security_incidents` → `security.incidents.list/transition` → the Security
+   page's "Incidents" table, with the detector opening one on a rejected policy
+   distribution.
 
 ## What was *not* found
 
