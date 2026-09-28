@@ -8,9 +8,16 @@
  * product refuses. It describes what the software *is* — a control plane that
  * owns identity, deployments, data and policy, and drives open-source engines
  * behind its own adapters — and sends the visitor into the dashboard.
+ *
+ * It carries its own top navigation because it renders outside the dashboard
+ * shell. The links scroll within the page rather than changing the URL: the
+ * application routes on the hash, so an `#anchor` would be read as a route and
+ * land on not-found. The domain search lives in the Domains section, where a
+ * domain belongs, not in the hero — a domain is something you attach to an
+ * application, and the page says so in the place it is used.
  */
-import { useState } from "react";
 import { Button, Icon } from "@cloud-wai/ui/react";
+import { DomainSearch } from "../components/domain-search.js";
 
 const DIFFERENTIATORS = [
   {
@@ -142,6 +149,14 @@ const COMPARISON = [
   },
 ] as const;
 
+/** The top navigation's in-page targets, paired with the label a visitor reads. */
+const NAV = [
+  { id: "platform", label: "Platform" },
+  { id: "capabilities", label: "Capabilities" },
+  { id: "domains", label: "Domains" },
+  { id: "pricing", label: "Pricing" },
+] as const;
+
 export function LandingPage({
   onEnterDashboard,
   signedIn,
@@ -155,101 +170,126 @@ export function LandingPage({
   readonly version: string;
 }) {
   // The application routes on the URL hash, so an in-page `#anchor` would be
-  // read as a route and land on not-found. The section link therefore scrolls
+  // read as a route and land on not-found. Section links therefore scroll
   // directly instead of changing the hash.
-  const scrollToArchitecture = () => {
-    document.getElementById("architecture")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const scrollTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-
-  const [domainQuery, setDomainQuery] = useState("");
-  const [domainAnswer, setDomainAnswer] = useState<string | null>(null);
-
-  // The lookup is not configured, so the honest result is about the *query*, not
-  // an invented availability. The shape is checked so the answer can say which
-  // problem it is: something that is not a hostname, or a hostname whose
-  // availability no configured registrar can report.
-  const DOMAIN_SHAPE =
-    /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
-  const submitDomainSearch = (query: string) => {
-    const candidate = query.trim().toLowerCase();
-    setDomainAnswer(
-      DOMAIN_SHAPE.test(candidate)
-        ? `Registrar lookup is not configured, so Cloud Wai cannot report whether ${candidate} is available.`
-        : `“${query.trim()}” is not a hostname, so there is nothing to look up. Try a name like your-company.com.`,
-    );
-  };
+  const primaryLabel = signedIn ? "Open the dashboard" : "Sign in";
 
   return (
     <div className="landing">
-      <section className="landing__hero">
-        <p className="landing__eyebrow">
-          <span className="landing__pip" aria-hidden="true" />
-          Multi-tenant cloud control plane
-        </p>
-        <h1 className="landing__title">
-          The hidden-origin
-          <br />
-          cloud control plane
-        </h1>
-        <p className="landing__lede">
-          Cloud Wai owns identity, organizations, deployments, domains, data and security policy —
-          and drives open-source engines behind its own adapters. It is not a wrapper around
-          somebody else&apos;s SaaS, and it will not report a success an engine never performed.
-        </p>
-        <form
-          className="landing__search"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitDomainSearch(domainQuery);
-          }}
+      <header className="landing__topbar">
+        <button
+          type="button"
+          className="landing__brand"
+          onClick={() => scrollTo("top")}
+          aria-label="Cloud Wai — back to top"
         >
-          <label className="landing__search-label" htmlFor="landing-domain-search">
-            Find a domain
-          </label>
-          <div className="landing__search-row">
-            <span className="landing__search-glyph" aria-hidden="true">
-              <Icon name="domains" size={18} />
-            </span>
-            <input
-              id="landing-domain-search"
-              className="landing__search-input"
-              type="search"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="your-company.com"
-              value={domainQuery}
-              onChange={(event) => setDomainQuery(event.target.value)}
-            />
-            <Button type="submit" variant="primary" disabled={domainQuery.trim() === ""}>
-              Search
-            </Button>
-          </div>
-        </form>
-        <p id="domain-search-note" className="landing__search-note">
-          Search is here; registrar lookup is not. Domain registration needs a provider this
-          deployment has not configured, so this box will not invent an availability result.
-        </p>
-        {domainAnswer !== null ? (
-          <p className="landing__search-note" role="status">
-            {domainAnswer}
-          </p>
-        ) : null}
-        <div className="landing__cta">
-          <Button variant="primary" onClick={onEnterDashboard}>
-            {signedIn ? "Open the dashboard" : "Sign in"}
+          <span className="landing__brand-mark" aria-hidden="true">
+            <span className="landing__brand-glyph" />
+          </span>
+          <span className="landing__brand-name">Cloud Wai</span>
+        </button>
+        <nav className="landing__nav" aria-label="Sections">
+          {NAV.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className="landing__nav-link"
+              onClick={() => scrollTo(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="landing__nav-actions">
+          <Button variant="primary" size="sm" onClick={onEnterDashboard}>
+            {primaryLabel}
           </Button>
-          <button type="button" className="landing__secondary" onClick={scrollToArchitecture}>
-            How it is built
-          </button>
+        </div>
+      </header>
+
+      <span id="top" />
+
+      <section className="landing__hero">
+        <div className="landing__hero-copy">
+          <p className="landing__eyebrow">
+            <span className="landing__pip" aria-hidden="true" />
+            Multi-tenant cloud control plane
+          </p>
+          <h1 className="landing__title">
+            The hidden-origin
+            <br />
+            cloud control plane
+          </h1>
+          <p className="landing__lede">
+            Cloud Wai owns identity, organizations, deployments, domains, data and security policy —
+            and drives open-source engines behind its own adapters. It is not a wrapper around
+            somebody else&apos;s SaaS, and it will not report a success an engine never performed.
+          </p>
+          <div className="landing__cta">
+            <Button variant="primary" onClick={onEnterDashboard}>
+              {primaryLabel}
+            </Button>
+            <button
+              type="button"
+              className="landing__secondary"
+              onClick={() => scrollTo("platform")}
+            >
+              How it is built
+            </button>
+          </div>
+          <dl className="landing__facts">
+            <div className="landing__fact">
+              <dt>Scope</dt>
+              <dd>Enforced in Postgres by row-level security</dd>
+            </div>
+            <div className="landing__fact">
+              <dt>Origin</dt>
+              <dd>Reachable only through the edge</dd>
+            </div>
+            <div className="landing__fact">
+              <dt>State</dt>
+              <dd>Only ever the engine&apos;s own answer</dd>
+            </div>
+          </dl>
+        </div>
+        <div className="landing__diagram" aria-hidden="true">
+          <div className="landing__diagram-node landing__diagram-node--edge">
+            <span className="landing__diagram-label">Edge</span>
+            <span className="landing__diagram-note">TLS · WAF policy</span>
+          </div>
+          <span className="landing__diagram-wire" />
+          <div className="landing__diagram-node landing__diagram-node--control">
+            <span className="landing__diagram-label">Control plane</span>
+            <span className="landing__diagram-note">identity · policy · audit</span>
+          </div>
+          <span className="landing__diagram-wire" />
+          <div className="landing__diagram-stack">
+            <div className="landing__diagram-node landing__diagram-node--engine">
+              <span className="landing__diagram-label">Coolify</span>
+            </div>
+            <div className="landing__diagram-node landing__diagram-node--engine">
+              <span className="landing__diagram-label">Postgres</span>
+            </div>
+            <div className="landing__diagram-node landing__diagram-node--engine">
+              <span className="landing__diagram-label">MinIO</span>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section id="architecture" className="landing__band" aria-labelledby="architecture-heading">
+      <section id="platform" className="landing__band" aria-labelledby="architecture-heading">
+        <p className="landing__band-kicker mono">01 — Platform</p>
         <h2 id="architecture-heading" className="landing__band-title">
           Three layers, one contract
         </h2>
+        <p className="landing__band-lede">
+          The control plane is the only layer that is ours. Everything beneath it is an engine
+          reached through an adapter, which is what lets a deployment swap the execution machines
+          without changing the contract above them.
+        </p>
         <div className="landing__flow">
           {PILLARS.map((pillar, index) => (
             <div className="landing__step" key={pillar.kicker}>
@@ -266,10 +306,15 @@ export function LandingPage({
         </div>
       </section>
 
-      <section className="landing__band" aria-labelledby="features-heading">
+      <section id="capabilities" className="landing__band" aria-labelledby="features-heading">
+        <p className="landing__band-kicker mono">02 — Capabilities</p>
         <h2 id="features-heading" className="landing__band-title">
           Where this goes beyond a deploy button
         </h2>
+        <p className="landing__band-lede">
+          Four capabilities a deploy-button platform leaves to you, answered here by the database
+          and the edge rather than by an application convention.
+        </p>
         <div className="landing__grid">
           {DIFFERENTIATORS.map((feature) => (
             <article className="landing__card" key={feature.title}>
@@ -283,7 +328,32 @@ export function LandingPage({
         </div>
       </section>
 
-      <section className="landing__band" aria-labelledby="compare-heading">
+      <section
+        id="domains"
+        className="landing__band landing__band--domains"
+        aria-labelledby="domains-heading"
+      >
+        <div className="landing__domains">
+          <div className="landing__domains-copy">
+            <p className="landing__band-kicker mono">03 — Domains</p>
+            <h2 id="domains-heading" className="landing__band-title">
+              A domain is attached to a project, not to the hero
+            </h2>
+            <p className="landing__band-lede">
+              A hostname is verified by the edge and routed to the running application; it is
+              created unverified and stays that way until the edge confirms it. Start by looking up
+              a name — the answer here is about the deployment&apos;s registrar, never an invented
+              availability.
+            </p>
+          </div>
+          <div className="landing__domains-panel">
+            <DomainSearch />
+          </div>
+        </div>
+      </section>
+
+      <section id="compare" className="landing__band" aria-labelledby="compare-heading">
+        <p className="landing__band-kicker mono">04 — Difference</p>
         <h2 id="compare-heading" className="landing__band-title">
           The same jobs, answered differently
         </h2>
@@ -303,7 +373,8 @@ export function LandingPage({
         </div>
       </section>
 
-      <section className="landing__band" aria-labelledby="plans-heading">
+      <section id="pricing" className="landing__band" aria-labelledby="plans-heading">
+        <p className="landing__band-kicker mono">05 — Pricing</p>
         <h2 id="plans-heading" className="landing__band-title">
           Pricing
         </h2>
@@ -314,6 +385,7 @@ export function LandingPage({
         <div className="plans">
           {PLANS.map((plan) => (
             <article className={plan.highlight ? "plan plan--highlight" : "plan"} key={plan.name}>
+              {plan.highlight ? <span className="plan__flag">Most popular</span> : null}
               <h3 className="plan__name">{plan.name}</h3>
               <p className="plan__price">
                 <span className="plan__amount">{plan.price}</span>
@@ -350,7 +422,7 @@ export function LandingPage({
       </section>
 
       <footer className="landing__foot">
-        <div>
+        <div className="landing__foot-brand">
           <span className="landing__mark">Cloud Wai</span>
           <span className="landing__foot-note">
             Version <span className="mono">{version}</span>

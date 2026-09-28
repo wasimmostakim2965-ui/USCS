@@ -571,8 +571,9 @@ describe("the public landing page", () => {
     expect(screen.getByText("The same jobs, answered differently")).toBeTruthy();
     expect(screen.getByText("Bring your first project")).toBeTruthy();
     // A showcase of the plans the product is offered on, in euro, above the
-    // closing call to action.
-    expect(screen.getByText("Pricing")).toBeTruthy();
+    // closing call to action. The heading is queried, not the word, because the
+    // top navigation also carries a "Pricing" link.
+    expect(screen.getByRole("heading", { level: 2, name: "Pricing" })).toBeTruthy();
     expect(screen.getByText("€50")).toBeTruthy();
     // The landing page is static: it must not spend the visitor's request budget
     // on an API call it has no session to make.
@@ -642,7 +643,10 @@ describe("the public landing page", () => {
 
     renderApp(url, "#/");
 
-    expect(await screen.findByRole("button", { name: "Open the dashboard" })).toBeTruthy();
+    // The nav and the hero each offer the action; either one is the dashboard.
+    expect(
+      (await screen.findAllByRole("button", { name: "Open the dashboard" })).length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps the marketing page (with pricing) at the root under the demo bypass", async () => {
@@ -659,9 +663,13 @@ describe("the public landing page", () => {
       </ToastProvider>,
     );
 
-    expect(await screen.findByText("Pricing")).toBeTruthy();
+    // The heading, because the top navigation also carries a "Pricing" link.
+    expect(await screen.findByRole("heading", { level: 2, name: "Pricing" })).toBeTruthy();
     // The CTA still reaches the dashboard in one click with the session present.
-    await userEvent.click(screen.getByRole("button", { name: "Open the dashboard" }));
+    // The nav and the hero each offer it; the hero one is chosen by index so the
+    // query is unambiguous.
+    const ctas = screen.getAllByRole("button", { name: "Open the dashboard" });
+    await userEvent.click(ctas[ctas.length - 1]!);
     expect(await screen.findByRole("heading", { level: 1, name: "Organizations" })).toBeTruthy();
   });
 });
