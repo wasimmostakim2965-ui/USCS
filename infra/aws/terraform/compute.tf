@@ -121,6 +121,12 @@ resource "aws_ssm_parameter" "env" {
     "BUILDER_PORT=8090",
     "BUILDER_HOST=0.0.0.0",
     "BUILDER_CONCURRENCY=${var.builder_concurrency}",
+    // The self-hosted runtime (ADR-0020). RUNTIME_PUBLIC_HOST is the address a
+    // deployed app's url is built from; without it the runtime advertises
+    // 127.0.0.1, which only the host can reach. RUNTIME_URL and the
+    // per-organization RUNTIME_TOKEN__ keys are appended by the bootstrap (the
+    // runtime's own port is not known until it starts).
+    var.runtime_public_host == "" ? null : "RUNTIME_PUBLIC_HOST=${var.runtime_public_host}",
   ]))
 }
 

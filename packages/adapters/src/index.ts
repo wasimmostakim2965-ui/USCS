@@ -21,6 +21,15 @@ import type {
  */
 export interface NotConfiguredBrand {
   readonly __notConfigured?: true;
+  /**
+   * The engine this adapter actually speaks to.
+   *
+   * Two engines can share one port — the container engine is answered by Coolify
+   * or by this deployment's own runtime — so the report cannot infer the engine
+   * from the port alone. The adapter names itself instead, and an unconfigured
+   * stand-in names the engine it stood in for.
+   */
+  readonly __engine?: string;
 }
 
 /** Every adapter call carries the tenant it belongs to and an idempotency key. */
@@ -318,6 +327,7 @@ export function isConfigured(adapter: NotConfiguredBrand): boolean {
 export * from "./http.js";
 export * from "./aws-signature.js";
 export * from "./coolify.js";
+export * from "./selfhosted.js";
 export * from "./serverless.js";
 export * from "./postgres.js";
 export * from "./minio.js";

@@ -102,11 +102,18 @@ describe("builder compose service", () => {
     expect(compose).toMatch(/builder:[\s\S]*?profiles:\s*\["build"\]/);
   });
 
-  it("is the only service given the docker socket, and only on loopback", () => {
+  it("gives the docker socket to exactly the two privileged services, only on loopback", () => {
     // A bind mount names the socket twice (`src:dst`), so count mount *lines*,
-    // not occurrences: exactly one service may mount the daemon.
+    // not occurrences. Exactly two services run untrusted work and need the
+    // daemon: the build plane (turns source into an image) and the runtime
+    // (runs that image). Each is its own image, so neither can read the API's
+    // or worker's environment. Adding a third mount is a change to this
+    // boundary and must update this test deliberately.
     const socketMounts = compose.match(/^\s*-\s*\/var\/run\/docker\.sock:/gm) ?? [];
-    expect(socketMounts.length).toBe(1);
+    expect(socketMounts.length).toBe(2);
+    expect(compose).toMatch(/builder:[\s\S]*?\/var\/run\/docker\.sock:/);
+    expect(compose).toMatch(/runtime:[\s\S]*?\/var\/run\/docker\.sock:/);
     expect(compose).toMatch(/ports:\s*\n\s*-\s*"127\.0\.0\.1:8090:8090"/);
+    expect(compose).toMatch(/ports:[\s\S]*?-\s*"127\.0\.0\.1:8095:8095"/);
   });
 });

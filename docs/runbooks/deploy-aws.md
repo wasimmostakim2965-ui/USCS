@@ -83,6 +83,11 @@ storage_endpoint  = ""
 # host (its own container, Docker socket mounted); empty leaves builds
 # not_configured. Generate one with `openssl rand -hex 32`.
 builder_token     = ""
+# The self-hosted runtime (ADR-0020) starts with the builder. This is the address
+# a deployed app's url is built from — the load balancer DNS or the app domain —
+# so it must reach the host's loopback app ports through the ALB. Empty advertises
+# 127.0.0.1, reachable only from the host.
+runtime_public_host = ""
 # The edge needs both the admin URL and the private origin it forwards to; a URL
 # alone stays not_configured, because the origin is what the edge exists to hide.
 security_edge_url    = ""

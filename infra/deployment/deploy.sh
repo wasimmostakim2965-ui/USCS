@@ -27,6 +27,7 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-12000}"
 GATEWAY_PORT="${GATEWAY_PORT:-12001}"
 API_PORT="${API_PORT:-8787}"
 SUPABASE_PORT="${SUPABASE_PORT:-54321}"
+RUNTIME_PORT="${RUNTIME_PORT:-8095}"
 RUN_DIR="$ROOT/.deploy"
 LOG_DIR="$RUN_DIR/logs"
 
@@ -264,6 +265,67 @@ ensure_builder() {
   return 0
 }
 
+ensure_runtime() {
+  # The self-hosted runtime engine: this deployment's own container runtime. It
+  # is what makes a `container` project actually deploy — it drives the build
+  # plane and runs the resulting image, the piece Coolify used to provide. It
+  # needs the Docker socket for the same reason the builder does, so both run as
+  # containers while the API and worker stay host processes.
+  #
+  # Its credential is per organization (RUNTIME_TOKEN__<orgId>), reached at
+  # RUNTIME_URL. The token is the boundary; a deployment that needs a hard
+  # runtime boundary runs one runtime per tenant and points each org at its own.
+  local token
+  token="$(grep '^RUNTIME_TOKEN=' .env | cut -d= -f2- || true)"
+  if [[ -z "$token" ]]; then
+    token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+    if grep -q '^RUNTIME_TOKEN=' .env; then
+      sed -i "s|^RUNTIME_TOKEN=.*|RUNTIME_TOKEN=${token}|" .env
+    else
+      printf 'RUNTIME_TOKEN=%s\n' "$token" >>.env
+    fi
+    ok "generated RUNTIME_TOKEN"
+  fi
+  # The runtime drives the build plane, so it needs the same token the builder
+  # accepts. Read it back from .env (ensure_builder wrote it) so the two agree.
+  local builder_token
+  builder_token="$(grep '^BUILDER_TOKEN=' .env | cut -d= -f2- || true)"
+
+  say "starting the self-hosted runtime engine"
+  local runtime_url="http://127.0.0.1:${RUNTIME_PORT}"
+  if ! docker compose -f infra/deployment/docker-compose.yml --profile runtime up -d --build runtime \
+      >>"$LOG_DIR/runtime.log" 2>&1; then
+    warn "the runtime did not start; container deploys stay not_configured"
+    return
+  fi
+  if ! wait_for_http "${runtime_url}/healthz" 60; then
+    warn "the runtime did not become healthy; container deploys stay not_configured until it does"
+    return
+  fi
+  ok "runtime on ${runtime_url}"
+  if grep -q '^RUNTIME_URL=' .env; then
+    sed -i "s|^RUNTIME_URL=.*|RUNTIME_URL=${runtime_url}|" .env
+  else
+    printf 'RUNTIME_URL=%s\n' "$runtime_url" >>.env
+  fi
+  # Wire the runtime to every organization already in the control plane, so an
+  # existing tenant gains the container engine. New organizations are wired the
+  # same way after they are created.
+  local orgs org wired=0
+  orgs="$(docker exec -i "$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)" \
+    psql -U postgres -d postgres -tAc "select id from organizations" </dev/null 2>/dev/null | tr -d ' ' || true)"
+  for org in $orgs; do
+    [[ -n "$org" ]] || continue
+    if ! grep -q "^RUNTIME_TOKEN__${org}=" .env; then
+      printf 'RUNTIME_TOKEN__%s=%s\n' "$org" "$token" >>.env
+      wired=$((wired + 1))
+    fi
+  done
+  [[ "$wired" -gt 0 ]] && ok "wired the runtime to $wired organization(s)"
+  return 0
+}
+
+
 apply_migrations() {
   # `supabase start` already applies supabase/migrations on a fresh stack, so this
   # only catches migrations added since. It never resets, so a redeploy does not
@@ -273,7 +335,6 @@ apply_migrations() {
     ok "migrations applied"
     return
   fi
-
   # The CLI talks to the database over the host-published 54322 port, which a
   # container restart can leave unmapped while the stack itself is healthy. Fall
   # back to the database container's own psql, applying only the files whose
@@ -515,6 +576,7 @@ cmd_deploy() {
   ensure_env
   apply_migrations
   ensure_builder
+  ensure_runtime
   build
   start_all
   ensure_demo_tenant

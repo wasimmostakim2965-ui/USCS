@@ -62,6 +62,7 @@ decide whether the deployment is real:
 | `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY__<orgId>`, … | MinIO/S3 credentials. |
 | `SECURITY_EDGE_URL`, `SECURITY_EDGE_ORIGIN`, `SECURITY_EDGE_TOKEN__<orgId>`, `EDGE_HOSTNAME` | The edge. The API and worker build the real adapter when the URL, a **private** origin and a per-org token are set; `EDGE_HOSTNAME` is what a domain CNAMEs to. Without the URL/origin/token the edge stays honestly `not_configured`. |
 | `BUILDER_TOKEN`, `BUILD_ENGINE_URL__<orgId>`, `BUILD_ENGINE_TOKEN__<orgId>` | The build plane (ADR-0018). The builder runs as its own container with the Docker socket; the per-org endpoint/token point the adapter at it. Unset leaves builds honestly `not_configured`. See [`build-plane.md`](build-plane.md). |
+| `RUNTIME_URL`, `RUNTIME_TOKEN__<orgId>` | The self-hosted runtime (ADR-0020): this deployment's own container engine, the piece Coolify otherwise supplies. The one-command deploy generates `RUNTIME_TOKEN` and wires every organization automatically; set these by hand only when the runtime runs on another host. Unset, with no Coolify, leaves the container engine honestly `not_configured`. |
 
 An engine left unset is not an error: its adapter reports `not_configured` and
 the dashboard shows that honestly. That is the intended state until the engine
@@ -75,11 +76,23 @@ docker compose -f infra/deployment/docker-compose.yml ps
 ```
 
 To include the build plane, add the `build` profile — it starts the builder
-container and the Docker socket is mounted into it alone:
+container, which mounts the Docker socket in its own image:
 
 ```bash
 docker compose -f infra/deployment/docker-compose.yml --profile build up -d --build
 ```
+
+To include the self-hosted runtime — the container engine that runs what the
+build plane produces — add the `runtime` profile. It mounts the Docker socket
+too, in its own image, for the same reason the builder does:
+
+```bash
+docker compose -f infra/deployment/docker-compose.yml --profile build --profile runtime up -d --build
+```
+
+On a single host, `./infra/deployment/deploy.sh` does all of the above and wires
+every organization to the runtime, so the two profiles are only named by hand
+when the services are managed independently.
 
 The dashboard listens on `:8080`. The API and worker have no published port.
 
@@ -131,6 +144,13 @@ Redirect `:80` to `:443`, and set HSTS once TLS is confirmed working.
 5. **Logs:** open a deployment and read its logs. With a configured Coolify and
    a deployed application, real lines appear; without one, the drawer says the
    engine is not configured rather than showing an empty or invented log.
+6. **Container engine (self-hosted runtime):** with the `runtime` profile up and
+   `RUNTIME_URL`/`RUNTIME_TOKEN__<orgId>` set, Security → Engine status reads
+   `selfhosted: ready` and `coolify: not_configured` — the two share one port and
+   only the engine that answered is reported ready. Deploy a container project and
+   confirm a new container appears (`docker ps` shows `cw-app-<id>`) and its url
+   answers. On a Coolify-backed host the same step reads `coolify: ready` and
+   `selfhosted: not_configured`.
 
 ## 7. Operating it
 
@@ -151,3 +171,10 @@ Until each is configured and its probe passes, they stay open in
 real Envoy/Coraza pair and wiring the edge adapter, or adding a MinIO backup
 destination — is what closes them, and the evidence in that file changes in the
 same commit.
+
+The self-hosted runtime (ADR-0020) makes a container project deployable on the
+host itself, but it is a *process* boundary, not a *machine* boundary: every
+tenant's container runs on the same daemon as every other's. Gate 8 stays open
+until each tenant is pointed at its own runtime (`RUNTIME_URL`/
+`RUNTIME_TOKEN__<orgId>` per tenant, one runtime per trust boundary), which is
+what turns the shared runtime into a per-tenant one.

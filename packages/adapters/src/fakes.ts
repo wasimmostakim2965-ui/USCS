@@ -83,6 +83,7 @@ export function hostingNotConfigured(engine: string, hint?: string): HostingAdap
     );
   return {
     __notConfigured: true as const,
+    __engine: engine,
     createApplication: miss,
     deploy: miss,
     getDeployment: miss,
@@ -365,6 +366,7 @@ export function fakeHosting(options: FakeEngineOptions = {}): HostingAdapter {
     applications.get(ref.resourceId) ?? applications.get(ctxKey(ctx));
 
   return {
+    __engine: engine,
     createApplication: (ctx, input) =>
       gate(() => {
         const key = ctxKey(ctx);

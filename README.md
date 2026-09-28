@@ -23,11 +23,16 @@ This is not a static site and not a thin wrapper around a competitor SaaS.
 ```text
 Browser -> Cloud Wai Web -> Cloud Wai API/BFF -> Control-plane Supabase PostgreSQL
                                       -> durable Orchestrator/Workers
-                                      -> Coolify Hosting Adapter
+                                      -> Hosting Adapter (self-hosted runtime, or Coolify)
                                       -> Database/Storage Adapters
                                       -> Security Edge Adapter
                                       -> Domain Reseller Adapter
 ```
+
+The container engine is one port with two implementations: this deployment's own
+runtime (`infra/deployment/runtime-server.mjs`, ADR-0020) or a Coolify instance
+(ADR-0002). A host that owns its runtime needs no third-party hosting control
+plane; a host that already runs Coolify is unchanged.
 
 The control-plane database is permanent and stores identity, organizations,
 memberships, projects, deployments, data resources, domains, security policies,

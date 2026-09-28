@@ -112,6 +112,55 @@ services:
       retries: 3
       start_period: 15s
 
+  # The self-hosted runtime engine — this deployment's own container runtime.
+  # It turns "deploy this project" into a running container: it drives the build
+  # plane (nixpacks → image) and runs that image on the host daemon, exactly the
+  # piece Coolify used to supply. The control plane reaches it through the same
+  # hosting port, so nothing above it knows which engine answered.
+  #
+  # It needs the Docker socket for the same reason the builder does — it starts
+  # containers — so it is a separate service with only the API's and worker's
+  # network access to it. Opt-in via the `runtime` profile; a host that does not
+  # run it leaves the container engine `not_configured` rather than faking a
+  # deploy.
+  runtime:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/runtime.Dockerfile
+    profiles: ["runtime"]
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      RUNTIME_PORT: "8095"
+      RUNTIME_HOST: "0.0.0.0"
+      BUILDER_URL: "http://builder:8090"
+      RUNTIME_DATA_DIR: /data
+      RUNTIME_APP_PORT: ${RUNTIME_APP_PORT:-3000}
+      RUNTIME_PORT_BASE: ${RUNTIME_PORT_BASE:-18100}
+      RUNTIME_PORT_RANGE: ${RUNTIME_PORT_RANGE:-400}
+    volumes:
+      # The daemon socket is what lets a deploy become a running container.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # App state (which image is live, which port) survives a runtime restart.
+      - runtime-state:/data
+    ports:
+      # Loopback only: the edge reaches deployed apps through the runtime's
+      # host-published app ports on 127.0.0.1, never directly.
+      - "127.0.0.1:8095:8095"
+    expose:
+      - "8095"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8095/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
   web:
     build:
       context: ../..
@@ -134,3 +183,9 @@ services:
     depends_on:
       api:
         condition: service_started
+
+volumes:
+  # Which image is live for each app, and its host port. Without it a runtime
+  # restart loses the mapping and a redeploy would hand a new port to apps that
+  # are still running on the old one.
+  runtime-state:

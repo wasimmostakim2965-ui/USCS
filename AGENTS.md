@@ -241,9 +241,9 @@ not when a commit message says so.
 
 `infra/deployment/builder-server.mjs` implements the HTTP contract the Railpack
 adapter speaks, driving the pinned Nixpacks binary. It is bounded (concurrency,
-timeout, log volume, retention) and authenticated, and it is the only service
-given the Docker socket. Three things are deliberately not done, and none of
-them is papered over:
+timeout, log volume, retention) and authenticated, and it is one of the two
+services given the Docker socket (the other is the self-hosted runtime, below).
+Three things are deliberately not done, and none of them is papered over:
 
 - **No registry.** The image is tagged in the local daemon. Promoting an artifact
   to a different host needs a registry push; the artifact carries whatever image
@@ -258,6 +258,28 @@ them is papered over:
   tenants are not mutually trusted.
 
 Do not describe the build plane as a hard multi-tenant boundary.
+
+## The self-hosted runtime we ship
+
+`infra/deployment/runtime-server.mjs` (+ `runtime.Dockerfile`, ADR-0020) is the
+container engine this deployment owns: it clones the git source, drives the build
+plane to produce an image, runs that image and reports the real status, url and
+logs. It is the piece Coolify otherwise supplies, behind the same
+`HostingAdapter` port (`packages/adapters/src/selfhosted.ts`).
+
+- **One port, two engines.** `buildEngines` prefers the runtime when
+  `RUNTIME_URL` + `RUNTIME_TOKEN__<orgId>` are set, then Coolify, then the honest
+  `not_configured`. Because both share one port, `engineReport` reads the
+  adapter's `__engine` marker: a runtime-wired host reports `selfhosted: ready`
+  and `coolify: not_configured`, never both. `tests/engines/wiring.test.ts` pins
+  this.
+- **Opt-in and loopback.** The compose `runtime` service (profile `runtime`)
+  mounts the Docker socket in its own image, on `127.0.0.1:8095` only.
+  `deploy.sh`'s `ensure_runtime` starts it and wires every organization.
+- **Shared runtime is a shared trust boundary.** Every tenant's container runs on
+  the same daemon, so this is a process boundary, not a machine boundary. Point
+  each tenant at its own runtime for a hard boundary; release gate 8 stays open
+  until that is done. Do not describe the runtime as a hard multi-tenant boundary.
 
 ## Environment and engine wiring (read before touching `buildEngines`)
 
@@ -299,12 +321,18 @@ Do not describe the build plane as a hard multi-tenant boundary.
   reverse-proxies `/rpc` and `/healthz` to the API, so the browser has one origin
   and the API's `CLOUD_WAI_ALLOWED_ORIGINS` stays empty.
 - `infra/deployment/builder-server.mjs` + `builder.Dockerfile` are the build
-  plane, and the compose `builder` service (profile `build`) is the only one
-  given the Docker socket, loopback-only. `deploy.sh`'s `ensure_builder` starts
-  it and wires every organization; the AWS bootstrap starts it by profile when
-  `BUILDER_TOKEN` is present. Its bounds are release gate 15
+  plane, and the compose `builder` service (profile `build`) is given the Docker
+  socket, loopback-only. `deploy.sh`'s `ensure_builder` starts it and wires every
+  organization; the AWS bootstrap starts it by profile when `BUILDER_TOKEN` is
+  present. Its bounds are release gate 15
   (`tests/deployment/build-plane.test.ts`); read
   `docs/runbooks/build-plane.md` before changing it.
+- `infra/deployment/runtime-server.mjs` + `runtime.Dockerfile` are the
+  self-hosted runtime, and the compose `runtime` service (profile `runtime`) is
+  the second service given the Docker socket, also loopback-only.
+  `deploy.sh`'s `ensure_runtime` starts it and wires every organization. Read
+  ADR-0020 before changing it; gate 15 pins the socket to exactly these two
+  services.
 - `.env.example` must stay loadable by a dotenv parser. A placeholder written as
   a key (`COOLIFY_TOKEN__<organizationId>=…`) makes `docker compose` refuse the
   file outright; per-organization placeholders belong in comments.

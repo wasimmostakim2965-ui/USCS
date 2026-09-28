@@ -242,6 +242,7 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
   };
 
   return {
+    __engine: "coolify" as const,
     /**
      * Coolify has no generic create endpoint. A public application is created at
      * `POST /applications/public`, which requires the project, server, an

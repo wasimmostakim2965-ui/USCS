@@ -36,6 +36,15 @@ export interface ProviderRef {
 
 export const PROVIDER_NAMES = [
   "coolify",
+  /**
+   * This platform's own container runtime (ADR-0002 equivalent of Coolify).
+   *
+   * A distinct provider because it is a different machine: the deployment owns
+   * it rather than renting Coolify. Recording it separately means a reference
+   * cannot be resolved against the wrong engine, and "which engine ran this" is
+   * answerable from the reference itself.
+   */
+  "selfhosted",
   "postgres",
   "minio",
   "envoy",

@@ -173,6 +173,12 @@ variable "builder_concurrency" {
   default     = 2
 }
 
+variable "runtime_public_host" {
+  description = "Hostname or public IP a deployed app's URL is built from; empty uses the host's own address. The value is advertised to the control plane as the app's url, so it must be reachable by the tenant."
+  type        = string
+  default     = ""
+}
+
 // --- Source ------------------------------------------------------------------
 // Where the host gets the code it runs. The bootstrap clones this and builds the
 // images on the instance, which keeps the deployment to one artifact the operator

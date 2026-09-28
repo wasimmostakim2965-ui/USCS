@@ -18,6 +18,9 @@
 | [0015](0015-aws-hosting.md) | AWS hosting: a load-balanced single host, defined as code | accepted |
 | [0016](0016-vercel-feature-parity.md) | Vercel feature-by-feature parity: what is wired, what is honest, what is missing | accepted |
 | [0017](0017-project-execution-model.md) | A project's execution model: container or serverless | accepted |
+| [0018](0018-build-engine-port.md) | The build engine port: source in, artifact out | accepted |
+| [0019](0019-rewrite-scope.md) | Rewrite scope: rebuild the pipeline and dashboard, keep the connection layer | accepted |
+| [0020](0020-self-hosted-runtime-engine.md) | A self-hosted runtime: this deployment owns the container engine | accepted |
 
 Source of truth for this project:
 

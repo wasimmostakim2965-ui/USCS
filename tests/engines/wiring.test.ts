@@ -89,6 +89,27 @@ describe("engine configuration", () => {
     if (!result.ok) expect(result.status).toBe("not_configured");
   });
 
+  it("reports only the engine that answered the shared hosting port", () => {
+    // Coolify and the self-hosted runtime share the container-engine port. A
+    // host wired to the runtime must not also report Coolify as ready, or the
+    // dashboard would advertise an engine that would refuse every call.
+    const runtime = buildEngines({
+      selfHostedUrl: "http://runtime.test:8095",
+      selfHostedTokens: { "org-a": "tok-a" },
+    });
+    const runtimeReport = engineReport(runtime);
+    expect(runtimeReport.find((r) => r.engine === "selfhosted")?.configured).toBe(true);
+    expect(runtimeReport.find((r) => r.engine === "coolify")?.configured).toBe(false);
+
+    const coolify = buildEngines({
+      coolifyUrl: "https://coolify.test",
+      coolifyTokens: { "org-a": "tok-a" },
+    });
+    const coolifyReport = engineReport(coolify);
+    expect(coolifyReport.find((r) => r.engine === "coolify")?.configured).toBe(true);
+    expect(coolifyReport.find((r) => r.engine === "selfhosted")?.configured).toBe(false);
+  });
+
   it("wires fakes only when explicitly requested", () => {
     const engines = buildEngines({ useFakes: true });
     expect(engines.hosting.__notConfigured).toBeUndefined();

@@ -80,12 +80,13 @@ export VITE_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
 # --- 4. Build and start ------------------------------------------------------
 cd "$APP_DIR/repo"
-# The builder runs only when a token is present; `--profile build` would fail a
-# host whose .env has no BUILDER_TOKEN, so the profile is selected by value
-# rather than by presence. Without it the build adapter stays honestly
-# not_configured and a serverless deploy stops for that reason.
+# The builder and the self-hosted runtime run only when a token is present;
+# `--profile build`/`--profile runtime` would fail a host whose .env has no
+# BUILDER_TOKEN, so the profiles are selected by value rather than by presence.
+# Without them the build adapter and the container engine stay honestly
+# not_configured. The runtime drives the build plane, so it starts alongside it.
 if grep -q '^BUILDER_TOKEN=..*' "$APP_DIR/.env"; then
-  docker compose -f infra/deployment/docker-compose.yml --profile build up -d --build
+  docker compose -f infra/deployment/docker-compose.yml --profile build --profile runtime up -d --build
 else
   docker compose -f infra/deployment/docker-compose.yml up -d --build
 fi

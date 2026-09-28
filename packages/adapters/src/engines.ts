@@ -21,6 +21,7 @@ import {
   serverlessNotConfigured,
   storageNotConfigured,
   createCoolifyHosting,
+  createSelfHostedHostingAdapter,
   createDnsDomainVerifier,
   createEnvoySecurityEdge,
   createLambdaServerless,
@@ -42,10 +43,20 @@ import {
   type StorageCredentials,
 } from "./index.js";
 import type { OrganizationId, ProviderRef } from "@cloud-wai/contracts";
+import type { SelfHostedCredentials } from "./selfhosted.js";
 
 export interface EngineConfig {
   /** Base URL for the Coolify API, or absent when hosting is not configured. */
   readonly coolifyUrl?: string | undefined;
+  /**
+   * Base URL of this deployment's own runtime engine, or absent.
+   *
+   * When set with a token it supersedes Coolify for the container engine: a host
+   * that owns its runtime uses it rather than renting one.
+   */
+  readonly selfHostedUrl?: string | undefined;
+  /** Per-organization runtime tokens, keyed by organization id. */
+  readonly selfHostedTokens?: Readonly<Record<string, string>> | undefined;
   /** Per-organization Coolify tokens, keyed by organization id. */
   readonly coolifyTokens?: Readonly<Record<string, string>> | undefined;
   /**
@@ -162,6 +173,14 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     if (match && value && value.trim() !== "") tokens[match[1]!] = value;
   }
 
+  // The deployment's own runtime is configured the same way: a URL plus one
+  // token per organization.
+  const selfHostedTokens: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const match = key.match(/^RUNTIME_TOKEN__(.+)$/);
+    if (match && value && value.trim() !== "") selfHostedTokens[match[1]!] = value;
+  }
+
   // Project/server/environment are per organization too. They are what makes a
   // token usable: Coolify rejects a create without them.
   const infra: Record<
@@ -263,6 +282,8 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     coolifyUrl: env.COOLIFY_URL,
     coolifyTokens: tokens,
     coolifyInfra: infra,
+    selfHostedUrl: env.RUNTIME_URL,
+    selfHostedTokens,
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
     serverlessCredentials,
@@ -326,12 +347,28 @@ export function buildEngines(config: EngineConfig): Engines {
   };
   const anyCredential = url !== undefined && Object.keys(tokens).length > 0;
 
-  const hosting: HostingAdapter = anyCredential
-    ? createCoolifyHosting({ credentials })
-    : hostingNotConfigured(
-        "coolify",
-        "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
-      );
+  // This deployment's own runtime, when configured, is the container engine. A
+  // host that owns its runtime uses it instead of renting Coolify; the port is
+  // the same, so nothing above this line changes.
+  const runtimeUrl = config.selfHostedUrl?.trim();
+  const runtimeTokens = config.selfHostedTokens ?? {};
+  const anyRuntime = Boolean(runtimeUrl) && Object.keys(runtimeTokens).length > 0;
+  const selfHostedCredentials = (organizationId: OrganizationId): SelfHostedCredentials | null => {
+    if (!runtimeUrl) return null;
+    const token = runtimeTokens[organizationId];
+    if (!token) return null;
+    return { baseUrl: runtimeUrl, token };
+  };
+
+  const hosting: HostingAdapter = anyRuntime
+    ? createSelfHostedHostingAdapter({ credentials: selfHostedCredentials })
+    : anyCredential
+      ? createCoolifyHosting({ credentials })
+      : hostingNotConfigured(
+          "coolify",
+          "Set RUNTIME_URL and at least one RUNTIME_TOKEN__<organizationId> for the self-hosted runtime, " +
+            "or COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
+        );
 
   // The serverless engine is configured independently of Coolify: a deployment
   // can offer serverless execution without a container engine, or the reverse.
@@ -348,8 +385,10 @@ export function buildEngines(config: EngineConfig): Engines {
           "Set AWS_ACCESS_KEY_ID__<organizationId>, AWS_SECRET_ACCESS_KEY__<organizationId> and AWS_REGION__<organizationId>.",
         );
 
-  // Tenant databases run *inside* Coolify, so they share its credentials: there
-  // is no separate database engine to configure.
+  // Tenant databases are provisioned by Coolify, so they share its credentials:
+  // there is no separate database engine to configure. The self-hosted runtime
+  // runs containers, not databases, so a runtime-only host honestly leaves this
+  // engine not_configured rather than faking a database it cannot provision.
   const database: DatabaseAdapter = anyCredential
     ? createPostgresDatabase({ credentials })
     : databaseNotConfigured(
@@ -465,8 +504,14 @@ export function engineReport(engines: Engines): readonly {
   configured: boolean;
 }[] {
   const isConfigured = (adapter: NotConfiguredBrand) => adapter.__notConfigured !== true;
+  // Two engines share the hosting port: Coolify and this deployment's own
+  // runtime. The adapter names which one answered, so only that engine reads as
+  // ready — an unconfigured host names neither.
+  const hostingEngine = engines.hosting.__engine;
+  const hostingReady = isConfigured(engines.hosting);
   return [
-    { engine: "coolify", configured: isConfigured(engines.hosting) },
+    { engine: "coolify", configured: hostingReady && hostingEngine === "coolify" },
+    { engine: "selfhosted", configured: hostingReady && hostingEngine === "selfhosted" },
     { engine: "lambda", configured: isConfigured(engines.serverless) },
     { engine: "postgres", configured: isConfigured(engines.database) },
     { engine: "minio", configured: isConfigured(engines.storage) },
