@@ -15,8 +15,15 @@ import json
 import os
 import subprocess
 
-ROOT = "/workspace/USCS"
+# Resolve from this script rather than assuming the repository lives at the old
+# development path `/workspace/USCS`. The inventory must be reproducible from
+# any clone location (CI, a developer checkout, or a release worker).
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "engines-src")
+if not os.path.isdir(SRC):
+    raise SystemExit(
+        f"Missing pinned engine sources at {SRC}; clone the reviewed engines before regenerating the inventory."
+    )
 
 SPDX_OVERRIDES = {
     "haproxy": {
@@ -98,9 +105,14 @@ DECISIONS = {
 
 
 def git(repo, *args):
-    result = subprocess.run(["git", "-C", os.path.join(SRC, repo), *args],
+    repo_path = os.path.join(SRC, repo)
+    if not os.path.isdir(os.path.join(repo_path, ".git")):
+        raise SystemExit(f"Missing pinned engine repository: {repo_path}")
+    result = subprocess.run(["git", "-C", repo_path, *args],
                             capture_output=True, text=True)
-    return result.stdout.strip() if result.returncode == 0 else ""
+    if result.returncode != 0:
+        raise SystemExit(f"git command failed for {repo}: {result.stderr.strip()}")
+    return result.stdout.strip()
 
 
 rows = []
