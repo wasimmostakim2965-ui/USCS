@@ -9,10 +9,12 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  DOC_INTRO,
   DOC_SECTIONS,
   DOC_STATUS_DESCRIPTIONS,
   DOC_STATUS_LABELS,
   DATABASE_SECTIONS,
+  buildMenuMap,
   databaseNav,
   navForRoute,
   parseRoute,
@@ -158,5 +160,92 @@ describe("navigation has no dead entries", () => {
     expect(nav.map((item) => item.id)).toEqual(
       DATABASE_SECTIONS.map((section) => `database-${section}`),
     );
+  });
+});
+
+describe("the menu map the Docs page renders", () => {
+  const levels = buildMenuMap({ organizationId: ORG, projectId: PROJECT });
+
+  it("has the three drill-in levels in order", () => {
+    expect(levels.map((level) => level.id)).toEqual(["workspace", "project", "database"]);
+  });
+
+  it("mirrors the sidebar exactly, entry for entry, at every level", () => {
+    // This is the property the page rests on: the map is generated from the
+    // navigation model, so it cannot describe a menu that is not there.
+    const expected: readonly (readonly NavItem[])[] = [
+      workspaceNav({ organizationId: ORG }),
+      projectNav({ organizationId: ORG, projectId: PROJECT }),
+      databaseNav({ organizationId: ORG, projectId: PROJECT }),
+    ];
+    levels.forEach((level, index) => {
+      expect(level.items.map((item) => item.id)).toEqual(expected[index]!.map((item) => item.id));
+      expect(level.items.map((item) => item.label)).toEqual(
+        expected[index]!.map((item) => item.label),
+      );
+    });
+  });
+
+  it("documents every mapped entry with a doc section, or marks a level switch", () => {
+    const documented = new Set<string>(DOC_SECTIONS.map((section) => section.id));
+    // The same exemptions the coverage test above uses: the Docs entry documents
+    // itself, and the workspace level has no "Overview" (the project does).
+    const exempt = new Set(["docs", "overview"]);
+    for (const level of levels) {
+      for (const item of level.items) {
+        if (exempt.has(item.id)) continue;
+        // A level switch (the project's Database entry) is documented by the
+        // Database section; every other entry names its own doc id.
+        expect(
+          item.becomesLevel || documented.has(item.docId),
+          `menu entry "${item.id}" has no documentation (docId "${item.docId}")`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("gives every entry a reachable route, a deep-linkable path and a stated click landing", () => {
+    for (const level of levels) {
+      for (const item of level.items) {
+        expect(item.route, `"${item.id}" has no route with a project open`).not.toBeNull();
+        expect(item.lands.length).toBeGreaterThan(0);
+        expect(item.description.length).toBeGreaterThan(0);
+        expect(parseRoute(item.path).name, `"${item.id}" path does not resolve`).not.toBe(
+          "not_found",
+        );
+      }
+    }
+  });
+
+  it("keeps the path a real link the sidebar also uses", () => {
+    for (const level of levels) {
+      for (const item of level.items) {
+        expect(item.path).toBe(toPath(item.route!));
+      }
+    }
+  });
+
+  it("describes the menu in full even before a project is open", () => {
+    // A reader must be able to read the whole menu from a workspace with no
+    // project selected, but the links that need a project are marked unreachable
+    // so the page never renders a navigation that cannot resolve.
+    const withoutProject = buildMenuMap({ organizationId: ORG });
+    expect(withoutProject.map((level) => level.id)).toEqual(["workspace", "project", "database"]);
+    const workspace = withoutProject.find((level) => level.id === "workspace")!;
+    expect(workspace.items.every((item) => item.reachable)).toBe(true);
+    const project = withoutProject.find((level) => level.id === "project")!;
+    expect(project.items.length).toBeGreaterThan(0);
+    expect(project.items.every((item) => !item.reachable && item.route === null)).toBe(true);
+    expect(project.items.every((item) => item.path.includes(":project"))).toBe(true);
+  });
+});
+
+describe("the Docs introduction", () => {
+  it("has a title, at least one paragraph and a captioned diagram", () => {
+    expect(DOC_INTRO.title.length).toBeGreaterThan(0);
+    expect(DOC_INTRO.body.length).toBeGreaterThan(0);
+    for (const paragraph of DOC_INTRO.body) expect(paragraph.length).toBeGreaterThan(0);
+    expect(DOC_INTRO.diagram.caption.length).toBeGreaterThan(0);
+    expect(DOC_INTRO.diagram.paths.length).toBeGreaterThan(0);
   });
 });

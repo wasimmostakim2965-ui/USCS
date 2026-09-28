@@ -1434,6 +1434,57 @@ table.table {
   stroke-linejoin: round;
 }
 
+/* The Docs menu map: one row per sidebar entry, with the glyph, the one-line
+   purpose, where a click lands and the deep-linkable path it resolves to. */
+.docs__menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+
+.docs__menu-item {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.docs__menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+
+.docs__path {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42%;
+  align-self: center;
+}
+
+@media (max-width: 720px) {
+  .docs__menu-item {
+    flex-wrap: wrap;
+  }
+  .docs__path {
+    max-width: 100%;
+    width: 100%;
+    padding-left: 40px;
+  }
+}
+
 .nowrap {
   white-space: nowrap;
 }

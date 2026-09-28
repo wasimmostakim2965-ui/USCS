@@ -187,15 +187,41 @@ Design:
   image. This mirrors how `navigation.ts` is the single source for the sidebar.
 - Each section covers one menu item: what it is, what the page does, what a
   click does, and its honest status.
+- **The menu map is generated, not written.** `apps/web/src/docs/menu-map.ts`
+  derives the whole three-level map from `workspaceNav` / `projectNav` /
+  `databaseNav` — the same functions the sidebar reads — plus `toPath` for each
+  entry's deep-linkable path. A new sidebar entry therefore appears in the Docs
+  page automatically and a removed one disappears with it; the docs cannot
+  describe a menu that does not exist. `tests/web/docs.test.ts` pins it by
+  building the map and comparing it, entry for entry, to the three `*Nav`
+  lists. When no project is open, the project and Database levels are still
+  described, but their entries are marked unreachable, rendered without a link
+  and shown with a `:project` path placeholder — so the page never offers a
+  navigation that would not resolve.
+- **One search box** filters both the menu map and the detailed sections at
+  once, so a reader looking for a word lands on the map row and the section
+  together; an empty result says so with `EmptyState` rather than rendering a
+  blank column. The result count ("N of M entries match") is honest about the
+  slice, exactly as the Activity page's CSV caption is.
 - Images: our own diagrams/screenshots, committed under `apps/web/public/docs/`,
   never Vercel's assets. Where a diagram is enough, an inline SVG is used so the
-  bundle carries no binary.
+  bundle carries no binary — and now every documented section carries one, plus
+  a workspace → project → database overview diagram in the introduction.
 - Honesty: a docs section for a Missing feature says "not built" with the reason
   (same rule as every page).
 
 This is additive: it does not duplicate `docs/` in the repo (which is for
 operators and reviewers); it is the user-facing subset, and the two are kept in
 sync by naming the repo doc each section summarizes.
+
+**Delivered.** `menu-map.ts`, the expanded `content.ts` (a section diagram per
+entry, a `DOC_INTRO`, and the Database and Security differentiators documented
+first-class), the rebuilt `DocsPage` (menu map + search + both result counts),
+the new `docs__menu` styles in `packages/ui/src/styles.css`, and the tests:
+`tests/web/docs.test.ts` (20 tests, including the map-mirrors-the-sidebar,
+documents-every-entry, reachable-path and project-not-open cases) and four
+end-to-end cases in `tests/web/dashboard.e2e.test.tsx` (the map renders with
+real links and `:project` placeholders, and the search filters both lists).
 
 ## Honesty rules carried over (do not break these)
 

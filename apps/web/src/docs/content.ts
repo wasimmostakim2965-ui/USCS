@@ -60,6 +60,37 @@ export const DOC_STATUS_DESCRIPTIONS: Readonly<Record<DocStatus, string>> = {
   missing: "Deliberately absent. The reason is in the section, not hidden.",
 };
 
+/**
+ * The introduction shown above the menu map.
+ *
+ * Kept out of `DOC_SECTIONS` on purpose: a section is one *menu entry*, and the
+ * introduction is about the menu as a whole. Mixing it in would have made the
+ * "every sidebar entry is documented" test treat it as an entry that does not
+ * exist.
+ */
+export const DOC_INTRO = {
+  title: "How this dashboard is organised",
+  body: [
+    "Every screen is a state of the URL, so a refresh, a bookmark or a shared link lands exactly where the sender was. Links inside the dashboard follow the same routes the menu uses.",
+    "The sidebar is replaced, not appended to, as you drill in. Workspace → Project → Database is three levels, and the back control steps up one level at a time. A project opens its own eight-entry menu; the project's Database entry opens the nine-entry Database sub-menu.",
+    "Database and Security are this platform's two additions beyond a deploy-only product, so they are first-class menu entries rather than being hidden in settings.",
+  ],
+  diagram: {
+    caption:
+      "Workspace → Project → Database: each level replaces the sidebar, and every page is a URL.",
+    paths: [
+      "M2 6h18v8H2z",
+      "M26 6h12v8H26z",
+      "M44 6h18v8H44z",
+      "M20 10h6",
+      "M38 10h6",
+      "M6 18v6h52v-6",
+      "M11 24v10h12v-4",
+      "M32 34h12v-10",
+    ],
+  },
+};
+
 export const DOC_SECTIONS: readonly DocSection[] = [
   {
     id: "projects",
@@ -73,6 +104,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Opening a project switches the sidebar from the workspace menu to that project's own menu — Overview, Deployments, Domains, Git, Environment, Database, Security and Settings.",
       "A project belongs to exactly one organization, and its URL always carries both, so a link cannot resolve to the wrong tenant.",
     ],
+    diagram: {
+      caption:
+        "A workspace lists projects; opening one replaces the sidebar with the project menu.",
+      paths: ["M3 8h18v8H3z", "M27 8h14v8H27z", "M47 8h14v8H47z", "M21 12h6", "M41 12h6"],
+    },
     source: "docs/adr/0004-control-plane-erd-rls.md",
   },
   {
@@ -87,6 +123,21 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "It ends in a Production Checklist — connect Git, deploy once, add a domain, set environment variables, turn on protection — where each step is marked from a real row, never from the section merely existing.",
       "Clicking any deployment opens its detail and logs; clicking a checklist step links to the page that completes it.",
     ],
+    diagram: {
+      caption:
+        "Overview: production state, recent deployments, a go-live checklist with real states.",
+      paths: [
+        "M4 6h24v6H4z",
+        "M4 16h24v4H4z",
+        "M4 24h24v4H4z",
+        "M4 32h24v4H4z",
+        "M36 6h24v30H36z",
+        "M39 11h18",
+        "M39 17h18",
+        "M39 23h18",
+        "M39 29h12",
+      ],
+    },
     source: "docs/plans/vercel-navigation-parity.md",
   },
   {
@@ -117,6 +168,10 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Automatic TLS is provisioned by the engine once the domain is verified. The control plane records the domain and its state; it does not terminate TLS itself.",
       "Removing a domain detaches it from the project. A verified domain must be re-verified if its DNS record changes.",
     ],
+    diagram: {
+      caption: "Add a hostname → the engine returns a DNS record → verify → the edge routes it.",
+      paths: ["M3 10h14v6H3z", "M22 10h14v6H22z", "M41 10h18v6H41z", "M17 13h5", "M36 13h5"],
+    },
     source: "docs/competitive/vercel-feature-matrix.md",
   },
   {
@@ -130,6 +185,17 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "The webhook is HMAC-verified before it can start a build, and a push that would exceed an organization's hard spend cap is skipped with an audit record rather than answered dishonestly.",
       "Engine execution of the build requires the build engine to be configured; otherwise the deployment reports not_configured.",
     ],
+    diagram: {
+      caption: "A push → HMAC-verified webhook → the same durable deploy job the button enqueues.",
+      paths: [
+        "M4 12h12v6H4z",
+        "M22 12h16v6H22z",
+        "M44 12h16v6H44z",
+        "M16 15h6",
+        "M38 15h6",
+        "M30 18v8",
+      ],
+    },
     source: "docs/runbooks/build-plane.md",
   },
   {
@@ -139,9 +205,13 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     status: "wired",
     summary: "Variables injected into this project's builds and runtime, scoped per environment.",
     body: [
-      "Set a variable for Production, Preview or Development. Values are encrypted at rest and never returned to the browser once saved; the list shows the key and whether it is build-time.",
+      "Set a variable for Production or Preview — the two environments every project has. Values are encrypted at rest and never returned to the browser once saved; the list shows the key and whether it is build-time.",
       "Variables are pushed to the engine before each build, so a change is expressed as a redeploy rather than implying the running artifact already has it.",
     ],
+    diagram: {
+      caption: "A value is encrypted at rest and synced to the engine before the next build runs.",
+      paths: ["M4 10h20v8H4z", "M32 10h28v8H32z", "M24 14h8", "M40 20v6h12"],
+    },
     source: "docs/competitive/vercel-feature-matrix.md",
   },
   {
@@ -170,11 +240,26 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     summary:
       "Protection level, attack mode, deny rules, trusted sources, rate limits and verified bots.",
     body: [
-      "Security is the edge posture for your deployments. Set a protection level from none to critical, and turn on attack mode for a window when you are under attack.",
+      "Security is the edge posture for your deployments. Set a protection level from None to Ultimate, and turn on attack mode for a window when you are under attack. Selecting a level saves a draft policy; the edge is what makes it active.",
       "Our allow ladder leads the compiled policy: a forward-confirmed verified bot, an internal request and a trusted address are exempted before deny, rate-limit and challenge steps run, so a crawler or a webhook sender is not collateral damage.",
       "Custom deny rules, trusted sources (IP/CIDR/ASN) and per-route rate limits are all saved to the control plane and compiled into the edge artifact. The edge decisions page shows what was blocked, and incidents open automatically when a distribution is rejected.",
       "Applying a policy to a real edge requires the edge engine to be configured. Saved policy is real; a live edge is reported honestly until one exists.",
     ],
+    diagram: {
+      caption:
+        "Allow ladder first (verified bots, internal, trusted) → deny → rate limit → challenge → WAF.",
+      paths: [
+        "M2 8h12v6H2z",
+        "M18 8h12v6H18z",
+        "M34 8h12v6H34z",
+        "M50 8h12v6H50z",
+        "M8 20h50",
+        "M14 20v8",
+        "M33 20v8",
+        "M46 20v8",
+        "M58 20v8",
+      ],
+    },
     source: "docs/adr/0003-threat-model.md",
   },
   {
@@ -187,6 +272,19 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Observability rolls up the real orchestration jobs in this organization by state and kind, with a 14-day throughput series derived from job timestamps.",
       "It reports job activity, not host or container resource metrics: those, and distributed traces, are not built here and the page states that rather than showing an empty panel as if it were broken.",
     ],
+    diagram: {
+      caption:
+        "Jobs roll up by state and kind; the throughput series is derived from real job timestamps.",
+      paths: [
+        "M4 30V18h4v12z",
+        "M12 30V10h4v20z",
+        "M20 30V22h4v8z",
+        "M28 30V14h4v16z",
+        "M36 30V24h4v6z",
+        "M44 30V20h4v10z",
+        "M2 34h52",
+      ],
+    },
     source: "docs/runbooks/slos.md",
   },
   {
@@ -199,6 +297,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Activity is the organization's audit log. No role can edit or delete an entry; the database enforces append-only.",
       "Export CSV downloads the entries currently loaded, and the caption says it is the loaded slice, not the full history, so a file that stopped never looks complete.",
     ],
+    diagram: {
+      caption:
+        "Every write appends an audit row with actor and target; no role can edit or delete it.",
+      paths: ["M4 8h56v4H4z", "M4 16h56v4H4z", "M4 24h40v4H4z", "M2 6v26"],
+    },
     source: "docs/adr/0005-api-contracts-and-state-machines.md",
   },
   {
@@ -211,6 +314,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Billing reports the usage the engines actually confirmed, per metric. An organization with no recorded usage says so rather than showing a zero balance as if it were a fact.",
       "Budgets can be set as a hard cap. At the cap, new builds are refused before anything is enqueued — on a member deploy, a rollback and a Git push alike — which is the answer to the surprise-invoice complaint users raise about Vercel.",
     ],
+    diagram: {
+      caption:
+        "Usage is recorded only when an engine confirms work; a hard cap refuses every build trigger.",
+      paths: ["M4 10h22v8H4z", "M34 10h26v8H34z", "M26 14h8", "M34 26h26", "M34 32h18"],
+    },
     source: "docs/competitive/vercel-feature-matrix.md",
   },
   {
@@ -223,6 +331,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Mint a key, choose its scopes, and use it as a bearer token. A key is resolved to its owner, capped by that owner's current membership and the key's own scopes, and its last-use time is stamped.",
       "The secret is shown exactly once and stored hashed; it never appears in a list response, a log or an audit record.",
     ],
+    diagram: {
+      caption:
+        "A key is shown once, stored hashed, and acts only as its owner at the key's own org and scopes.",
+      paths: ["M4 12h16v6H4z", "M26 12h34v6H26z", "M20 15h6", "M34 22v6h20"],
+    },
     source: "docs/adr/0005-api-contracts-and-state-machines.md",
   },
   {
@@ -235,6 +348,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Workspace Settings covers the organization profile and its members. Roles are rank-bounded: a member cannot grant a rank above their own, enforced in the API and in row-level security.",
       "Project Settings covers the project name and slug, and links to Git, Environment Variables and Domains. A slug or execution model cannot be changed once the engine holds the application, and the field says why.",
     ],
+    diagram: {
+      caption:
+        "Workspace Settings covers the org and its members; Project Settings covers the project.",
+      paths: ["M3 8h26v10H3z", "M35 8h26v10H35z", "M16 18v6h21", "M48 18v6H37"],
+    },
     source: "docs/adr/0005-api-contracts-and-state-machines.md",
   },
   {

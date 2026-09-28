@@ -4606,3 +4606,76 @@ describe("the sidebar (wide-screen default and toggle)", () => {
     await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
   });
 });
+
+describe("the in-dashboard documentation", () => {
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  it("maps the whole menu, with a link where a click lands, and a real path", async () => {
+    const url = await startApi(responder);
+    // An organization-scoped Docs route has no project open, so the project and
+    // Database levels are described but not linked.
+    renderApp(url, "#/orgs/org-1/docs");
+
+    expect(await screen.findByText("How this dashboard is organised")).toBeTruthy();
+
+    const menu = document.querySelector(".docs__menu");
+    expect(menu).toBeTruthy();
+    // Every entry is a list item with its name and its deep-linkable path.
+    const items = menu!.querySelectorAll(".docs__menu-item");
+    expect(items.length).toBeGreaterThan(0);
+    expect(Array.from(items).some((item) => item.textContent?.includes("Databases"))).toBe(false);
+
+    // The workspace level is reachable, so its entry is a real in-app link.
+    const settings = within(menu as HTMLElement).getByRole("link", { name: "Settings" });
+    expect(settings.getAttribute("href")).toBe("#/orgs/org-1/settings");
+  });
+
+  it("marks the project level as unreachable until a project is open", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/docs");
+
+    await screen.findByText("How this dashboard is organised");
+    // The project-level entries carry the :project placeholder and are not links.
+    expect(await screen.findByText(/\/orgs\/org-1\/projects\/:project$/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Deployments" })).toBeNull();
+  });
+
+  it("filters both the menu map and the pages from one search box", async () => {
+    const url = await startApi(responder);
+    const user = userEvent.setup();
+    renderApp(url, "#/orgs/org-1/docs");
+
+    await screen.findByText("How this dashboard is organised");
+    await user.type(screen.getByLabelText("Search the documentation"), "security");
+
+    // The Security page section survives; an unrelated section does not.
+    expect(
+      await screen.findByText(
+        "Protection level, attack mode, deny rules, trusted sources, rate limits and verified bots.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Build and release history, with rollback, promote, redeploy and cancel."),
+    ).toBeNull();
+    // The menu map keeps the Security entry and drops the rest.
+    const menu = document.querySelector(".docs__menu")!;
+    expect(within(menu as HTMLElement).getByText("Security")).toBeTruthy();
+  });
+
+  it("says so honestly when a search matches nothing", async () => {
+    const url = await startApi(responder);
+    const user = userEvent.setup();
+    renderApp(url, "#/orgs/org-1/docs");
+
+    await screen.findByText("How this dashboard is organised");
+    await user.type(screen.getByLabelText("Search the documentation"), "zzzz-no-match");
+
+    expect(await screen.findByText("No menu entry matches")).toBeTruthy();
+    expect(await screen.findByText("No page matches")).toBeTruthy();
+  });
+});

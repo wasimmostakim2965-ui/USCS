@@ -69,8 +69,15 @@ export {
 export type { NavContext, NavItem } from "./navigation.js";
 export { DATABASE_SECTIONS } from "./routes.js";
 export type { DatabaseSection } from "./routes.js";
-export { DOC_SECTIONS, DOC_STATUS_DESCRIPTIONS, DOC_STATUS_LABELS } from "./docs/content.js";
+export {
+  DOC_INTRO,
+  DOC_SECTIONS,
+  DOC_STATUS_DESCRIPTIONS,
+  DOC_STATUS_LABELS,
+} from "./docs/content.js";
 export type { DocDiagram, DocSection, DocStatus } from "./docs/content.js";
+export { buildMenuMap, PROJECT_PLACEHOLDER } from "./docs/menu-map.js";
+export type { MenuLevelId, MenuMapEntry, MenuMapLevel } from "./docs/menu-map.js";
 export {
   createSessionController,
   sessionConfigFromEnv,

@@ -733,3 +733,25 @@ repeating here because they are invariants rather than gaps:
   so on the self-hosted/nginx edge in this repo the allow is inert-to-unsafe.
   Fix belongs in the edge, not the runbook.
 
+## The in-dashboard Docs surface (2026-09-28)
+
+- `apps/web/src/docs/menu-map.ts` builds the whole three-level menu map from
+  `workspaceNav` / `projectNav` / `databaseNav` (the same functions the sidebar
+  reads) plus `toPath`. It is *generated*, so the Docs page cannot describe a
+  menu entry that does not exist; a new sidebar entry appears automatically.
+  `tests/web/docs.test.ts` pins the map against the three `*Nav` lists entry for
+  entry. Do not hand-write a second menu list here.
+- When no project is open, project-level entries are still *described* but
+  rendered unreachable (`route: null`, no link) with a `:project` path
+  placeholder. `toPath` percent-encodes `:`, so the placeholder is repaired back
+  to its literal form; a link that could not resolve is never rendered.
+- `DOC_INTRO` and every `DocSection` carry an inline SVG diagram (paths in a
+  `0 0 64 40` viewBox), so the bundle ships no binary and no third-party asset.
+  New symbols are exported from `apps/web/src/index.ts` for the tests to reach.
+- The Docs page has one search box that filters the menu map and the detailed
+  sections together, and states the matched count honestly (never a full-slice
+  claim); an empty result uses `EmptyState`, not a blank column.
+- Honesty is unchanged: a section for a Missing feature says "not built" with
+  the reason, and Database/Security are documented as first-class because they
+  are the differentiators.
+

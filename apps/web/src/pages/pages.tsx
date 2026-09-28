@@ -6,7 +6,7 @@
  * no page here that renders a value it did not load, and no page that turns a
  * `not_configured` engine into a success.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -117,7 +117,13 @@ import {
   VerifiedBadge,
   VisitLink,
 } from "../components/page-parts.js";
-import { DOC_SECTIONS, DOC_STATUS_DESCRIPTIONS, DOC_STATUS_LABELS } from "../docs/content.js";
+import {
+  DOC_INTRO,
+  DOC_SECTIONS,
+  DOC_STATUS_DESCRIPTIONS,
+  DOC_STATUS_LABELS,
+} from "../docs/content.js";
+import { buildMenuMap } from "../docs/menu-map.js";
 
 /* ------------------------------------------------------------------ cards */
 
@@ -7089,63 +7095,224 @@ export type { Route };
  * says which, rather than hiding it.
  */
 export function DocsPage() {
+  const { router } = useApp();
+  const organizationId = "organizationId" in router.route ? router.route.organizationId : "";
+  const projectId = "projectId" in router.route ? router.route.projectId : undefined;
+  const [query, setQuery] = useState("");
+  const term = query.trim().toLowerCase();
+
   const statusTone: Readonly<Record<string, "positive" | "warning" | "neutral" | "danger">> = {
     wired: "positive",
     partial: "warning",
     engine: "warning",
     missing: "neutral",
   };
+
+  // The menu map is derived from the same navigation model the sidebar reads,
+  // so a new menu entry appears here without a doc edit and a removed one
+  // disappears with it.
+  const levels = useMemo(
+    () => buildMenuMap({ organizationId, projectId }),
+    [organizationId, projectId],
+  );
+
+  // One search box filters both the menu map and the detailed sections, so a
+  // reader looking for "where does Security live" lands on the map row and the
+  // section together. Both are filtered by the same term.
+  const matches = useCallback(
+    (...fields: readonly (string | undefined)[]) =>
+      term === "" || fields.some((field) => field?.toLowerCase().includes(term)),
+    [term],
+  );
+
+  const filteredLevels = levels
+    .map((level) => ({
+      ...level,
+      items: level.items.filter((item) =>
+        matches(item.label, item.description, item.path, item.lands, level.label),
+      ),
+    }))
+    .filter((level) => level.items.length > 0);
+
+  const filteredSections = DOC_SECTIONS.filter((section) =>
+    matches(section.title, section.summary, section.id, ...section.body),
+  );
+
+  const totalEntries = levels.reduce((sum, level) => sum + level.items.length, 0);
+  const shownEntries = filteredLevels.reduce((sum, level) => sum + level.items.length, 0);
+  const projectOpen = Boolean(projectId);
+
   return (
     <PageShell
       title="Docs"
-      subtitle="What every page does, and where a click lands. Written against the system that exists."
+      subtitle="Every option in the menu bar, what its page is, and where a click lands. Written against the system that exists."
+      actions={
+        <div style={{ minWidth: "240px" }}>
+          <TextInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search the menu and the pages…"
+            ariaLabel="Search the documentation"
+          />
+        </div>
+      }
     >
       <div className="stack">
-        {DOC_SECTIONS.map((section) => (
-          <Card
-            key={section.id}
-            title={section.title}
-            actions={
-              <StatusBadge
-                label={DOC_STATUS_LABELS[section.status]}
-                tone={statusTone[section.status] ?? "neutral"}
-              />
-            }
-          >
+        <Card>
+          <div className="stack">
+            <p style={{ margin: 0, fontWeight: 600 }}>
+              <span className="row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
+                <Icon name="book" size={18} />
+                <span>{DOC_INTRO.title}</span>
+              </span>
+            </p>
+            {DOC_INTRO.body.map((paragraph, index) => (
+              <p key={index} className="muted" style={{ margin: 0 }}>
+                {paragraph}
+              </p>
+            ))}
+            <figure className="docs__figure">
+              <svg
+                viewBox="0 0 64 40"
+                role="img"
+                aria-label={DOC_INTRO.diagram.caption}
+                className="docs__diagram"
+              >
+                {DOC_INTRO.diagram.paths.map((path, index) => (
+                  <path key={index} d={path} />
+                ))}
+              </svg>
+              <figcaption className="muted small">{DOC_INTRO.diagram.caption}</figcaption>
+            </figure>
+          </div>
+        </Card>
+
+        <SectionShell
+          title="The menu, level by level"
+          hint={
+            term === ""
+              ? `${totalEntries} entries across ${levels.length} levels`
+              : `${shownEntries} of ${totalEntries} entries match “${query.trim()}”`
+          }
+        >
+          {filteredLevels.length === 0 ? (
+            <EmptyState
+              title="No menu entry matches"
+              message={`Nothing in the menu map matches “${query.trim()}”. Clear the search to see every entry.`}
+            />
+          ) : (
             <div className="stack">
-              <p style={{ margin: 0, fontWeight: 600 }}>
-                <span className="row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
-                  <Icon name={section.icon} size={18} />
-                  <span>{section.summary}</span>
-                </span>
-              </p>
-              {section.body.map((paragraph, index) => (
-                <p key={index} className="muted" style={{ margin: 0 }}>
-                  {paragraph}
+              {!projectOpen ? (
+                <p className="faint small" style={{ margin: 0 }}>
+                  The project and Database levels are described below, but their links are inactive
+                  until a project is open. Their paths show a <code>:project</code> placeholder.
                 </p>
-              ))}
-              {section.diagram ? (
-                <figure className="docs__figure">
-                  <svg
-                    viewBox="0 0 64 40"
-                    role="img"
-                    aria-label={section.diagram.caption}
-                    className="docs__diagram"
-                  >
-                    {section.diagram.paths.map((path, index) => (
-                      <path key={index} d={path} />
-                    ))}
-                  </svg>
-                  <figcaption className="muted small">{section.diagram.caption}</figcaption>
-                </figure>
               ) : null}
-              <p className="faint small" style={{ margin: 0 }}>
-                {DOC_STATUS_DESCRIPTIONS[section.status]}
-                {section.source ? ` Read ${section.source}.` : ""}
-              </p>
+              {filteredLevels.map((level) => (
+                <Card key={level.id} title={level.label}>
+                  <div className="stack">
+                    <p className="faint small" style={{ margin: 0 }}>
+                      {level.summary}
+                    </p>
+                    <ul className="docs__menu">
+                      {level.items.map((item) => (
+                        <li key={item.id} className="docs__menu-item">
+                          <span className="docs__menu-icon" aria-hidden="true">
+                            <Icon name={item.icon} size={18} />
+                          </span>
+                          <div className="stack" style={{ gap: "2px", flex: 1, minWidth: 0 }}>
+                            <span
+                              className="row"
+                              style={{ gap: "var(--space-2)", alignItems: "center" }}
+                            >
+                              {item.route ? (
+                                <Link to={item.route}>
+                                  <strong>{item.label}</strong>
+                                </Link>
+                              ) : (
+                                <strong>{item.label}</strong>
+                              )}
+                              {item.becomesLevel ? (
+                                <StatusBadge label="Opens a level" tone="progress" />
+                              ) : null}
+                            </span>
+                            <span className="muted small">{item.description}</span>
+                            <span className="faint small">{item.lands}</span>
+                          </div>
+                          <code className="docs__path faint small">{item.path}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </Card>
+              ))}
             </div>
-          </Card>
-        ))}
+          )}
+        </SectionShell>
+
+        <SectionShell
+          title="Every page and what it does"
+          hint={
+            term === ""
+              ? `${DOC_SECTIONS.length} pages`
+              : `${filteredSections.length} of ${DOC_SECTIONS.length} match “${query.trim()}”`
+          }
+        >
+          {filteredSections.length === 0 ? (
+            <EmptyState
+              title="No page matches"
+              message={`Nothing in the pages matches “${query.trim()}”. Clear the search to see every page.`}
+            />
+          ) : (
+            <div className="stack">
+              {filteredSections.map((section) => (
+                <Card
+                  key={section.id}
+                  title={section.title}
+                  actions={
+                    <StatusBadge
+                      label={DOC_STATUS_LABELS[section.status]}
+                      tone={statusTone[section.status] ?? "neutral"}
+                    />
+                  }
+                >
+                  <div className="stack">
+                    <p style={{ margin: 0, fontWeight: 600 }}>
+                      <span className="row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
+                        <Icon name={section.icon} size={18} />
+                        <span>{section.summary}</span>
+                      </span>
+                    </p>
+                    {section.body.map((paragraph, index) => (
+                      <p key={index} className="muted" style={{ margin: 0 }}>
+                        {paragraph}
+                      </p>
+                    ))}
+                    {section.diagram ? (
+                      <figure className="docs__figure">
+                        <svg
+                          viewBox="0 0 64 40"
+                          role="img"
+                          aria-label={section.diagram.caption}
+                          className="docs__diagram"
+                        >
+                          {section.diagram.paths.map((path, index) => (
+                            <path key={index} d={path} />
+                          ))}
+                        </svg>
+                        <figcaption className="muted small">{section.diagram.caption}</figcaption>
+                      </figure>
+                    ) : null}
+                    <p className="faint small" style={{ margin: 0 }}>
+                      {DOC_STATUS_DESCRIPTIONS[section.status]}
+                      {section.source ? ` Read ${section.source}.` : ""}
+                    </p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </SectionShell>
       </div>
     </PageShell>
   );
