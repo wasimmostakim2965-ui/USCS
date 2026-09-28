@@ -220,6 +220,28 @@ not when a commit message says so.
   `orchestration_jobs` row executed by the worker, and its outcome lands in
   `audit_logs`.
 
+## The build plane we ship
+
+`infra/deployment/builder-server.mjs` implements the HTTP contract the Railpack
+adapter speaks, driving the pinned Nixpacks binary. It is bounded (concurrency,
+timeout, log volume, retention) and authenticated, and it is the only service
+given the Docker socket. Three things are deliberately not done, and none of
+them is papered over:
+
+- **No registry.** The image is tagged in the local daemon. Promoting an artifact
+  to a different host needs a registry push; the artifact carries whatever image
+  reference the builder returns, so adding one is a change to the tag, not the
+  port.
+- **No per-build CPU/memory limit.** `BUILDER_CONCURRENCY` caps how many run; a
+  single build is unbounded here. Enforce that on the host (cgroup) or run a
+  builder per tenant (`docs/runbooks/build-plane.md`, shape B).
+- **One shared builder is a shared trust boundary.** Nixpacks builds run as
+  containers with the daemon's reach, so a build for tenant A shares the daemon
+  with tenant B. Acceptable for a small trusted set; use builder-per-tenant when
+  tenants are not mutually trusted.
+
+Do not describe the build plane as a hard multi-tenant boundary.
+
 ## Environment and engine wiring (read before touching `buildEngines`)
 
 - `.env.example` is the contract for `engineConfigFromEnv`. The keys are
@@ -236,6 +258,16 @@ not when a commit message says so.
   `buildEngines` cannot construct it. Pass the built adapter as
   `EngineConfig.securityEdge`; absent means the honest `not_configured` edge,
   even when `SECURITY_EDGE_URL` is set.
+- **The build engine is reached per organization, like Coolify.** The API/worker
+  read `BUILD_ENGINE_URL__<orgId>` + `BUILD_ENGINE_TOKEN__<orgId>`; the builder
+  service itself reads `BUILDER_TOKEN` (its single secret) plus
+  `BUILDER_PORT`/`BUILDER_HOST` and the bounds `BUILDER_CONCURRENCY`,
+  `BUILDER_BUILD_TIMEOUT_MS`, `BUILDER_MAX_LOG_LINES`, `BUILDER_JOB_TTL_MS`
+  (`infra/deployment/builder-server.mjs`). With no token the adapter stays
+  honestly `not_configured`. The per-organization keys are appended by the
+  operator/`deploy.sh`, not written in `.env.example` — the org id breaks the
+  dotenv parser, the same reason as `COOLIFY_TOKEN__`. See
+  `docs/runbooks/build-plane.md` and gate 15.
 
 ## Deploying the software
 
@@ -249,6 +281,13 @@ not when a commit message says so.
   file for a single host. The dashboard image serves the bundle and
   reverse-proxies `/rpc` and `/healthz` to the API, so the browser has one origin
   and the API's `CLOUD_WAI_ALLOWED_ORIGINS` stays empty.
+- `infra/deployment/builder-server.mjs` + `builder.Dockerfile` are the build
+  plane, and the compose `builder` service (profile `build`) is the only one
+  given the Docker socket, loopback-only. `deploy.sh`'s `ensure_builder` starts
+  it and wires every organization; the AWS bootstrap starts it by profile when
+  `BUILDER_TOKEN` is present. Its bounds are release gate 15
+  (`tests/deployment/build-plane.test.ts`); read
+  `docs/runbooks/build-plane.md` before changing it.
 - `.env.example` must stay loadable by a dotenv parser. A placeholder written as
   a key (`COOLIFY_TOKEN__<organizationId>=…`) makes `docker compose` refuse the
   file outright; per-organization placeholders belong in comments.
