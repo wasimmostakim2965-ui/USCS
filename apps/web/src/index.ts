@@ -69,6 +69,8 @@ export {
 export type { NavContext, NavItem } from "./navigation.js";
 export { DATABASE_SECTIONS } from "./routes.js";
 export type { DatabaseSection } from "./routes.js";
+export { DOC_SECTIONS, DOC_STATUS_DESCRIPTIONS, DOC_STATUS_LABELS } from "./docs/content.js";
+export type { DocDiagram, DocSection, DocStatus } from "./docs/content.js";
 export {
   createSessionController,
   sessionConfigFromEnv,

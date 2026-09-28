@@ -1522,6 +1522,11 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
     case "apiKeys":
       return { title: "API keys", sections: [await loadApiKeys(client, route.organizationId)] };
 
+    case "docs":
+      // Docs is static content that ships with the bundle: it reads nothing from
+      // the API, so it has no section and cannot show a state it did not load.
+      return { title: "Docs", sections: [] };
+
     case "not_found":
       return {
         title: "Not found",

@@ -93,6 +93,13 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "apiKeys", organizationId },
     },
     {
+      id: "docs",
+      label: "Docs",
+      icon: "book",
+      description: "What every page does, and where a click lands.",
+      route: { name: "docs", organizationId },
+    },
+    {
       id: "settings",
       label: "Settings",
       icon: "settings",
@@ -264,6 +271,8 @@ export function navForRoute(
       return workspace("observability");
     case "billing":
       return workspace("billing");
+    case "docs":
+      return workspace("docs");
     case "settings":
       return workspace("settings");
     case "organizations":
@@ -378,6 +387,8 @@ export function titleForRoute(route: Route): string {
       return "Observability";
     case "billing":
       return "Billing";
+    case "docs":
+      return "Docs";
     case "settings":
       return "Settings";
     case "not_found":

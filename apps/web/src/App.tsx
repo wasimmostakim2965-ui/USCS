@@ -34,6 +34,7 @@ import {
   ApiKeysPage,
   BillingPage,
   DeploymentsPage,
+  DocsPage,
   DomainsPage,
   EnvVarsPage,
   GitPage,
@@ -254,6 +255,8 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         return <BillingPage organizationId={route.organizationId} />;
       case "apiKeys":
         return <ApiKeysPage organizationId={route.organizationId} />;
+      case "docs":
+        return <DocsPage />;
       case "settings":
         return <SettingsPage organizationId={route.organizationId} />;
       case "not_found":

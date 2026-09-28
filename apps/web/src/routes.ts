@@ -29,6 +29,7 @@ export type Route =
   | { readonly name: "billing"; readonly organizationId: string }
   | { readonly name: "settings"; readonly organizationId: string }
   | { readonly name: "apiKeys"; readonly organizationId: string }
+  | { readonly name: "docs"; readonly organizationId: string }
   | { readonly name: "not_found"; readonly path: string };
 
 export const DATABASE_SECTIONS = [
@@ -98,6 +99,8 @@ export function parseRoute(path: string): Route {
     return { name: "observability", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "billing" && segments.length === 3)
     return { name: "billing", organizationId: segments[1]! };
+  if (segments[0] === "orgs" && segments[2] === "docs" && segments.length === 3)
+    return { name: "docs", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3)
     return { name: "settings", organizationId: segments[1]! };
   return { name: "not_found", path: clean };
@@ -139,6 +142,8 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/observability`;
     case "billing":
       return `/orgs/${encodeURIComponent(route.organizationId)}/billing`;
+    case "docs":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/docs`;
     case "settings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/settings`;
     case "not_found":

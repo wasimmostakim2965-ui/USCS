@@ -28,6 +28,7 @@ import {
   Table,
   TextInput,
   presentDeploymentStatus,
+  Icon,
 } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { usePagedSection, useSection } from "../react/hooks.js";
@@ -112,6 +113,7 @@ import {
   VerifiedBadge,
   VisitLink,
 } from "../components/page-parts.js";
+import { DOC_SECTIONS, DOC_STATUS_DESCRIPTIONS, DOC_STATUS_LABELS } from "../docs/content.js";
 
 /* ------------------------------------------------------------------ cards */
 
@@ -492,6 +494,75 @@ export function ProjectsPage({ organizationId }: { readonly organizationId: stri
 
 /* ------------------------------------------------------------------ project */
 
+/**
+ * One step of the go-live checklist.
+ *
+ * `done` comes from a real row, never from a section merely existing, and
+ * `engineBlocked` is separate from `done=false`: a step that cannot complete
+ * because its engine is unconfigured says so rather than sitting grey forever.
+ */
+interface ChecklistStep {
+  readonly id: string;
+  readonly label: string;
+  readonly done: boolean;
+  readonly engineBlocked?: boolean;
+  readonly detail: string;
+  readonly to: Route;
+  readonly linkLabel: string;
+}
+
+/**
+ * The Production Checklist shown at the foot of a project Overview.
+ *
+ * This is Vercel's Overview checklist shape — the ordered steps that take a
+ * project from created to production — computed from the rows the page has
+ * already loaded. It makes no claim it cannot back: each step is true only when
+ * the data says so, and a step whose engine is unwired is marked as such.
+ */
+function ProductionChecklist({ steps }: { readonly steps: readonly ChecklistStep[] }) {
+  const remaining = steps.filter((step) => !step.done).length;
+  return (
+    <SectionShell
+      title="Production checklist"
+      hint={remaining === 0 ? "All steps complete" : `${remaining} of ${steps.length} remaining`}
+    >
+      <Card>
+        <ol className="stack" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {steps.map((step) => (
+            <li
+              key={step.id}
+              className="row"
+              style={{ gap: "var(--space-3)", alignItems: "flex-start" }}
+            >
+              <span aria-hidden="true" style={{ marginTop: "2px" }}>
+                <Icon name={step.done ? "check" : "chevronRight"} size={18} />
+              </span>
+              <div className="stack" style={{ gap: "2px", flex: 1 }}>
+                <span className="row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
+                  <strong>{step.label}</strong>
+                  {step.done ? (
+                    <StatusBadge label="Done" tone="positive" />
+                  ) : step.engineBlocked ? (
+                    <StatusBadge label="Needs an engine" tone="warning" />
+                  ) : (
+                    <StatusBadge label="Todo" tone="neutral" />
+                  )}
+                </span>
+                <span className="muted small">{step.detail}</span>
+              </div>
+              {!step.done ? (
+                <Link to={step.to} title={step.detail}>
+                  {step.linkLabel}
+                </Link>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </Card>
+    </SectionShell>
+  );
+}
+
 export function ProjectOverviewPage({
   organizationId,
   projectId,
@@ -511,6 +582,25 @@ export function ProjectOverviewPage({
     [client, organizationId],
     "Recent activity",
   );
+  // The checklist reads four more surfaces: a repository, a domain, variables
+  // and the security posture. Each is the same loader its own page uses, so the
+  // checklist cannot disagree with the page it links to.
+  const gitLinks = useSection(
+    () => loadGitLinks(client, projectId),
+    [client, projectId],
+    "Repositories",
+  );
+  const domains = useSection(
+    () => loadDomains(client, organizationId, projectId),
+    [client, organizationId, projectId],
+    "Domains",
+  );
+  const envVars = useSection(() => loadEnvVars(client, projectId), [client, projectId], "Env");
+  const policy = useSection(
+    () => loadSecurityPolicy(client, organizationId),
+    [client, organizationId],
+    "Security policy",
+  );
 
   const projectItem =
     project.section.state.kind === "ready" ? project.section.state.items[0] : undefined;
@@ -524,6 +614,75 @@ export function ProjectOverviewPage({
   // it is the answer to "where is my site", so it belongs in the header rather
   // than only in the table below.
   const liveUrl = deploymentItems.find((item) => item.isCurrent && item.url)?.url ?? null;
+
+  // The checklist. Each value is read from the section that owns it; a section
+  // still loading contributes `false` (the honest default), and a section whose
+  // engine is absent contributes `engineBlocked` so the step explains itself.
+  const gitItems = gitLinks.section.state.kind === "ready" ? gitLinks.section.state.items : [];
+  const domainItems = domains.section.state.kind === "ready" ? domains.section.state.items : [];
+  const envItems = envVars.section.state.kind === "ready" ? envVars.section.state.items : [];
+  const policyReady = policy.section.state.kind === "ready";
+  const policyItems = policyReady ? policy.section.state.items : [];
+  const policyConfigured = policyItems.length > 0;
+
+  const checklist: readonly ChecklistStep[] = [
+    {
+      id: "git",
+      label: "Connect a Git repository",
+      done: gitItems.length > 0,
+      detail:
+        gitItems.length > 0
+          ? `${gitItems.length} repository connected. A push to its production branch deploys this project.`
+          : "Link a repository so a push deploys automatically, instead of building by hand.",
+      to: { name: "git", organizationId, projectId },
+      linkLabel: "Connect Git",
+    },
+    {
+      id: "deploy",
+      label: "Deploy once",
+      done: live > 0,
+      engineBlocked: live === 0 && unconfigured > 0,
+      detail:
+        live > 0
+          ? `${live} deployment succeeded.`
+          : unconfigured > 0
+            ? `${unconfigured} deployment requested but no hosting engine is wired, so none could run.`
+            : "No deployment has succeeded yet.",
+      to: { name: "deployments", organizationId, projectId },
+      linkLabel: "Deployments",
+    },
+    {
+      id: "domain",
+      label: "Add a custom domain",
+      done: domainItems.some((item) => item.verified),
+      detail: domainItems.some((item) => item.verified)
+        ? "A verified domain serves this project."
+        : "Attach a hostname you own; TLS is provisioned once it verifies.",
+      to: { name: "domains", organizationId, projectId },
+      linkLabel: "Domains",
+    },
+    {
+      id: "env",
+      label: "Set environment variables",
+      done: envItems.length > 0,
+      detail:
+        envItems.length > 0
+          ? `${envItems.length} variable${envItems.length === 1 ? "" : "s"} stored.`
+          : "Inject secrets and configuration into builds and runtime without committing them.",
+      to: { name: "env", organizationId, projectId },
+      linkLabel: "Environment",
+    },
+    {
+      id: "security",
+      label: "Turn on protection",
+      done: policyConfigured,
+      detail: policyConfigured
+        ? `Protection level ${policyItems[0]!.riskLevel}.`
+        : "Set a protection level so the edge can inspect requests to this project.",
+      to: { name: "security", organizationId, projectId },
+      linkLabel: "Security",
+    },
+  ];
 
   return (
     <PageShell
@@ -623,6 +782,8 @@ export function ProjectOverviewPage({
           />
         </Card>
       </SectionShell>
+
+      <ProductionChecklist steps={checklist} />
     </PageShell>
   );
 }
@@ -6554,3 +6715,80 @@ export function NotFoundPage({ path }: { readonly path: string }) {
 }
 
 export type { Route };
+
+/* -------------------------------------------------------------------- docs */
+
+/**
+ * The in-dashboard documentation.
+ *
+ * A user can read the whole system from the menu: every section, what its page
+ * does and where a click lands. The content is a typed module
+ * (`../docs/content.js`), so a section cannot reach this page without an honest
+ * status, and the page cannot invent a section the menu does not have.
+ *
+ * A section marked "Needs an engine" is not a failure — it is the honest state
+ * of a procedure whose provider is not configured in this deployment. The page
+ * says which, rather than hiding it.
+ */
+export function DocsPage() {
+  const statusTone: Readonly<Record<string, "positive" | "warning" | "neutral" | "danger">> = {
+    wired: "positive",
+    partial: "warning",
+    engine: "warning",
+    missing: "neutral",
+  };
+  return (
+    <PageShell
+      title="Docs"
+      subtitle="What every page does, and where a click lands. Written against the system that exists."
+    >
+      <div className="stack">
+        {DOC_SECTIONS.map((section) => (
+          <Card
+            key={section.id}
+            title={section.title}
+            actions={
+              <StatusBadge
+                label={DOC_STATUS_LABELS[section.status]}
+                tone={statusTone[section.status] ?? "neutral"}
+              />
+            }
+          >
+            <div className="stack">
+              <p style={{ margin: 0, fontWeight: 600 }}>
+                <span className="row" style={{ gap: "var(--space-2)", alignItems: "center" }}>
+                  <Icon name={section.icon} size={18} />
+                  <span>{section.summary}</span>
+                </span>
+              </p>
+              {section.body.map((paragraph, index) => (
+                <p key={index} className="muted" style={{ margin: 0 }}>
+                  {paragraph}
+                </p>
+              ))}
+              {section.diagram ? (
+                <figure className="docs__figure">
+                  <svg
+                    viewBox="0 0 64 40"
+                    role="img"
+                    aria-label={section.diagram.caption}
+                    className="docs__diagram"
+                  >
+                    {section.diagram.paths.map((path, index) => (
+                      <path key={index} d={path} />
+                    ))}
+                  </svg>
+                  <figcaption className="muted small">{section.diagram.caption}</figcaption>
+                </figure>
+              ) : null}
+              <p className="faint small" style={{ margin: 0 }}>
+                {DOC_STATUS_DESCRIPTIONS[section.status]}
+                {section.source ? ` Read ${section.source}.` : ""}
+              </p>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </PageShell>
+  );
+}

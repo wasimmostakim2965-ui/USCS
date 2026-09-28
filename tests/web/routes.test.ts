@@ -85,6 +85,10 @@ describe("route parsing", () => {
       name: "apiKeys",
       organizationId: "org-a",
     });
+    expect(parseRoute("/orgs/org-a/docs")).toEqual({
+      name: "docs",
+      organizationId: "org-a",
+    });
   });
 
   it("parses each database sub-section as its own deep link", () => {
@@ -148,6 +152,7 @@ describe("route parsing", () => {
       { name: "audit", organizationId: "org-a" },
       { name: "settings", organizationId: "org-a" },
       { name: "apiKeys", organizationId: "org-a" },
+      { name: "docs", organizationId: "org-a" },
     ];
     for (const route of routes) {
       expect(parseRoute(toPath(route))).toEqual(route);
