@@ -5,6 +5,7 @@
   "description": "Cloud Wai — multi-tenant cloud control plane. Owns identity, orgs, projects, billing, policy, audit and orchestration; open-source systems are execution engines behind Cloud Wai-owned adapters.",
   "license": "UNLICENSED",
   "type": "module",
+  "packageManager": "pnpm@11.24.0",
   "engines": {
     "node": ">=22"
   },
