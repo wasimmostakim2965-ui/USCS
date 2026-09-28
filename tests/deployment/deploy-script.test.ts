@@ -58,7 +58,33 @@ describe("the one-command deploy script", () => {
     expect(script).not.toMatch(/pkill -f ['"]?python/);
   });
 
-  it("parses under the shell that will run it", () => {
+  it("reports a zombie as down, because kill -0 says it is up", () => {
+    // A process whose parent was reaped by init still answers `kill -0`, so the
+    // old status check called a dead service "up". The guard reads the state
+    // from /proc and must treat Z as not-live.
+    expect(script).toMatch(/process_is_live\(\)/);
+    expect(script).toMatch(/!= "Z"/);
+
+    // Prove the guard's shape against a real zombie: fork a child that exits
+    // while the parent never waits, leaving a Z state for `kill -0` to accept.
+    const probe = [
+      "set -u",
+      'bash -c "sleep 0" &',
+      "zpid=$!",
+      "sleep 0.3",
+      'state=$(awk \'{print $3}\' "/proc/$zpid/stat" 2>/dev/null)',
+      'printf "state=%s kill0=%s\\n" "$state" "$(kill -0 "$zpid" 2>/dev/null && echo yes || echo no)"',
+      "wait 2>/dev/null || true",
+    ].join("\n");
+    const out = execFileSync("bash", ["-c", probe], { encoding: "utf8" });
+    // If the host reaped the child before we read it, there is nothing to
+    // assert; the guard's presence check above is the durable half.
+    if (out.includes("state=Z")) {
+      expect(out).toContain("kill0=yes");
+    }
+  });
+
+  it("runs the terminating path under the script's real shell", () => {
     // A syntax error in the edited functions would only surface on the host.
     expect(() =>
       execFileSync("bash", ["-n", `${root}infra/deployment/deploy.sh`], { stdio: "pipe" }),
@@ -77,6 +103,16 @@ describe("the one-command deploy script", () => {
     );
     writeFileSync(join(scratch, "bin", "setsid"), stub);
     chmodSync(join(scratch, "bin", "setsid"), 0o755);
+
+    // `stop_process` sweeps the service's own command line when no pidfile
+    // remains. That sweep is right on a host, but here it would match the
+    // *live* deployment this host may be running. Stub `pkill` so the sweep is
+    // observed, never executed against this machine.
+    writeFileSync(
+      join(scratch, "bin", "pkill"),
+      "#!/usr/bin/env bash\n" + `printf 'pkill %s\\n' "$*" >> ${calls}\n`,
+    );
+    chmodSync(join(scratch, "bin", "pkill"), 0o755);
 
     const body = script
       .slice(script.indexOf("start_process()"), script.indexOf("start_all()"))

@@ -563,6 +563,14 @@ traps worth remembering:
   (`0001`–`0029`), the build plane, the API, the worker, the edge and the
   gateway. It ends by probing all three origins and printing `dashboard 200`,
   `api 200`, `gateway 200`.
+- Re-verified the same day after the pidfile fix. `status`, `down` and a
+  redeploy now agree: the four pidfiles name the four live services, `down`
+  stops all four with no leftovers, and a redeploy reuses the path. The bug it
+  fixed was real and had been masked by a `status` that trusted `kill -0`:
+  a service that had exited into a zombie state (parent reaped, not yet
+  collected) still answers `kill -0`, so `status` printed "up" while the origin
+  answered `502`. Both checks now read the truth — the wrapper's own pid and
+  `/proc/<pid>/stat`.
 - The sandbox daemon is root-owned. `docker` as the `openhands` user gets
   `permission denied` on `/var/run/docker.sock` while `sudo docker` works; the
   fix is `sudo chmod 666 /var/run/docker.sock` (or add the user to the `docker`
@@ -582,10 +590,16 @@ traps worth remembering:
   reloads returns `429`, which the client treats as "keep waiting" and the page
   stays on "Connecting". Raise the cap for a demo session, and turn the bypass
   off (`DEMO_AUTOLOGIN=0`) for anything reachable by others.
-- Restarting the API or edge by `kill`ing a PID from a pidfile can silently
-  fail with `EADDRINUSE` when the old process is still alive (a stale pidfile,
-  or a child that outlived its parent). Confirm with `ss -ltnp | grep :8787`
-  before starting a replacement, and check the new process's log for the
+- Restarting the API or edge by `kill`ing a PID from a pidfile used to fail
+  silently with `EADDRINUSE` when the old process was still alive. That was a
+  bug in `deploy.sh`, not an operator mistake: `start_process` recorded `$!`
+  — the `setsid` *parent*, which exits immediately — so the pidfile named a
+  process that was not the service, `status` called a live service "down", and
+  a restart could not signal the real one. The script now writes the pid of
+  the `setsid` child (which `exec`s the service, so the two are one process),
+  and `status` treats a `Z`-state entry in `/proc` as down rather than trusting
+  `kill -0` (which succeeds against a zombie). If you ever do restart by hand,
+  confirm with `ss -ltnp | grep :8787` and check the new process's log for the
   listen line.
 - Verified directly: the built bundle carries the public anon key and **not**
   the service-role key or `CLOUD_WAI_SECRET_ENCRYPTION_KEY`; the API/worker/edge

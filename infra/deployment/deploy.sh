@@ -395,10 +395,22 @@ start_all() {
 }
 
 # --- Commands ----------------------------------------------------------------
+# `kill -0` succeeds against a zombie: a process whose parent was reaped by init
+# still answers the zero signal, so `status` called a dead service "up". A pid
+# in the Z state is dead for every purpose we care about, so it is reported as
+# down. This is the same failure the pidfile bug produced, reached from the
+# other side.
+process_is_live() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  [[ "$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)" != "Z" ]]
+}
+
 cmd_status() {
   printf 'processes\n'
   for name in api worker edge gateway; do
-    if [[ -f "$RUN_DIR/$name.pid" ]] && kill -0 "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null; then
+    if process_is_live "$(cat "$RUN_DIR/$name.pid" 2>/dev/null)"; then
       printf '  %-8s up (pid %s)\n' "$name" "$(cat "$RUN_DIR/$name.pid")"
     else
       printf '  %-8s down\n' "$name"

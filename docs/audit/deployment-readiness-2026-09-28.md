@@ -209,7 +209,7 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
 ### Follow-up pass (2026-09-28)
 
 এই audit-এর পরের pass-এ নিচের কাজ সম্পন্ন, এবং সব evidence `pnpm verify`
-(915 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
+(916 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
 
 - **AWS Terraform environment gaps বন্ধ** — `cloud_wai_secret_encryption_key`
   (`sensitive`, 43-char validation) ও `public_supabase_url` variable যোগ, এবং
@@ -221,11 +221,14 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
 - **Terraform + compose locally যাচাই** — `terraform fmt -check -recursive`
   clean, `terraform validate` success, `docker compose config -q` pass
   (উপরে P1 আপডেট দ্রষ্টব্য)।
-- **Deploy-script reliability bug (D10)** — pidfile ভুল pid ধরত, তাই `status`
-  একটা চলমান service-কে "down" দেখাত এবং `down`/restart সেটা বন্ধ করতে পারত
-  না; এখন wrapper নিজের pid লেখে ও service `exec` করে, এবং `down` service-এর
-  নিজস্ব command line sweep করে। live host-এ verified।
-- **Test count** — 910/53 থেকে 915/54 (`tests/deployment/deploy-script.test.ts`
+- **Deploy-script reliability bugs (D10, D11)** — pidfile ভুল pid ধরত (setsid
+  parent), তাই `status` একটা চলমান service-কে "down" দেখাত এবং `down`/restart
+  সেটা বন্ধ করতে পারত না; এখন wrapper নিজের pid লেখে ও service `exec` করে।
+  দ্বিতীয়ত, `status`-এর `kill -0` liveness test একটা zombie-কে "up" দেখাত
+  (exit করা কিন্তু reaped না হওয়া process); এখন `/proc/<pid>/stat`-এর `Z` state
+  down হিসেবে গণ্য হয়। live host-এ verified (api/worker/edge/gateway সব up,
+  dashboard/api/gateway 200)।
+- **Test count** — 910/53 থেকে 916/54 (`tests/deployment/deploy-script.test.ts`
   যোগ হয়েছে)।
 
 অপরিবর্তিত open gate: live external engine validation (Coolify/MinIO/edge/
