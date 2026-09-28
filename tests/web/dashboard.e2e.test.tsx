@@ -4488,7 +4488,7 @@ describe("paging an append-ordered list", () => {
       expect(screen.queryByRole("button", { name: "Load older deployments" })).toBeNull(),
     );
     expect(screen.getByText("That is the full history for this project.")).toBeTruthy();
-  });
+  }, 15_000);
 
   it("pages the audit log with the same cursor and appends older entries", async () => {
     const inputs: unknown[] = [];

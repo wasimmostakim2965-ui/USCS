@@ -1444,6 +1444,9 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       // no section and cannot show a state it did not load.
       return { title: "Cloud Wai", sections: [] };
 
+    case "auth_callback":
+      return { title: "Signing in", sections: [] };
+
     case "organizations":
       return { title: "Organizations", sections: [await loadOrganizations(client)] };
 

@@ -1,14 +1,9 @@
 /**
- * Routes.
- *
- * URLs are the source of truth for navigation, so a view is always derivable
- * from a link and a refresh lands where the user was. The organization id is
- * present in the path for readability, but it is never what authorizes a
- * request: the server resolves scope from the session regardless of what the
- * URL says.
+ * Routes. URLs are the source of truth for navigation.
  */
 export type Route =
   | { readonly name: "landing" }
+  | { readonly name: "auth_callback" }
   | { readonly name: "organizations" }
   | { readonly name: "organization"; readonly organizationId: string }
   | { readonly name: "projects"; readonly organizationId: string }
@@ -19,7 +14,6 @@ export type Route =
       readonly name: "database";
       readonly organizationId: string;
       readonly projectId: string;
-      /** Which Supabase-style sub-section is open. Absent means Overview. */
       readonly section?: DatabaseSection | undefined;
     }
   | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
@@ -37,13 +31,6 @@ export type Route =
   | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "not_found"; readonly path: string };
 
-/**
- * The Database section's sub-pages.
- *
- * These mirror the shape Supabase's own project view exposes, because that is
- * the mental model the owner asked for. They are our routes and our UI; the
- * engine is reached only through the adapter.
- */
 export const DATABASE_SECTIONS = [
   "overview",
   "tables",
@@ -55,67 +42,38 @@ export const DATABASE_SECTIONS = [
   "logs",
   "settings",
 ] as const;
-
 export type DatabaseSection = (typeof DATABASE_SECTIONS)[number];
-
 function isDatabaseSection(value: string): value is DatabaseSection {
   return (DATABASE_SECTIONS as readonly string[]).includes(value);
 }
 
 export function parseRoute(path: string): Route {
   const clean = path.replace(/\/+$/, "") || "/";
-  // The root is the public landing page, not the dashboard. The dashboard lives
-  // at `/orgs`, so an unauthenticated visitor never lands on a shell that needs
-  // a session to say anything.
   if (clean === "/") return { name: "landing" };
-
+  if (clean === "/auth/callback") return { name: "auth_callback" };
   const segments = clean.split("/").filter(Boolean).map(decodeURIComponent);
-
-  if (segments[0] === "orgs" && segments.length === 1) {
-    return { name: "organizations" };
-  }
-  if (segments[0] === "orgs" && segments.length === 2) {
+  if (segments[0] === "orgs" && segments.length === 1) return { name: "organizations" };
+  if (segments[0] === "orgs" && segments.length === 2)
     return { name: "organization", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 3) {
+  if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 3)
     return { name: "projects", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 4) {
+  if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 4)
     return { name: "project", organizationId: segments[1]!, projectId: segments[3]! };
-  }
   if (
     segments[0] === "orgs" &&
     segments[2] === "projects" &&
     segments[4] === "deployments" &&
     segments.length === 5
-  ) {
+  )
     return { name: "deployments", organizationId: segments[1]!, projectId: segments[3]! };
-  }
   if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 5) {
     const section = segments[4];
-    if (section === "domains" || section === "security" || section === "git" || section === "env") {
-      return {
-        name: section,
-        organizationId: segments[1]!,
-        projectId: segments[3]!,
-      };
-    }
-    if (section === "settings") {
-      return {
-        name: "projectSettings",
-        organizationId: segments[1]!,
-        projectId: segments[3]!,
-      };
-    }
-    if (section === "database" || section === "data") {
-      // `data` is the old path. It still resolves, to the section that replaced
-      // it, so an existing bookmark does not 404.
-      return {
-        name: "database",
-        organizationId: segments[1]!,
-        projectId: segments[3]!,
-      };
-    }
+    if (section === "domains" || section === "security" || section === "git" || section === "env")
+      return { name: section, organizationId: segments[1]!, projectId: segments[3]! };
+    if (section === "settings")
+      return { name: "projectSettings", organizationId: segments[1]!, projectId: segments[3]! };
+    if (section === "database" || section === "data")
+      return { name: "database", organizationId: segments[1]!, projectId: segments[3]! };
   }
   if (
     segments[0] === "orgs" &&
@@ -123,36 +81,25 @@ export function parseRoute(path: string): Route {
     segments[4] === "database" &&
     segments.length === 6
   ) {
-    const sub = segments[5]!;
-    if (!isDatabaseSection(sub)) return { name: "not_found", path: clean };
-    return {
-      name: "database",
-      organizationId: segments[1]!,
-      projectId: segments[3]!,
-      section: sub,
-    };
+    const section = segments[5]!;
+    if (!isDatabaseSection(section)) return { name: "not_found", path: clean };
+    return { name: "database", organizationId: segments[1]!, projectId: segments[3]!, section };
   }
   if (
     segments[0] === "orgs" &&
     segments[2] === "settings" &&
     segments[3] === "api-keys" &&
     segments.length === 4
-  ) {
+  )
     return { name: "apiKeys", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "audit" && segments.length === 3) {
+  if (segments[0] === "orgs" && segments[2] === "audit" && segments.length === 3)
     return { name: "audit", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "observability" && segments.length === 3) {
+  if (segments[0] === "orgs" && segments[2] === "observability" && segments.length === 3)
     return { name: "observability", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "billing" && segments.length === 3) {
+  if (segments[0] === "orgs" && segments[2] === "billing" && segments.length === 3)
     return { name: "billing", organizationId: segments[1]! };
-  }
-  if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3) {
+  if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3)
     return { name: "settings", organizationId: segments[1]! };
-  }
-
   return { name: "not_found", path: clean };
 }
 
@@ -160,6 +107,8 @@ export function toPath(route: Route): string {
   switch (route.name) {
     case "landing":
       return "/";
+    case "auth_callback":
+      return "/auth/callback";
     case "organizations":
       return "/orgs";
     case "organization":
@@ -173,9 +122,7 @@ export function toPath(route: Route): string {
     case "domains":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/domains`;
     case "database":
-      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/database${
-        route.section ? `/${encodeURIComponent(route.section)}` : ""
-      }`;
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/database${route.section ? `/${encodeURIComponent(route.section)}` : ""}`;
     case "security":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`;
     case "git":

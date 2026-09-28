@@ -1687,6 +1687,77 @@ a.card:hover,
   box-shadow: var(--shadow-2);
 }
 
+/* Narrow screens must never inherit a desktop grid column or a measured page
+   offset. This is intentionally repeated after the refinement block so future
+   shell polish cannot reintroduce the blank-left-half mobile failure. */
+@media (max-width: 960px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .shell,
+  .shell--nav-collapsed,
+  .shell--no-sidebar {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas: "topbar" "main" "mobilebar" !important;
+  }
+
+  .topbar,
+  .main,
+  .mobilebar {
+    min-width: 0;
+    width: 100%;
+    grid-column: 1 / -1;
+  }
+
+  .main {
+    overflow-x: hidden;
+  }
+
+  .page {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+.login__copy {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-6) 0 var(--space-4);
+}
+
+.login__copy p,
+.login__tag,
+.login__legal {
+  color: var(--ink-2);
+}
+
+.login__providers {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.login__providers .btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.login__legal {
+  margin-top: var(--space-5);
+  font-size: var(--step--1);
+  text-align: center;
+}
+
 /* ---- logs ---- */
 
 .log {

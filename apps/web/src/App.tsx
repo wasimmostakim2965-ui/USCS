@@ -115,6 +115,12 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     }
   }, [routeOrganizationId, workspaceId, setWorkspaceId]);
 
+  useEffect(() => {
+    if (current && router.route.name === "auth_callback") {
+      router.navigate({ name: "organizations" });
+    }
+  }, [current, router]);
+
   const projectId = "projectId" in router.route ? router.route.projectId : null;
 
   // Temporary no-login bypass: the session signs itself in, but the landing
@@ -140,6 +146,17 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     }),
     [client, session, router, current, misconfigured, signOut],
   );
+
+  if (router.route.name === "auth_callback") {
+    return (
+      <main className="login" aria-live="polite">
+        <section className="login__panel">
+          <div className="login__mark">Cloud Wai</div>
+          <p className="login__tag">Completing secure sign-in…</p>
+        </section>
+      </main>
+    );
+  }
 
   if (!current) {
     // Temporary no-login bypass: while the demo controller is signing in, the

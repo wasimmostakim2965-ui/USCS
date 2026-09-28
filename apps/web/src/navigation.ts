@@ -268,6 +268,7 @@ export function navForRoute(
       return workspace("settings");
     case "organizations":
     case "organization":
+    case "auth_callback":
     case "not_found":
       return workspace(null);
     case "landing":
@@ -343,6 +344,8 @@ export function titleForRoute(route: Route): string {
   switch (route.name) {
     case "landing":
       return "Cloud Wai";
+    case "auth_callback":
+      return "Signing in";
     case "organizations":
       return "Organizations";
     case "organization":
