@@ -132,7 +132,17 @@ async function runBuild(job, payload) {
       return;
     }
 
-    const detect = await run("docker", ["run", "--rm", "-v", `${sourceDir}:/app:ro`, NIXPACKS_IMAGE, "plan", "/app", "--format", "json"]);
+    const detect = await run("docker", [
+      "run",
+      "--rm",
+      "-v",
+      `${sourceDir}:/app:ro`,
+      NIXPACKS_IMAGE,
+      "plan",
+      "/app",
+      "--format",
+      "json",
+    ]);
     let framework = null;
     if (detect.code === 0) {
       try {
@@ -156,7 +166,10 @@ async function runBuild(job, payload) {
 
 function send(res, code, body) {
   const payload = JSON.stringify(body ?? {});
-  res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
+  res.writeHead(code, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(payload),
+  });
   res.end(payload);
 }
 
@@ -186,7 +199,15 @@ const server = createServer(async (req, res) => {
       return send(res, 201, { id: byIdempotencyKey.get(key) });
     }
     const id = randomUUID().replace(/-/g, "").slice(0, 24);
-    const job = { id, status: "queued", artifact: null, lines: [], nextCursor: null, idempotencyKey: key, cancelled: false };
+    const job = {
+      id,
+      status: "queued",
+      artifact: null,
+      lines: [],
+      nextCursor: null,
+      idempotencyKey: key,
+      cancelled: false,
+    };
     jobs.set(id, job);
     if (key) byIdempotencyKey.set(key, id);
     log(job, `accepted build for ${payload.source?.kind ?? "unknown"} source`);
@@ -210,7 +231,12 @@ const server = createServer(async (req, res) => {
       return send(res, 200, { logs: slice, nextCursor: String(job.lines.length) });
     }
     if (!suffix && req.method === "GET") {
-      return send(res, 200, { id: job.id, status: job.status, artifact: job.artifact, logs: job.lines });
+      return send(res, 200, {
+        id: job.id,
+        status: job.status,
+        artifact: job.artifact,
+        logs: job.lines,
+      });
     }
   }
 
