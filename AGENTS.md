@@ -534,3 +534,46 @@ as PostgREST rejects it. Do not reintroduce a fake that ignores dotted keys.
 so the `profiles(...)` embed resolves. PostgREST returns a to-one embed as an
 **object**, not an array — `toOrganizationMember` accepts both, because reading
 only the array made every member email/display name silently null.
+
+
+## Single-host deploy, verified end to end (2026-09-28)
+
+`./infra/deployment/deploy.sh deploy` was run to completion in this sandbox and
+the live system was exercised through a real browser. What that proved, and the
+traps worth remembering:
+
+- One command brings up the whole product: the Supabase stack, every migration
+  (`0001`–`0029`), the build plane, the API, the worker, the edge and the
+  gateway. It ends by probing all three origins and printing `dashboard 200`,
+  `api 200`, `gateway 200`.
+- The sandbox daemon is root-owned. `docker` as the `openhands` user gets
+  `permission denied` on `/var/run/docker.sock` while `sudo docker` works; the
+  fix is `sudo chmod 666 /var/run/docker.sock` (or add the user to the `docker`
+  group). The deploy script's own "is docker running" check uses the socket, so
+  an unreadable socket reads as "the daemon did not come up".
+- The browser bundle bakes `VITE_SUPABASE_URL` in at **build** time. A value
+  that is only reachable from the host (`http://127.0.0.1:54321` or `:12001`)
+  makes the dashboard hang on "Connecting to Cloud Wai…", because the browser
+  cannot resolve it. To preview a deployed build, rebuild with the public work
+  host, e.g.
+  `VITE_SUPABASE_URL=https://work-2-<id>.prod-runtime.all-hands.dev pnpm --filter @cloud-wai/web build:web`,
+  then restart the edge. `PUBLIC_SUPABASE_URL`/`VITE_SUPABASE_URL` in Terraform
+  exist for exactly this reason — set them to the public origin, not loopback.
+- The demo bypass (`DEMO_AUTOLOGIN=1` + `DEMO_EMAIL` + `DEMO_PASSWORD`) is the
+  only way to reach the dashboard without a configured OAuth provider. It is
+  rate-limited per client (`DEMO_MAX_PER_WINDOW`, default 30/60s); a burst of
+  reloads returns `429`, which the client treats as "keep waiting" and the page
+  stays on "Connecting". Raise the cap for a demo session, and turn the bypass
+  off (`DEMO_AUTOLOGIN=0`) for anything reachable by others.
+- Restarting the API or edge by `kill`ing a PID from a pidfile can silently
+  fail with `EADDRINUSE` when the old process is still alive (a stale pidfile,
+  or a child that outlived its parent). Confirm with `ss -ltnp | grep :8787`
+  before starting a replacement, and check the new process's log for the
+  listen line.
+- Verified directly: the built bundle carries the public anon key and **not**
+  the service-role key or `CLOUD_WAI_SECRET_ENCRYPTION_KEY`; the API/worker/edge
+  logs contain no secret; `.env` and `.deploy/` are gitignored and untracked.
+  The Supabase CLI writes the service-role key into its own
+  `.deploy/logs/supabase.log` — that is third-party, gitignored and untracked,
+  but do not copy `.deploy/` into anything that ships.
+
