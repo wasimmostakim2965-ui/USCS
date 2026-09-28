@@ -1,6 +1,7 @@
 node_modules
 dist
 engines-src
+supabase/.temp
 pnpm-lock.yaml
 *.md
 LICENSES/engines.json

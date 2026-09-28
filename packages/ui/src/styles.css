@@ -13,17 +13,34 @@
  *     where they are.
  */
 
+/* ------------------------------------------------------------------ fonts */
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/geist/Geist-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/geist/GeistMono-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* ------------------------------------------------------------------ tokens */
 
 :root {
   color-scheme: dark;
 
-  /* Type: a characterful grotesque for display, a neutral workhorse for UI.
-     Both are fetched from Google Fonts in index.html; the fallbacks are a
-     local system stack so the console is usable before the font loads. */
-  --font-display: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-body: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Geist is self-hosted so the console has deterministic typography without
+     a third-party font request. System fallbacks keep first paint resilient. */
+  --font-display: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-body: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --step--1: 0.8125rem;
   --step-0: 0.9375rem;
