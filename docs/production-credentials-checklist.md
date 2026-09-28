@@ -107,7 +107,7 @@ For managed/self-operated data resources, configure an adapter per provider:
 - Restore execution worker credentials.
 - KMS/key-management reference if encrypted backups are offered.
 
-Never return raw database passwords or storage secrets in ordinary tRPC list responses. Return references and one-time reveal flows only after authorization.
+Never return raw database passwords or storage secrets in ordinary RPC list responses. Return references and one-time reveal flows only after authorization.
 
 ## 8. Observability and operations
 

@@ -26,6 +26,16 @@
 >   `docs/runbooks/build-plane.md`, ADR-0018) and is wired into compose,
 >   Terraform and the AWS bootstrap.
 >
+> - *"Express + tRPC server"* / *"client/src/control-plane/ControlPlaneShell.tsx"*
+>   — the stack is not Express or tRPC and the path is not `client/src`. The API
+>   is a dependency-light Node `http` server exposing a single `POST /rpc`
+>   endpoint (`apps/api/src/server.ts`, `apps/api/src/router.ts`); the client is
+>   `apps/web` (React 19 + Vite, hash-routed by `apps/web/src/routes.ts`, pages in
+>   `apps/web/src/pages/`). No `@trpc/*`, `express` or `wouter` dependency exists
+>   in any workspace package.
+> - *"Supabase must have those providers configured"* — true, and the callback
+>   contract now uses `/auth/callback`; see the note above.
+>
 > Still genuinely open, and not contradicted: real public-origin OAuth/logout
 > on a live deployment, narrow-mobile screenshot QA, and connecting the external
 > engine credentials (Coolify, MinIO, edge, DNS/TLS, Stripe) — those need live
@@ -36,28 +46,28 @@
 
 ## Executive verdict
 
-Cloud Wai is a substantial control-plane foundation, not yet a complete Vercel-like deployment platform. The repository has a real Supabase-backed multi-tenant model, protected tRPC routers, RLS migrations, adapter boundaries, resource control records, and an original control-plane UI. The missing production-critical layer is the execution plane that turns a deployment request into a durable, observable, recoverable build and release.
+Cloud Wai is a substantial control-plane foundation, not yet a complete Vercel-like deployment platform. The repository has a real Supabase-backed multi-tenant model, protected RPC procedures (`apps/api/src/router.ts`), RLS migrations, adapter boundaries, resource control records, and an original control-plane UI. The missing production-critical layer is the execution plane that turns a deployment request into a durable, observable, recoverable build and release.
 
-The correct next step is not another dashboard rewrite. It is to connect and harden the real infrastructure boundary while preserving the current React/Vite/Express/tRPC/Supabase architecture.
+The correct next step is not another dashboard rewrite. It is to connect and harden the real infrastructure boundary while preserving the current React/Vite/Node-http/Supabase architecture.
 
 ## What is present
 
 - React 19 + Vite + TypeScript client.
-- Express + tRPC server.
+- Node `http` API server exposing a single `POST /rpc` JSON-RPC endpoint (no Express, no tRPC).
 - Supabase Auth and PostgreSQL migrations.
 - Organization, membership, project, audit, API-key, and RLS foundations.
 - Deployment, deployment-log, rollback-history, domain, DNS, database, storage, security, observability, and billing control-plane records.
 - Hosting, data, security-edge, domain-reseller, and billing adapter boundaries.
 - Honest `not_configured` behavior for unavailable providers.
 - OAuth-only browser UI with Google, GitHub, and GitLab buttons; no email/password form is currently rendered.
-- Current v2 control-plane shell in `client/src/control-plane/ControlPlaneShell.tsx` with navigation in `client/src/control-plane/navigation.ts`.
+- Control-plane shell in `apps/web/src/App.tsx` with navigation in `apps/web/src/navigation.ts`.
 - `pnpm verify` as the required build, typecheck, and test gate.
 
 ## What is partial or not production-ready
 
 ### Deployment execution
 
-The current hosting adapter calls a remote `COMPUTE_HOST` synchronously from the tRPC mutation. There is no durable queue, worker lease, retry/backoff, deployment attempt table, worker-owned state transition policy, artifact registry, or crash recovery contract. A configured compute API can therefore be called, but this is not yet a reliable production deployment engine.
+The current hosting adapter calls a remote `COMPUTE_HOST` synchronously from the RPC procedure. There is no durable queue, worker lease, retry/backoff, deployment attempt table, worker-owned state transition policy, artifact registry, or crash recovery contract. A configured compute API can therefore be called, but this is not yet a reliable production deployment engine.
 
 ### Status model
 
@@ -85,7 +95,7 @@ The provided Vercel reference screenshot demonstrates a restrained shell, compac
 
 ## License and dependency finding
 
-The repository declares `MIT` in `package.json`, but there is no root `LICENSE` file in the current checkout. Add a root MIT license file before public distribution and include third-party notices/SBOM in release artifacts. Direct dependencies include Supabase, AWS SDK S3, Radix UI, TanStack Query, tRPC, React, Vite, Express, Wouter, Zod, Recharts, Lucide, and related packages. Their individual licenses and transitive dependencies must be generated and reviewed in CI; the package license field alone is not a complete third-party compliance record.
+The repository declares `MIT` in `package.json`, but there is no root `LICENSE` file in the current checkout. Add a root MIT license file before public distribution and include third-party notices/SBOM in release artifacts. Direct dependencies include Supabase, AWS SDK S3, React, Vite, Zod and related packages. Their individual licenses and transitive dependencies must be generated and reviewed in CI; the package license field alone is not a complete third-party compliance record.
 
 ## Frozen architecture recommendation
 
@@ -103,7 +113,7 @@ Organization
               └── Observability events and alerts
 ```
 
-Keep React/Vite/Wouter, Express/tRPC, Supabase/Postgres/RLS, and adapters. Add first-class environments and a Postgres-backed durable queue before choosing an external queue product.
+Keep React/Vite, the Node-http RPC API, Supabase/Postgres/RLS, and adapters. Add first-class environments and a Postgres-backed durable queue before choosing an external queue product.
 
 ## Production gates
 

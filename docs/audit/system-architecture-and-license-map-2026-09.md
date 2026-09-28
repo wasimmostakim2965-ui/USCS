@@ -22,7 +22,7 @@ Open-source systems হলো replaceable execution engines। কোনো engi
 ```text
 Browser
   -> apps/web: React dashboard, URL-driven project/workspace navigation
-  -> apps/api: authenticated tRPC/BFF boundary
+  -> apps/api: authenticated HTTP JSON-RPC/BFF boundary
   -> Supabase: control-plane Auth + Postgres + RLS
   -> apps/worker: durable queue consumer and reconciliation
   -> adapter contracts

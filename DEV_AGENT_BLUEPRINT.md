@@ -24,7 +24,7 @@ The control-plane database is permanent and stores users, organizations, members
 ```text
 cloud-wai/
 ├── apps/web/                  # React dashboard, URL-driven routes
-├── apps/api/                  # tRPC/BFF, auth, validation, policy checks
+├── apps/api/                  # HTTP JSON-RPC/BFF, auth, validation, policy checks
 ├── apps/orchestrator/         # durable command execution and reconciliation
 ├── apps/security-control/     # policy compiler, rules, incidents
 ├── apps/worker/               # idempotent queue consumers
@@ -139,7 +139,7 @@ Use deep-linkable URL routes:
 /dashboard/settings/audit-logs
 ```
 
-Each route calls a typed tRPC procedure and displays loading, empty, success, degraded and error states. No mock deployments, fake metrics or placeholder connected badges.
+Each route calls a typed RPC procedure and displays loading, empty, success, degraded and error states. No mock deployments, fake metrics or placeholder connected badges.
 
 Required flows: create org/project/environment; connect Git; configure target; deploy/log/cancel/rollback; add and verify domain; provision database/storage; configure security and rate limits; inspect incidents and audit; create scoped API key shown only once; display provider health.
 

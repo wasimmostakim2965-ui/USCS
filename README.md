@@ -38,7 +38,7 @@ API keys, billing, jobs and audit events. Customer tenant databases are a
 
 ```text
 apps/web                  React dashboard, URL-driven routes
-apps/api                  tRPC/BFF — auth, validation, policy checks
+apps/api                  HTTP JSON-RPC/BFF — auth, validation, policy checks
 apps/orchestrator         durable command execution and reconciliation
 apps/security-control     policy compiler, rules, incidents
 apps/worker               idempotent queue consumers

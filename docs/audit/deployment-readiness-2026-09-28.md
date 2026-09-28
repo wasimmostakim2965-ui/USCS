@@ -7,7 +7,7 @@
 
 ## Executive verdict
 
-USCS-এর control-plane core এখন **technically coherent এবং launchable as a dashboard/API product**। Fresh clone-এ TypeScript build এবং typecheck সফল হয়েছে। Build-এর পরে পুরো test suite-এ **50 test files এবং 868 tests পাস** করেছে। Repository-তে tenant isolation, honest engine states, idempotent jobs, secret redaction, audit logging, Supabase RLS এবং an AWS/Terraform deployment shape-এর বাস্তব implementation আছে।
+USCS-এর control-plane core এখন **technically coherent এবং launchable as a dashboard/API product**। Fresh clone-এ TypeScript build এবং typecheck সফল হয়েছে। Build-এর পরে পুরো test suite-এ **52 test files এবং 898 tests পাস** করেছে। Repository-তে tenant isolation, honest engine states, idempotent jobs, secret redaction, audit logging, Supabase RLS এবং an AWS/Terraform deployment shape-এর বাস্তব implementation আছে।
 
 তবে এটিকে এখনই **Vercel-এর মতো অন্য system deploy করানোর production platform** বলা নিরাপদ নয়। কারণ deployment orchestration-এর কয়েকটি execution engine intentionally unconfigured, builder service-এর production topology অসম্পূর্ণ, এবং AWS Terraform configuration application runtime-এর সব প্রয়োজনীয় secret/configuration সরবরাহ করে না।
 
@@ -22,7 +22,7 @@ USCS-এর control-plane core এখন **technically coherent এবং launch
 
 - `pnpm build` — **pass**
 - `pnpm check` — **pass**
-- `pnpm test` — **50 files, 868 tests, all pass**
+- `pnpm test` — **52 files, 898 tests, all pass**
 - `pnpm format:check` — **pass**
 - Working tree audit-এর সময় clean ছিল; local changes ছিল না।
 
@@ -69,6 +69,16 @@ Engine না থাকলে UI/API fake success দেখায় না। Depl
 ## Critical gaps before calling it production-ready
 
 ### P0 — AWS Terraform environment incomplete for application features
+
+> **সমাধান হয়েছে (2026-09-28).** এই অনুচ্ছেদের দুইটি gap পরে বন্ধ করা হয়েছে:
+> `infra/aws/terraform/variables.tf`-এ `cloud_wai_secret_encryption_key`
+> (`sensitive = true`, 43-char validation) এবং `public_supabase_url` দুটি variable
+> যোগ হয়েছে, এবং `infra/aws/terraform/compute.tf`-এর SSM environment template
+> এখন `CLOUD_WAI_SECRET_ENCRYPTION_KEY`, `PUBLIC_SUPABASE_URL` ও `VITE_SUPABASE_URL`
+> inject করে। Environment parameter অবশ্যই `SecureString` (`aws_ssm_parameter.env`)।
+> নিচের বর্ণনা ঐতিহাসিক; current state-এর জন্য `compute.tf` ও `variables.tf` পড়ুন।
+> Per-tenant Coolify/storage/edge token এখনও operator-এর post-provision
+> append (এটি আলাদা, ইচ্ছাকৃত সীমা)।
 
 `infra/aws/terraform/compute.tf`-এর generated SSM environment-এ Supabase URL/key, Coolify URL এবং edge/storage settings আছে; কিন্তু application-এর বাস্তব feature path-এর জন্য প্রয়োজনীয় কিছু configuration সেখানে নেই:
 
