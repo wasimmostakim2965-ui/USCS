@@ -72,7 +72,7 @@ describe("the one-command deploy script", () => {
       'bash -c "sleep 0" &',
       "zpid=$!",
       "sleep 0.3",
-      'state=$(awk \'{print $3}\' "/proc/$zpid/stat" 2>/dev/null)',
+      "state=$(awk '{print $3}' \"/proc/$zpid/stat\" 2>/dev/null)",
       'printf "state=%s kill0=%s\\n" "$state" "$(kill -0 "$zpid" 2>/dev/null && echo yes || echo no)"',
       "wait 2>/dev/null || true",
     ].join("\n");
@@ -82,6 +82,40 @@ describe("the one-command deploy script", () => {
     if (out.includes("state=Z")) {
       expect(out).toContain("kill0=yes");
     }
+  });
+
+  it("never lets a `docker exec -i` read the controlling terminal", () => {
+    // A deploy started in the background has no controlling terminal. `docker
+    // exec -i` still opens it for stdin, so the read raises SIGTTIN and the
+    // whole deploy is suspended -- the build plane never returns. Every
+    // interactive exec must redirect stdin from /dev/null.
+    // The redirect may sit on a continuation line, so join each invocation
+    // (everything up to the line that does not end in a backslash) first.
+    const lines = script.split("\n");
+    const invocations: string[] = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!lines[i].includes("docker exec -i")) continue;
+      let joined = lines[i];
+      while (joined.trimEnd().endsWith("\\") && i + 1 < lines.length) {
+        i += 1;
+        joined += " " + lines[i];
+      }
+      invocations.push(joined);
+    }
+    expect(invocations.length).toBeGreaterThan(0);
+    for (const invocation of invocations) {
+      // Either /dev/null or a real input file is fine; what must never happen
+      // is an unredirected stdin, which is what the terminal would be.
+      expect(invocation).toMatch(/ <\S/);
+    }
+  });
+
+  it("reaches an already-running daemon whose socket is unreadable", () => {
+    // A fresh host has dockerd up but the socket owned by root, so `docker info`
+    // fails while starting a second daemon would too. The check grants socket
+    // access before it tries to start anything.
+    expect(script).toMatch(/sudo test -S \/var\/run\/docker\.sock/);
+    expect(script).toMatch(/sudo chmod 666 \/var\/run\/docker\.sock/);
   });
 
   it("runs the terminating path under the script's real shell", () => {

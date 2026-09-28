@@ -73,6 +73,16 @@ wait_for_http() {
 # --- 1. Docker ---------------------------------------------------------------
 ensure_docker() {
   if docker info >/dev/null 2>&1; then ok "docker is running"; return; fi
+  # The daemon may be up while this user cannot read its socket (not in the
+  # `docker` group -- the normal state on a fresh host). Reaching it is the real
+  # question, so probe the socket and, with passwordless sudo, grant access
+  # rather than trying to start a second daemon that would fail on the same
+  # socket.
+  if sudo -n true 2>/dev/null && sudo test -S /var/run/docker.sock 2>/dev/null; then
+    say "the Docker socket is not readable by $(id -un); granting access"
+    sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+    if docker info >/dev/null 2>&1; then ok "docker is reachable"; return; fi
+  fi
   say "starting the Docker daemon"
   if ! sudo -n true 2>/dev/null; then
     die "The Docker daemon is not running and sudo needs a password. Start it, then re-run."
@@ -82,6 +92,8 @@ ensure_docker() {
     sleep 1
     if docker info >/dev/null 2>&1; then ok "docker started"; return; fi
   done
+  sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+  if docker info >/dev/null 2>&1; then ok "docker started"; return; fi
   die "The Docker daemon did not come up. See $LOG_DIR/dockerd.log"
 }
 
@@ -233,8 +245,13 @@ ensure_builder() {
   # existing tenant gains the build engine. New organizations are wired the same
   # way after they are created (see docs/runbooks/build-plane.md).
   local orgs
+  # `</dev/null`: the command is inside a pipeline substitution, but `docker
+  # exec -i` still opens the controlling terminal for its own stdin. A deploy
+  # started in the background has none, so the read raises SIGTTIN and the whole
+  # deploy is *suspended* indefinitely -- the build plane never returns. Redirect
+  # stdin from /dev/null so the exec never tries to read the terminal.
   orgs="$(docker exec -i "$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)" \
-    psql -U postgres -d postgres -tAc "select id from organizations" 2>/dev/null | tr -d ' ' || true)"
+    psql -U postgres -d postgres -tAc "select id from organizations" </dev/null 2>/dev/null | tr -d ' ' || true)"
   local org wired=0
   for org in $orgs; do
     [[ -n "$org" ]] || continue
@@ -280,7 +297,7 @@ apply_migrations() {
       || die "Migration $(basename "$file") failed. See $LOG_DIR/supabase.log"
     docker exec "$db_container" psql -U postgres -d postgres -tAc \
       "insert into supabase_migrations.schema_migrations(version) values ('$version') on conflict do nothing" \
-      >>"$LOG_DIR/supabase.log" 2>&1
+      </dev/null >>"$LOG_DIR/supabase.log" 2>&1
   done
   ok "migrations applied"
 }

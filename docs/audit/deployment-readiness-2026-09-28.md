@@ -209,7 +209,7 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
 ### Follow-up pass (2026-09-28)
 
 এই audit-এর পরের pass-এ নিচের কাজ সম্পন্ন, এবং সব evidence `pnpm verify`
-(916 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
+(918 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
 
 - **AWS Terraform environment gaps বন্ধ** — `cloud_wai_secret_encryption_key`
   (`sensitive`, 43-char validation) ও `public_supabase_url` variable যোগ, এবং
@@ -228,7 +228,7 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
   (exit করা কিন্তু reaped না হওয়া process); এখন `/proc/<pid>/stat`-এর `Z` state
   down হিসেবে গণ্য হয়। live host-এ verified (api/worker/edge/gateway সব up,
   dashboard/api/gateway 200)।
-- **Test count** — 910/53 থেকে 916/54 (`tests/deployment/deploy-script.test.ts`
+- **Test count** — 910/53 থেকে 918/54 (`tests/deployment/deploy-script.test.ts`
   যোগ হয়েছে)।
 
 অপরিবর্তিত open gate: live external engine validation (Coolify/MinIO/edge/
