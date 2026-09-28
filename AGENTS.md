@@ -713,3 +713,23 @@ traps worth remembering:
   is selected, so the toggle always has something to show and hide.
   `tests/web/dashboard.e2e.test.tsx` has a regression test for it.
 
+## Adversarial audit findings (2026-09-28)
+
+Full record in `docs/audit/adversarial-audit-2026-09-28.md`. Two are worth
+repeating here because they are invariants rather than gaps:
+
+- **The `/rpc` path is service-role, so RLS is *not* the second layer there.**
+  `apps/api/src/bootstrap.ts` builds the store with `SUPABASE_SERVICE_ROLE_KEY`,
+  which bypasses RLS. Tenant isolation on `/rpc` therefore rests on
+  `requireCapability` **and** the `organizations.organization_members.user_id=eq.<caller>`
+  embed that every store read carries. That embed is a security invariant: a new
+  read method that omits it returns another tenant's rows with no database
+  backstop. Do not remove it, and add a test if you add a read method.
+- **The internal-request allow needs a stripping edge, and none ships here.**
+  The compiled `allow-internal` step matches `x-cloud-wai-internal: 1` and
+  exempts the request from every deny rule. The header is client-settable, so the
+  allow is only safe where the edge strips it inbound. Neither
+  `infra/deployment/nginx.conf` nor `infra/deployment/edge-server.mjs` strips it,
+  so on the self-hosted/nginx edge in this repo the allow is inert-to-unsafe.
+  Fix belongs in the edge, not the runbook.
+
