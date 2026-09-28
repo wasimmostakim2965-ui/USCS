@@ -21,6 +21,35 @@ export interface WorkspaceOption {
   readonly slug: string;
 }
 
+/**
+ * The sidebar's remembered visibility, or `null` when the user has never chosen.
+ *
+ * A null lets the caller pick the responsive default (open on a wide screen,
+ * closed on a narrow one); a stored value means the user's own choice wins.
+ * Reading localStorage can throw (private mode, a blocked origin), so a failure
+ * is the same as "no preference" rather than a crash.
+ */
+const SIDEBAR_PREFERENCE_KEY = "cloudwai.sidebar";
+
+function readSidebarPreference(): boolean | null {
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_PREFERENCE_KEY);
+    if (raw === "open") return true;
+    if (raw === "closed") return false;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSidebarPreference(open: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_PREFERENCE_KEY, open ? "open" : "closed");
+  } catch {
+    // A blocked storage API only costs the remembered preference.
+  }
+}
+
 function NavLink({
   item,
   active,
@@ -159,12 +188,16 @@ export function AppShell({
   const [profileOpen, setProfileOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   // The compact bar is only rendered when the sidebar is genuinely unavailable,
   // so a wide screen never has two navigations in its accessibility tree.
   const compactNav = useMediaQuery("(max-width: 960px)");
+  // On a wide screen the sidebar is always visible, so the toggle starts open
+  // and the button collapses it out of the layout (see `shell--nav-collapsed`).
+  // On a narrow screen the sidebar is an off-canvas drawer, so the toggle starts
+  // closed. The preference is remembered once the user chooses one.
+  const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarPreference() ?? !compactNav);
 
   const profile = useDismissable(profileOpen, () => setProfileOpen(false));
   const workspace = useDismissable(workspaceOpen, () => setWorkspaceOpen(false));
@@ -232,10 +265,17 @@ export function AppShell({
       .slice(0, 12);
   }, [commands, query]);
 
+  // Navigating closes the off-canvas drawer so the destination is visible. On a
+  // wide screen the sidebar is part of the layout, so following a link must not
+  // hide it (that would make the second Back press unreachable).
+  const closeDrawer = () => {
+    if (compactNav) setSidebarOpen(false);
+  };
+
   const go = (route: Route) => {
     router.navigate(route);
     setPaletteOpen(false);
-    setSidebarOpen(false);
+    closeDrawer();
   };
 
   const runCommand = (command: {
@@ -245,19 +285,33 @@ export function AppShell({
     if (command.action === "create-organization") onCreateOrganization();
     else router.navigate(command.route);
     setPaletteOpen(false);
-    setSidebarOpen(false);
+    closeDrawer();
   };
 
   const initials = (user?.displayName ?? user?.email ?? "?").slice(0, 1).toUpperCase();
 
+  const toggleSidebar = () => {
+    setSidebarOpen((open) => {
+      writeSidebarPreference(!open);
+      return !open;
+    });
+  };
+
+  const sidebarVisible = Boolean(activeOrganizationId) && sidebarOpen;
+
   return (
-    <div className={`shell${activeOrganizationId ? "" : " shell--no-sidebar"}`}>
+    <div
+      className={`shell${activeOrganizationId ? "" : " shell--no-sidebar"}${
+        activeOrganizationId && !sidebarVisible ? " shell--nav-collapsed" : ""
+      }`}
+    >
       <header className="topbar">
         <Button
           variant="ghost"
           size="sm"
-          ariaLabel="Toggle navigation"
-          onClick={() => setSidebarOpen((open) => !open)}
+          ariaLabel={sidebarVisible ? "Hide navigation" : "Show navigation"}
+          title={sidebarVisible ? "Hide navigation" : "Show navigation"}
+          onClick={toggleSidebar}
         >
           <Icon name="menu" size={18} />
         </Button>
@@ -436,8 +490,8 @@ export function AppShell({
         </div>
       </header>
 
-      {activeOrganizationId ? (
-        <aside className={`sidebar${sidebarOpen ? " sidebar--open" : ""}`}>
+      {sidebarVisible ? (
+        <aside className={`sidebar${compactNav && sidebarOpen ? " sidebar--open" : ""}`}>
           <nav className="nav" aria-label="Sections">
             {back ? (
               <button type="button" className="nav__item nav__back" onClick={() => go(back)}>

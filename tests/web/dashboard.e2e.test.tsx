@@ -4526,3 +4526,42 @@ describe("paging an append-ordered list", () => {
     expect((inputs[1] as { before?: string }).before).toBe(iso(101));
   });
 });
+
+describe("the sidebar (wide-screen default and toggle)", () => {
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  it("starts open on a wide screen and the toggle hides and shows it", async () => {
+    const url = await startApi(responder);
+    // jsdom has no matchMedia, which the hook treats as a wide screen.
+    const { container } = renderApp(url, "#/orgs/org-1/projects");
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: "Hide navigation" }));
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeNull());
+    // The grid loses its sidebar column too, or the main column would be pushed
+    // into the space the sidebar no longer occupies.
+    expect(container.querySelector(".shell--nav-collapsed")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show navigation" }));
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
+    expect(container.querySelector(".shell--nav-collapsed")).toBeNull();
+  });
+
+  it("remembers the choice the user made", async () => {
+    const url = await startApi(responder);
+    const { container } = renderApp(url, "#/orgs/org-1/projects");
+    const user = userEvent.setup();
+
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
+    await user.click(screen.getByRole("button", { name: "Hide navigation" }));
+
+    await waitFor(() => expect(window.localStorage.getItem("cloudwai.sidebar")).toBe("closed"));
+  });
+});

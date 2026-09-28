@@ -121,6 +121,16 @@ description and a title is a type error, not a blank sidebar item.
 The old `.../data` path still resolves, to the Database section that replaced it,
 so an existing bookmark does not 404.
 
+### Sidebar visibility
+
+The sidebar is part of the layout on a wide screen and an off-canvas drawer on a
+narrow one. It is open by default on a wide screen and closed by default below
+960px, where the compact bar carries the same items. The top-bar menu button
+toggles it; the choice is remembered in `localStorage` under `cloudwai.sidebar`,
+and a remembered choice wins over the responsive default. Following a link closes
+the drawer only on a narrow screen — on a wide screen the sidebar stays put, so a
+second Back press remains reachable.
+
 ## Known gaps (do not paper over these)
 
 - **Data-engine provisioning still runs on the request path.** The deployment,

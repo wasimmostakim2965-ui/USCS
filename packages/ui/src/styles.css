@@ -243,6 +243,16 @@ kbd,
     "main";
 }
 
+/* The wide-screen sidebar collapses out of the layout when the user hides it.
+   The `aside` is not rendered in this state (see the shell component), so the
+   grid must lose its sidebar column or the main column would be pushed into it. */
+.shell--nav-collapsed {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "topbar"
+    "main";
+}
+
 .topbar {
   grid-area: topbar;
   display: flex;
@@ -305,6 +315,16 @@ kbd,
     grid-template-areas:
       "topbar"
       "main";
+  }
+  /* A narrow screen with the sidebar closed is the normal state (the drawer is
+     reachable from the compact bar), so the wide-screen collapse rule must not
+     remove the mobilebar row here. */
+  .shell--nav-collapsed {
+    grid-template-rows: var(--shell-topbar) 1fr auto;
+    grid-template-areas:
+      "topbar"
+      "main"
+      "mobilebar";
   }
   .sidebar {
     display: none;
