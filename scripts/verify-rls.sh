@@ -58,6 +58,8 @@ SQL_STEPS=(
   "env vars per environment|supabase/migrations/0025_env_vars_per_environment.sql"
   "member insert rank|supabase/migrations/0026_member_insert_rank.sql"
   "profiles for users|supabase/migrations/0027_profiles_for_users.sql"
+  "job defer for polling|supabase/migrations/0028_jobs_defer_for_polling.sql"
+  "project reference integrity|supabase/migrations/0029_project_reference_integrity.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
@@ -75,6 +77,7 @@ SQL_STEPS=(
   "incident probe|tests/isolation/rls/24_incident_probe.sql"
   "member management probe|tests/isolation/rls/25_member_management_probe.sql"
   "staged deployment probe|tests/isolation/rls/26_staged_deployment_probe.sql"
+  "project reference probe|tests/isolation/rls/27_project_reference_probe.sql"
 )
 
 run_all() {

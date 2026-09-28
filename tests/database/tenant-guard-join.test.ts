@@ -146,4 +146,20 @@ describe("the tenant guard is a joinable filter", () => {
     const found = await store.listDeployments("99999999-9999-4999-8999-999999999999", PROJ);
     expect(found).toEqual([]);
   });
+
+  it("resolves memberships through the joinable guard too", async () => {
+    const { store, requests } = storeOver();
+    const found = await store.membershipsFor(USER);
+    expect(found.map((m) => m.organizationId)).toEqual([ORG]);
+    // Membership resolution is a scoped read like any other: the same
+    // `organizations!inner(organization_members!inner(user_id))` guard must be
+    // present, or a real PostgREST refuses the dotted filter (PGRST108).
+    expect(requests[0]).toContain("organizations!inner(organization_members!inner(user_id))");
+  });
+
+  it("returns no memberships for a user whose organization does not back them", async () => {
+    const { store } = storeOver();
+    const found = await store.membershipsFor("99999999-9999-4999-8999-999999999999");
+    expect(found).toEqual([]);
+  });
 });

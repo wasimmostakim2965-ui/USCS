@@ -565,9 +565,15 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
     // ---------------------------------------------------------------- reads
 
     async membershipsFor(userId: string): Promise<readonly Membership[]> {
+      // The same joinable guard every scoped query carries
+      // (`organizations.organization_members.user_id=eq.<caller>`), so a
+      // service-role connection cannot resolve a membership the caller's own
+      // row does not back. The embedding is in `select` because PostgREST
+      // refuses a dotted filter otherwise (PGRST108), and the row's own
+      // `user_id=eq.<caller>` remains: here the caller *is* the row's subject.
       const found = await rows("membershipsFor", {
         method: "GET",
-        path: `/organization_members?select=organization_id,user_id,role&user_id=eq.${q(userId)}`,
+        path: `/organization_members?select=organization_id,user_id,role,organizations!inner(organization_members!inner(user_id))&user_id=eq.${q(userId)}&organizations.organization_members.user_id=eq.${q(userId)}`,
       });
       return found.map((row) => ({
         organizationId: str(row, "organization_id") as OrganizationId,

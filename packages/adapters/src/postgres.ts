@@ -30,6 +30,7 @@ import {
 import type { AdapterContext, DatabaseAdapter, LogPage } from "./index.js";
 import type { CoolifyCredentials } from "./coolify.js";
 import { request, type HttpClientOptions } from "./http.js";
+import { randomInt } from "node:crypto";
 
 const ENGINE: ProviderRef["provider"] = "postgres";
 
@@ -64,11 +65,20 @@ interface CoolifyDatabase {
 const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^*()_+-=";
 const PASSWORD_LENGTH = 40;
 
-/** A password the engine will accept. Not cryptographic on its own: see below. */
-export function generateDatabasePassword(random: () => number = Math.random): string {
+/**
+ * A password the engine will accept.
+ *
+ * The default source is `crypto.randomInt`, which is the platform CSPRNG and is
+ * uniform over the alphabet (no modulo bias). This is a tenant database
+ * credential the engine persists and never returns, so it must not come from a
+ * predictable PRNG: an earlier version defaulted to `Math.random`, whose state
+ * is reconstructible from a handful of outputs, which would have made a rotated
+ * password guessable. `pick` stays injectable so a test can pin the value.
+ */
+export function generateDatabasePassword(pick: (max: number) => number = randomInt): string {
   let out = "";
   for (let i = 0; i < PASSWORD_LENGTH; i += 1) {
-    out += PASSWORD_ALPHABET[Math.floor(random() * PASSWORD_ALPHABET.length)] ?? "a";
+    out += PASSWORD_ALPHABET[pick(PASSWORD_ALPHABET.length)] ?? "a";
   }
   return out;
 }

@@ -11,6 +11,7 @@ import type { AddressInfo } from "node:net";
 import type { AdapterContext, ProviderRef } from "@cloud-wai/contracts";
 import {
   createPostgresDatabase,
+  generateDatabasePassword,
   bucketNameFor,
   bucketPrefixFor,
   createMinioStorage,
@@ -301,6 +302,28 @@ describe("Postgres adapter", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.status).toBe("failed");
+  });
+});
+
+describe("generateDatabasePassword", () => {
+  it("produces a 40-char password inside Coolify's alphabet", () => {
+    const password = generateDatabasePassword();
+    expect(password).toHaveLength(40);
+    expect(password).toMatch(
+      /^[ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#%^*()_+\-=]+$/,
+    );
+  });
+
+  it("draws every character through the injected source", () => {
+    // A source that always returns index 0 must yield one repeated character,
+    // which proves the generator delegates each draw rather than slicing a
+    // larger buffer (the previous `Math.random` shape could not be observed).
+    const password = generateDatabasePassword(() => 0);
+    expect(password).toBe("A".repeat(40));
+  });
+
+  it("does not repeat across two default draws", () => {
+    expect(generateDatabasePassword()).not.toBe(generateDatabasePassword());
   });
 });
 
