@@ -43,7 +43,7 @@ const requests: Recorded[] = [];
 /** Applications per team token, keyed by uuid. */
 const applications = new Map<string, Map<string, { name: string; status: string; fqdn: string }>>();
 /** Queued deployments per team token, keyed by deployment_uuid. */
-const deployments = new Map<string, Map<string, { status: string }>>();
+const deployments = new Map<string, Map<string, { status: string; applicationUuid?: string }>>();
 /** Builds per application uuid, so the app's deployment history can be listed. */
 const buildsByApplication = new Map<string, { uuid: string; status: string }[]>();
 let deploymentSeq = 0;
@@ -130,7 +130,7 @@ beforeAll(async () => {
           });
         }
         const deploymentUuid = `dep-${team}-${++deploymentSeq}`;
-        deps.set(deploymentUuid, { status: "queued" });
+        deps.set(deploymentUuid, { status: "queued", applicationUuid: uuid });
         const history = buildsByApplication.get(uuid) ?? [];
         history.push({ uuid: deploymentUuid, status: "queued" });
         buildsByApplication.set(uuid, history);
@@ -157,16 +157,21 @@ beforeAll(async () => {
       }
 
       // GET /api/v1/deployments/{uuid} — the deployment queue record. The real
-      // endpoint carries the build log on the same object as the status.
+      // endpoint carries the build log on the same object as the status, and it
+      // nests the application it built under `application`, whose `fqdn` is the
+      // customer-facing URL (the top-level `deployment_url` is a console path).
       const depMatch = url.pathname.match(/^\/api\/v1\/deployments\/([^/]+)$/);
       if (depMatch && req.method === "GET") {
         const key = decodeURIComponent(depMatch[1]!);
         const deployment = deps.get(key);
         if (!deployment) return json(404, { message: "Deployment not found." });
+        const app = deployment.applicationUuid ? apps.get(deployment.applicationUuid) : undefined;
         return json(200, {
           deployment_uuid: key,
           status: deployment.status,
           logs: `build log for ${key}\nbuild step two`,
+          deployment_url: `/project/1/environment/1/application/${deployment.applicationUuid ?? "x"}/deployment/${key}`,
+          ...(app ? { application: { uuid: deployment.applicationUuid, fqdn: app.fqdn } } : {}),
         });
       }
 
@@ -476,7 +481,14 @@ describe("Coolify adapter", () => {
 
     const state = await coolify.getDeployment(ctx(ORG_A, "depq"), deployed.value.providerRef);
     expect(state.ok).toBe(true);
-    if (state.ok) expect(state.value.status).toBe("running"); // still queued
+    if (state.ok) {
+      expect(state.value.status).toBe("running"); // still queued
+      // The deployment record nests the application it built; its `fqdn` is the
+      // customer-facing URL. Reading the deployment ref must surface that URL,
+      // not the console-only `deployment_url` and not null — otherwise a
+      // succeeded deployment shows the customer no address to open.
+      expect(state.value.url).toBe(`https://${created.value.providerRef.resourceId}.test`);
+    }
   });
 
   it("cancels by deployment uuid, not by application uuid", async () => {

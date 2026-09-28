@@ -32,6 +32,7 @@ import { buildProcedures, type ConsoleLinkResolver } from "./procedures/index.js
 import { buildRouter } from "./router.js";
 import type { GitHookHandler, HttpServer } from "./server.js";
 import { receiveGitDelivery } from "./git-hook.js";
+import { buildDemoSessionHandler, demoSessionFromEnv } from "./demo-session.js";
 
 export interface Deployment {
   readonly router: ReturnType<typeof buildRouter>;
@@ -194,10 +195,15 @@ export async function start(
   const { listen } = await import("./server.js");
   const allowedOrigins = options.allowedOrigins ?? allowedOriginsFromEnv(env);
   const gitHook = buildGitHook(store, queue, secretCipher);
+  // The pre-launch no-login bypass, server-side. Null unless the deployment
+  // explicitly enables it, so a production build without it 404s the route.
+  const demoConfig = demoSessionFromEnv(env);
+  const demoSession = demoConfig ? buildDemoSessionHandler(demoConfig) : undefined;
   const server = await listen(
     {
       route: (request) => deployment.router.route(request),
       ...(gitHook ? { gitHook } : {}),
+      ...(demoSession ? { demoSession } : {}),
       ...(allowedOrigins ? { allowedOrigins } : {}),
     },
     options.port ?? Number(env.PORT ?? 8787),

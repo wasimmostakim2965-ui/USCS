@@ -11,8 +11,7 @@ import { App } from "./App.js";
 import {
   createSessionController,
   unconfiguredSessionController,
-  withDemoAutoLogin,
-  type DemoCredentials,
+  withDemoSession,
   type SessionConfig,
 } from "./session.js";
 import "@cloud-wai/ui/styles.css";
@@ -30,17 +29,13 @@ const config: SessionConfig | null =
   supabaseUrl && supabaseAnonKey ? { url: supabaseUrl, anonKey: supabaseAnonKey } : null;
 const baseSession = config ? createSessionController(config) : unconfiguredSessionController();
 
-// Temporary no-login bypass: when a build supplies demo credentials, the demo
-// account is signed in automatically and the landing page is skipped. It is off
-// unless `VITE_CLOUD_WAI_DEMO_AUTOLOGIN=1` is set at build time.
-const demoEmail = import.meta.env.VITE_CLOUD_WAI_DEMO_EMAIL as string | undefined;
-const demoPassword = import.meta.env.VITE_CLOUD_WAI_DEMO_PASSWORD as string | undefined;
-const demo: DemoCredentials | null =
-  import.meta.env.VITE_CLOUD_WAI_DEMO_AUTOLOGIN === "1" && demoEmail && demoPassword
-    ? { email: demoEmail, password: demoPassword }
-    : null;
+// Temporary no-login bypass: when the deployment enables it, the dashboard asks
+// the API for a demo session and adopts it, so the landing page is skipped. The
+// API holds the demo credentials; the browser never does. It is off unless
+// `VITE_CLOUD_WAI_DEMO_AUTOLOGIN=1` is set at build time.
+const demoEnabled = import.meta.env.VITE_CLOUD_WAI_DEMO_AUTOLOGIN === "1";
 
-const session = config && demo ? withDemoAutoLogin(baseSession, demo) : baseSession;
+const session = config && demoEnabled ? withDemoSession(baseSession, apiBaseUrl) : baseSession;
 
 const container = document.getElementById("root");
 if (!container) throw new Error("The #root element is missing from index.html.");

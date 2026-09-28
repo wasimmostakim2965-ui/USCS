@@ -43,6 +43,15 @@ export interface SessionController {
     email: string,
     password: string,
   ): Promise<{ readonly needsConfirmation: boolean }>;
+  /**
+   * Adopt a session the server already established, without a password in the
+   * browser. Used only by the pre-launch demo sign-in, where the API holds the
+   * credential and returns the tokens.
+   */
+  applySession(tokens: {
+    readonly accessToken: string;
+    readonly refreshToken: string;
+  }): Promise<void>;
   signOut(): Promise<void>;
   /** Subscribe to sign-in/sign-out. Returns an unsubscribe function. */
   subscribe(listener: (session: BrowserSession | null) => void): () => void;
@@ -99,6 +108,9 @@ export function unconfiguredSessionController(): SessionController {
     async signUpWithPassword() {
       throw new Error("Supabase is not configured for this deployment.");
     },
+    async applySession() {
+      throw new Error("Supabase is not configured for this deployment.");
+    },
     async signOut() {},
     subscribe() {
       return () => {};
@@ -148,6 +160,13 @@ export function createSessionController(config: SessionConfig): SessionControlle
       // With email confirmation on, there is no session yet.
       return { needsConfirmation: data.session === null };
     },
+    async applySession(tokens) {
+      const { error } = await client.auth.setSession({
+        access_token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+      });
+      if (error) throw new Error(error.message);
+    },
     async signOut() {
       await client.auth.signOut();
       emit(null);
@@ -160,38 +179,45 @@ export function createSessionController(config: SessionConfig): SessionControlle
 }
 
 /**
- * The fixed demo account used by the temporary no-login bypass.
+ * Wrap a controller so it asks the API for a demo session and adopts it, with no
+ * user action and no credential in the browser.
  *
- * It is only supplied to `withDemoAutoLogin` when a build turns the bypass on
- * (`VITE_CLOUD_WAI_DEMO_AUTOLOGIN=1`). The account is a real Supabase user, so
- * the API verifies a real JWT and the demo workspace is ordinary tenant data —
- * nothing downstream is special-cased.
- */
-export interface DemoCredentials {
-  readonly email: string;
-  readonly password: string;
-}
-
-/**
- * Wrap a controller so it signs the demo account in with no user action.
+ * The password is never in this bundle: the request carries only the procedure
+ * name, and the API performs the password grant with credentials it holds in its
+ * own environment. The bypass is therefore switchable and rate-limited on the
+ * server, and reading the dashboard's JavaScript yields no account.
  *
- * This is a deliberate bypass for a pre-launch demonstration, not a production
- * identity model: it removes the sign-in step only, and every request still
- * carries a verified session. The retry loop tolerates the auth endpoint not yet
- * being reachable on first paint; it stops as soon as a session exists.
+ * The retry loop tolerates the API not yet being reachable on first paint; it
+ * stops as soon as a session exists or the API answers a definitive refusal.
  */
-export function withDemoAutoLogin(
-  base: SessionController,
-  credentials: DemoCredentials,
-): SessionController {
+export function withDemoSession(base: SessionController, apiBaseUrl: string): SessionController {
   let inFlight = false;
-  const attempt = async (): Promise<void> => {
-    if (inFlight || base.current()) return;
+  const attempt = async (): Promise<boolean> => {
+    if (inFlight || base.current()) return true;
     inFlight = true;
     try {
-      await base.signInWithPassword(credentials.email, credentials.password);
+      const response = await fetch(`${apiBaseUrl.replace(/\/$/, "")}/rpc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ procedure: "demo.session" }),
+      });
+      if (!response.ok) {
+        // A definitive refusal (the bypass is off, or rate-limited) is not worth
+        // retrying; only an unreachable API is.
+        return response.status !== 502;
+      }
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        data?: { accessToken?: string; refreshToken?: string };
+      };
+      const accessToken = payload.data?.accessToken;
+      const refreshToken = payload.data?.refreshToken;
+      if (!payload.ok || !accessToken || !refreshToken) return true;
+      await base.applySession({ accessToken, refreshToken });
+      return true;
     } catch {
-      // Retried by the loop below; a first-paint failure is not fatal.
+      // The API is not reachable yet; the loop retries.
+      return false;
     } finally {
       inFlight = false;
     }
@@ -199,8 +225,8 @@ export function withDemoAutoLogin(
 
   void (async () => {
     for (let i = 0; i < 60 && !base.current(); i += 1) {
-      await attempt();
-      if (base.current()) break;
+      const settled = await attempt();
+      if (base.current() || settled) break;
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
   })();

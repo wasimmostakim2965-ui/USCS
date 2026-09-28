@@ -50,6 +50,7 @@ function signedInSession(): SessionController {
     getAccessToken: () => "token",
     signInWithPassword: async () => {},
     signUpWithPassword: async () => ({ needsConfirmation: false }),
+    applySession: async () => {},
     signOut: async () => {},
     subscribe: () => () => {},
   };
@@ -540,6 +541,7 @@ describe("the public landing page", () => {
       getAccessToken: () => null,
       signInWithPassword: async () => {},
       signUpWithPassword: async () => ({ needsConfirmation: false }),
+      applySession: async () => {},
       signOut: async () => {},
       subscribe: () => () => {},
     };

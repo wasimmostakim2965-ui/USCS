@@ -101,6 +101,8 @@ export type {
 } from "./procedures/git-links.js";
 export { receiveGitDelivery, deployFromDelivery, parseGitDelivery } from "./git-hook.js";
 export type { GitHookDeps, GitHookOutcome, ParsedGitDelivery } from "./git-hook.js";
+export { buildDemoSessionHandler, demoSessionFromEnv } from "./demo-session.js";
+export type { DemoSessionConfig, DemoSessionHandler } from "./demo-session.js";
 
 export interface AppDescriptor {
   readonly name: string;

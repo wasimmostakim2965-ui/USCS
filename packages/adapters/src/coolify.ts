@@ -358,17 +358,19 @@ export function createCoolifyHosting(options: CoolifyAdapterOptions): HostingAda
       if (!resolved.ok) return resolved.result;
 
       if (ref.resourceType === "deployment") {
-        const response = await call<{ status?: string }>(
-          ctx,
-          resolved.creds,
-          "GET",
-          `/api/v1/deployments/${encodeURIComponent(ref.resourceId)}`,
-        );
+        const response = await call<{
+          status?: string;
+          application?: { fqdn?: string | null } | null;
+        }>(ctx, resolved.creds, "GET", `/api/v1/deployments/${encodeURIComponent(ref.resourceId)}`);
         if (!response.ok) return response;
+        // The deployment queue answers with the application it built nested
+        // under `application`, and that record carries the customer-facing
+        // `fqdn`. The top-level `deployment_url` is a Coolify console path, not
+        // the app's own URL, so it is not the value a customer can open.
         return ok("succeeded", {
           ref,
           status: mapQueueStatus(response.value.value?.status),
-          url: null,
+          url: response.value.value?.application?.fqdn ?? null,
         });
       }
 

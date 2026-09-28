@@ -21,6 +21,7 @@ import type { AddressInfo } from "node:net";
 import type { Logger } from "@cloud-wai/observability";
 import { createLogger } from "@cloud-wai/observability";
 import type { RpcRequest, RpcResponse } from "./router.js";
+import type { DemoSessionHandler } from "./demo-session.js";
 
 export interface ServerDeps {
   /** The router's `route` function. */
@@ -34,6 +35,12 @@ export interface ServerDeps {
    * provider sees — this file never interprets a delivery.
    */
   readonly gitHook?: GitHookHandler;
+  /**
+   * Handle a `demo.session` request: a server-side password grant for the
+   * pre-launch bypass. Absent (the default) means the bypass is off and the
+   * request 404s, which is the honest state of a deployment without it.
+   */
+  readonly demoSession?: DemoSessionHandler;
   /**
    * Origins allowed to call this API. An empty list disables CORS entirely,
    * which is the correct setting for a same-origin deployment.
@@ -259,6 +266,29 @@ export function createHttpServer(deps: ServerDeps): HttpServer {
         status: 400,
         error: { code: "invalid_input", message: "A procedure name is required." },
       });
+      return;
+    }
+
+    // The demo sign-in is not a tenant procedure: it runs before a session
+    // exists and uses server-held credentials. It is handled here so it never
+    // reaches the router's session guard, and only when the deployment enabled
+    // it — an unconfigured deployment answers 404 like any unknown route.
+    if (body.procedure === "demo.session") {
+      if (!deps.demoSession) {
+        json(res, 404, {
+          ok: false,
+          status: 404,
+          error: { code: "not_found", message: "Unknown endpoint." },
+        });
+        return;
+      }
+      const forwarded = req.headers["x-forwarded-for"];
+      const clientKey =
+        (typeof forwarded === "string" ? forwarded.split(",")[0]!.trim() : "") ||
+        req.socket.remoteAddress ||
+        "unknown";
+      const response = await deps.demoSession.handle(clientKey);
+      json(res, response.status, response);
       return;
     }
 
