@@ -56,8 +56,8 @@ export function LoginPage({
           <div className="banner banner--danger" role="status">
             <strong>Authentication is not configured.</strong>
             <span>
-              Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> for this
-              deployment.
+              Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> for
+              this deployment.
             </span>
           </div>
         ) : null}

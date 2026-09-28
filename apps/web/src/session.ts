@@ -47,7 +47,7 @@ export function sessionConfigFromEnv(
   env: Record<string, string | undefined>,
 ): SessionConfig | null {
   const url = env["VITE_SUPABASE_URL"];
-  const anonKey = env["VITE_SUPABASE_ANON_KEY"];
+  const anonKey = env["VITE_SUPABASE_PUBLISHABLE_KEY"] ?? env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }

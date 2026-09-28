@@ -20,7 +20,9 @@ import "@cloud-wai/ui/styles.css";
 // only when the key is written out literally; collecting them into a record with
 // a computed lookup drops some keys at build time.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const supabaseAnonKey =
+  (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined);
 
 const apiBaseUrl =
   (import.meta.env.VITE_CLOUD_WAI_API_URL as string | undefined) ?? "http://127.0.0.1:8787";

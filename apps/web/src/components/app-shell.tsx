@@ -520,7 +520,7 @@ export function AppShell({
             <strong>Supabase is not configured.</strong>
             <span>
               Sign-in and data are unavailable. Set <code>VITE_SUPABASE_URL</code> and{" "}
-              <code>VITE_SUPABASE_ANON_KEY</code> to enable this dashboard.
+              <code>VITE_SUPABASE_PUBLISHABLE_KEY</code> to enable this dashboard.
             </span>
           </div>
         ) : null}

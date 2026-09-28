@@ -19,6 +19,8 @@ export default defineConfig({
     outDir: "dist/browser",
     emptyOutDir: true,
     sourcemap: true,
+    // Vercel and the container image both publish this explicit static root.
+    assetsDir: "assets",
   },
   server: {
     port: 5173,
