@@ -678,3 +678,16 @@ traps worth remembering:
   `tests/runtime/router-publishing.test.ts` (real `runtime-server.mjs` + a
   recording router) for anything about the publish/withdraw wire format.
 
+
+## Landing page and the domain search (2026-09-28)
+
+- `apps/web/src/pages/landing.tsx` renders outside `AppShell`, so it carries its
+  own top navigation. Section links call `scrollIntoView` rather than using
+  `#anchor`: the app routes on the URL hash, so an anchor would be parsed as a
+  route and land on not-found.
+- The domain search is a shared component, `apps/web/src/components/domain-search.tsx`,
+  and lives in the landing page's Domains section — not the hero. It answers
+  about the *query* (hostname shape vs. unconfigured registrar) and never invents
+  an availability result. Reuse it anywhere a Domains surface needs a lookup box
+  instead of duplicating the markup.
+
