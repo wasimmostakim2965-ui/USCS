@@ -6,7 +6,8 @@ AWS with a load-balanced HTTPS entry point. It is the AWS form of
 so the two runbooks describe one product, not two.
 
 Read `docs/adr/0015-aws-hosting.md` first — it records why the shape is what it
-is, and what it deliberately does not do (no autoscaling, one NAT, one host).
+is, and what it deliberately does not do (one NAT by default, capacity not
+tenant isolation).
 
 Nothing here claims a release gate the repository cannot prove. Gates 6–9 stay
 **open** until a real engine closes them (see `docs/release-gates.md`). The
@@ -69,6 +70,18 @@ route53_zone_id = "Z0123456789ABCDEFGHIJ"   # empty if DNS lives elsewhere
 
 instance_type = "t3.small"
 
+# Horizontal scaling. The application tier is an Auto Scaling group across both
+# private AZs; min = 2 keeps one instance per AZ so a single failure is a capacity
+# dip, not downtime. A target-tracking policy holds average CPU near
+# app_cpu_target while autoscaling_enabled is true. nat_gateway_per_az removes the
+# egress single point of failure at roughly double the NAT cost.
+app_min_size       = 2
+app_desired_capacity = 2
+app_max_size       = 6
+autoscaling_enabled = true
+app_cpu_target     = 60
+nat_gateway_per_az = false
+
 supabase_url              = "https://<project>.supabase.co"
 public_supabase_url       = "https://<project>.supabase.co" # browser-facing origin or public gateway
 supabase_anon_key         = "<anon key>"
@@ -113,7 +126,7 @@ The apply ends with the outputs you need:
 ```text
 dashboard_url     = "https://app.example.com"
 load_balancer_dns = "cloud-wai-prod-1234567890.us-east-1.elb.amazonaws.com"
-instance_id       = "i-0123456789abcdef0"
+autoscaling_group_name = "cloud-wai-prod-app"
 env_parameter_name = "/cloud-wai/prod/env"
 ```
 
@@ -123,11 +136,15 @@ records by hand.
 
 ## 4. Watch the first boot
 
-The host installs Docker, reads its environment from SSM, clones the repository
-at `repo_ref`, builds and starts the compose stack. Its log is on the instance:
+Each host installs Docker, reads its environment from SSM, clones the repository
+at `repo_ref`, builds and starts the compose stack. Its log is on the instance.
+List the group's instances, then open a session on one:
 
 ```bash
-aws ssm start-session --target "$(terraform output -raw instance_id)"
+aws autoscaling describe-auto-scaling-groups \
+  --auto-scaling-group-names "$(terraform output -raw autoscaling_group_name)" \
+  --query 'AutoScalingGroups[].Instances[].InstanceId' --output text
+aws ssm start-session --target <instance-id>
 # on the host:
 sudo tail -f /var/log/cloud-wai-bootstrap.log
 sudo docker compose -f /opt/cloud-wai/repo/infra/deployment/docker-compose.yml ps
@@ -168,8 +185,9 @@ aws ssm put-parameter --name /cloud-wai/prod/env --type SecureString \
   --overwrite --value "file:///tmp/cw-env"
 rm /tmp/cw-env
 
-# Re-run the bootstrap so the containers pick the change up.
-aws ec2 reboot-instances --instance-ids "$(terraform output -raw instance_id)"
+# Re-run the bootstrap on every instance so the containers pick the change up.
+aws autoscaling start-instance-refresh \
+  --auto-scaling-group-name "$(terraform output -raw autoscaling_group_name)"
 ```
 
 ### The edge's obligation to the verified-bot allow
@@ -294,11 +312,13 @@ CIDR kinds need none of this — they match `REMOTE_ADDR` directly.
 1. **Liveness, through the load balancer:**
    `curl -fsS https://app.example.com/healthz` returns
    `{"ok":true,"status":200,"data":{"service":"api"}}`.
-2. **The load balancer agrees:** the target group shows the instance `healthy`.
-   Its health check is this same `/healthz` path, so the two statements cannot
-   disagree.
-3. **The origin is not reachable directly.** The instance has no public IP:
-   `aws ec2 describe-instances --instance-ids <id> --query 'Reservations[].Instances[].PublicIpAddress'`
+2. **The load balancer agrees:** the target group shows every application
+   instance `healthy` — the group's `min` size by default, spread across both
+   private subnets. Its health check is this same `/healthz` path, so the two
+   statements cannot disagree.
+3. **The origin is not reachable directly.** No instance has a public IP:
+   `aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names <name>`
+   then `aws ec2 describe-instances --instance-ids <id> --query 'Reservations[].Instances[].PublicIpAddress'`
    returns `null`. This is topology, not the gate — record it as evidence toward
    gate 6, and leave the gate open until an edge denial is observed.
 4. **Sign-up and sign-in** work in the dashboard; the session is Supabase's.
@@ -308,22 +328,42 @@ CIDR kinds need none of this — they match `REMOTE_ADDR` directly.
    you left unset. That is correct.
 7. **Logs:** CloudWatch → `/cloud-wai/prod/containers` shows the containers'
    output; ALB access logs are in the logs bucket.
+8. **Scaling responds.** Watch `aws autoscaling describe-auto-scaling-groups
+   --auto-scaling-group-names <name> --query 'AutoScalingGroups[].Instances[].HealthStatus'`
+   while you push load (or run a build). The desired count should rise toward
+   `app_max_size` and fall back to `app_min_size`. A scaled-out instance joins the
+   target group on its own — no Terraform change.
 
 ## 7. Operating it
 
 - **A new release:** set `repo_ref` to a tag and re-apply, or run the bootstrap
-  steps by hand over Session Manager. The bootstrap is idempotent.
-- **Rotation:** change the SSM parameter, then reboot the instance.
+  steps by hand over Session Manager. The bootstrap is idempotent. To push the
+  bootstrap to every instance at once:
+  `aws autoscaling start-instance-refresh --auto-scaling-group-name <name>`.
+- **Rotation:** change the SSM parameter, then `start-instance-refresh` (or
+  reboot a single instance). New instances pick the new environment up at boot.
 - **Rollback:** point `repo_ref` at the previous tag and re-apply.
+- **Capacity by hand:** `aws autoscaling set-desired-capacity
+  --auto-scaling-group-name <name> --desired-capacity <n>`. The group's
+  `ignore_changes = [desired_capacity]` means a later `terraform apply` will not
+  undo it; change `app_desired_capacity` only if you want Terraform to own it
+  again.
 - **Backups, incidents, SLOs:** `docs/runbooks/backup-and-dr.md`,
   `incident-response.md`, `slos.md`.
-- **Cost:** the NAT gateway and the ALB are the standing charges; the instance
-  and its 30 GiB gp3 volume are the rest. `terraform destroy` removes all of it.
+- **Cost:** the NAT gateway and the ALB are the standing charges; the instances
+  and their 30 GiB gp3 volumes are the rest, and `app_max_size` is the ceiling on
+  the instance line. `nat_gateway_per_az = true` roughly doubles the NAT charge
+  for egress-AZ redundancy. `terraform destroy` removes all of it.
 
 ## What this deployment does not prove
 
-- **No autoscaling.** One host behind the ALB. An instance failure is downtime,
-  and a second host needs the two-worker question answered first (ADR-0015).
+- **Scaling is capacity, not tenant isolation.** Every instance runs the same
+  shared builder and self-hosted runtime, so two tenants can still share one
+  daemon. A per-tenant runtime is what closes release gate 8; the Auto Scaling
+  group does not.
+- **The control plane and the engines do not scale with this tier.** Supabase and
+  the external engines are reached over the network and scale on their own terms;
+  scaling the application group does not scale them.
 - **Gates 6–9 stay open.** A private subnet is not an edge-observed denial; a
   configured Coraza is. Do not describe this host as passing those gates.
 - **`terraform validate` is not `terraform apply`.** CI proves the configuration

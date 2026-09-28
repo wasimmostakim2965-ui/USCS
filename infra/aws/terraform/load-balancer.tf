@@ -77,8 +77,6 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-resource "aws_lb_target_group_attachment" "web" {
-  target_group_arn = aws_lb_target_group.web.arn
-  target_id        = aws_instance.app.id
-  port             = 8080
-}
+// No static target-group attachment: every application instance is registered by
+// the Auto Scaling group (`target_group_arns`), so a scaled-out instance joins
+// the load balancer without a Terraform change.

@@ -40,6 +40,63 @@ variable "instance_type" {
   default     = "t3.small"
 }
 
+// --- Horizontal scaling ------------------------------------------------------
+// The application tier is an Auto Scaling group behind the load balancer, not a
+// single host. The worker claims a job with `for update skip locked`, so N
+// instances can drain the same queue without double-processing; the dashboard and
+// API are stateless. min ≥ 2 spreads the tier across both private AZs, so one
+// instance failure is a capacity dip rather than downtime.
+
+variable "app_min_size" {
+  description = "Smallest number of application instances. 2 keeps one per availability zone, so a single instance failure is not downtime."
+  type        = number
+  default     = 2
+  validation {
+    condition     = var.app_min_size >= 1
+    error_message = "app_min_size must be at least 1."
+  }
+}
+
+variable "app_desired_capacity" {
+  description = "Application instances to run at steady state. Must be between app_min_size and app_max_size."
+  type        = number
+  default     = 2
+}
+
+variable "app_max_size" {
+  description = "Largest number of application instances the group may scale out to. Must be at least app_desired_capacity."
+  type        = number
+  default     = 6
+  validation {
+    condition     = var.app_max_size >= 1
+    error_message = "app_max_size must be at least 1."
+  }
+}
+
+variable "autoscaling_enabled" {
+  description = "Attach a target-tracking policy so the group scales out under load and back in when it falls. The group still exists when false; it just does not resize on its own."
+  type        = bool
+  default     = true
+}
+
+variable "app_cpu_target" {
+  description = "Average CPU percentage the target-tracking policy holds, as a percentage of instance CPU."
+  type        = number
+  default     = 60
+}
+
+variable "app_health_check_grace_period" {
+  description = "Seconds an instance may be unhealthy before the group replaces it. Generous because first boot installs Docker, clones and builds images."
+  type        = number
+  default     = 600
+}
+
+variable "nat_gateway_per_az" {
+  description = "One NAT gateway per availability zone instead of one shared. Removes the egress single point of failure at roughly double the NAT cost."
+  type        = bool
+  default     = false
+}
+
 variable "ssh_public_key" {
   description = "Public key installed for the deploy/ops user. Empty creates no key pair, so there is no SSH entry point."
   type        = string

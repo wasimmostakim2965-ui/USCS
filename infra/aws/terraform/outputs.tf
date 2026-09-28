@@ -11,13 +11,13 @@ output "load_balancer_dns" {
   value       = aws_lb.main.dns_name
 }
 
-output "instance_id" {
-  description = "Application host. Reach it with: aws ssm start-session --target <id>"
-  value       = aws_instance.app.id
+output "autoscaling_group_name" {
+  description = "Auto Scaling group holding the application tier. Scale it by hand with: aws autoscaling set-desired-capacity --auto-scaling-group-name <name> --desired-capacity <n>"
+  value       = aws_autoscaling_group.app.name
 }
 
 output "instance_profile_name" {
-  description = "Instance profile attached to the host."
+  description = "Instance profile attached to every application host."
   value       = aws_iam_instance_profile.app.name
 }
 
@@ -47,10 +47,10 @@ output "private_subnet_ids" {
 }
 
 output "rebootstrap_command" {
-  description = "Force a re-run of the host bootstrap after changing the environment parameter."
+  description = "Force a re-run of the host bootstrap after changing the environment parameter, across every instance in the group."
   value = join(" ", [
-    "aws ec2 reboot-instances --instance-ids",
-    aws_instance.app.id,
-    "# or: aws ec2 stop-instances --instance-ids <id> && aws ec2 start-instances --instance-ids <id>",
+    "aws autoscaling start-instance-refresh --auto-scaling-group-name",
+    aws_autoscaling_group.app.name,
+    "# or: aws ec2 reboot-instances --instance-ids <id> for a single instance",
   ])
 }

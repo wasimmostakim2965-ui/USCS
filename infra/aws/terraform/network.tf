@@ -50,19 +50,22 @@ resource "aws_subnet" "private" {
 }
 
 resource "aws_eip" "nat" {
+  count  = var.nat_gateway_per_az ? 2 : 1
   domain = "vpc"
-  tags   = { Name = "${var.project}-${var.environment}-nat" }
+  tags   = { Name = "${var.project}-${var.environment}-nat-${count.index + 1}" }
 }
 
-// One NAT gateway, in the first public subnet. It is the only egress path, and
-// the only cost the private subnet adds. A second NAT per AZ is the availability
-// upgrade; this shape keeps one and says so.
+// One NAT gateway, in the first public subnet, unless `nat_gateway_per_az` asks
+// for one per AZ. It is the only egress path, and the only cost the private
+// subnet adds. The per-AZ form removes the egress single point of failure at
+// roughly double the NAT cost; the default keeps one and says so.
 resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
+  count         = length(aws_eip.nat)
+  allocation_id = aws_eip.nat[count.index].id
+  subnet_id     = aws_subnet.public[count.index].id
   depends_on    = [aws_internet_gateway.main]
 
-  tags = { Name = "${var.project}-${var.environment}-nat" }
+  tags = { Name = "${var.project}-${var.environment}-nat-${count.index + 1}" }
 }
 
 resource "aws_route_table" "public" {
@@ -76,15 +79,19 @@ resource "aws_route_table" "public" {
   tags = { Name = "${var.project}-${var.environment}-public-rt" }
 }
 
+// One private route table per AZ. Each points at the NAT in its own AZ when
+// `nat_gateway_per_az` is set, and at the single shared NAT otherwise, so a
+// scale-out instance in either AZ keeps egress.
 resource "aws_route_table" "private" {
+  count  = length(aws_subnet.private)
   vpc_id = aws_vpc.main.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    nat_gateway_id = aws_nat_gateway.main[var.nat_gateway_per_az ? count.index : 0].id
   }
 
-  tags = { Name = "${var.project}-${var.environment}-private-rt" }
+  tags = { Name = "${var.project}-${var.environment}-private-rt-${count.index + 1}" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -96,7 +103,7 @@ resource "aws_route_table_association" "public" {
 resource "aws_route_table_association" "private" {
   count          = length(aws_subnet.private)
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[count.index].id
 }
 
 // --- VPC endpoints -----------------------------------------------------------

@@ -312,10 +312,22 @@ logs. It is the piece Coolify otherwise supplies, behind the same
 
 - `docs/runbooks/deploy.md` is the operator runbook for a single host;
   `docs/runbooks/deploy-aws.md` is the AWS form of it, and
-  `infra/aws/terraform/` is the environment as code (VPC, private host, ALB +
-  ACM, Route 53, SSM config, CloudWatch). Both shapes run the same
-  `infra/deployment/docker-compose.yml`, so they cannot drift into two products.
-  Read ADR-0015 before changing the AWS shape.
+  `infra/aws/terraform/` is the environment as code (VPC, application Auto
+  Scaling group, ALB + ACM, Route 53, SSM config, CloudWatch). Both shapes run
+  the same `infra/deployment/docker-compose.yml`, so they cannot drift into two
+  products. Read ADR-0015 before changing the AWS shape.
+- **The AWS application tier scales horizontally, and that is safe because of the
+  queue.** A launch template + `aws_autoscaling_group` spans both private subnets
+  with `min ≥ 2`; a target-tracking CPU policy resizes it. N instances drain one
+  `orchestration_jobs` queue because `claim` is `for update skip locked` with a
+  unique `(organization_id, idempotency_key)` (`packages/database/src/sql-queue.ts`)
+  — so the worker was already correct for more than one replica. The limit that
+  does **not** change: every instance shares one builder and one self-hosted
+  runtime, so the tier is capacity, not a hard multi-tenant boundary (gate 8
+  stays open). `tests/deployment/aws-scaling.test.ts` pins the group, the ELB
+  health check, the base64-encoded launch-template user data and that honesty
+  limit. Do not replace the group with a lone instance, and do not describe it as
+  isolation.
 - `infra/deployment/` holds the `api` / `worker` / `web` images and the compose
   file for a single host. The dashboard image serves the bundle and
   reverse-proxies `/rpc` and `/healthz` to the API, so the browser has one origin

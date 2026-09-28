@@ -166,7 +166,7 @@ resource "aws_cloudwatch_metric_alarm" "instance_status" {
   period              = 60
   statistic           = "Maximum"
   threshold           = 0
-  alarm_description   = "The application host failed an instance or system status check."
+  alarm_description   = "Every application instance failed an instance or system status check."
 
-  dimensions = { InstanceId = aws_instance.app.id }
+  dimensions = { AutoScalingGroupName = aws_autoscaling_group.app.name }
 }
