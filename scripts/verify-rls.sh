@@ -20,7 +20,10 @@ set -euo pipefail
 DOCKER="${DOCKER:-docker}"
 CONTAINER="${CONTAINER:-cw-rls-verify}"
 IMAGE="${IMAGE:-postgres:17-alpine}"
-PORT="${PORT:-55432}"
+# `CLOUDWAI_RLS_PORT` first: platforms (and this repo's own deploy.sh) export a
+# generic `PORT` for the app, and binding the throwaway probe to it collides with
+# the running service. The generic `PORT` is still honored as a fallback.
+PORT="${CLOUDWAI_RLS_PORT:-${PORT:-55432}}"
 DB="${DB:-cloudwai}"
 DSN="${CLOUDWAI_RLS_DSN:-}"
 
