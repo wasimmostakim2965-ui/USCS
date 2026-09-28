@@ -2299,6 +2299,18 @@ function providerLabel(provider: GitLinkSummary["provider"]): string {
   return GIT_PROVIDERS.find((p) => p.value === provider)?.label ?? provider;
 }
 
+function engineLabel(provider: string): string {
+  const labels: Record<string, string> = {
+    coolify: "Coolify hosting",
+    postgres: "PostgreSQL",
+    minio: "MinIO storage",
+    envoy: "Envoy / Coraza edge",
+    railpack: "Railpack build",
+    lambda: "AWS Lambda",
+  };
+  return labels[provider] ?? provider;
+}
+
 /**
  * Connect a repository.
  *
@@ -3553,7 +3565,7 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
                   {
                     key: "provider",
                     header: "Engine",
-                    render: (item) => <span className="mono">{item.provider}</span>,
+                    render: (item) => <span>{engineLabel(item.provider)}</span>,
                   },
                   {
                     key: "state",
@@ -6272,7 +6284,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
                   {
                     key: "provider",
                     header: "Engine",
-                    render: (item) => <span className="mono">{item.provider}</span>,
+                    render: (item) => <span>{engineLabel(item.provider)}</span>,
                   },
                   {
                     key: "state",
