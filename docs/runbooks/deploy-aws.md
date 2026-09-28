@@ -70,8 +70,10 @@ route53_zone_id = "Z0123456789ABCDEFGHIJ"   # empty if DNS lives elsewhere
 instance_type = "t3.small"
 
 supabase_url              = "https://<project>.supabase.co"
+public_supabase_url       = "https://<project>.supabase.co" # browser-facing origin or public gateway
 supabase_anon_key         = "<anon key>"
 supabase_service_role_key = "<service-role key>"
+cloud_wai_secret_encryption_key = "<base64 32-byte key>"
 
 # Engines are optional. An empty value leaves that engine not_configured, which
 # the dashboard shows honestly. Set one to close its gate, not to fill the UI.

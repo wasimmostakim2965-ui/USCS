@@ -80,6 +80,21 @@ variable "supabase_service_role_key" {
   sensitive   = true
 }
 
+variable "public_supabase_url" {
+  description = "Browser-facing Supabase origin. Use the public gateway URL when Supabase is self-hosted behind a separate origin."
+  type        = string
+}
+
+variable "cloud_wai_secret_encryption_key" {
+  description = "Base64-encoded 32-byte key used to encrypt project environment variables and Git webhook secrets."
+  type        = string
+  sensitive   = true
+  validation {
+    condition     = length(var.cloud_wai_secret_encryption_key) >= 43
+    error_message = "cloud_wai_secret_encryption_key must be a base64-encoded 32-byte key (at least 43 characters)."
+  }
+}
+
 variable "allowed_origins" {
   description = "Browser origins allowed to call the API. Leave empty: the dashboard and API share one origin through the reverse proxy."
   type        = string

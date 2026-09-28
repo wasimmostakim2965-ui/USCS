@@ -72,7 +72,8 @@ set -a
 # shellcheck disable=SC1090
 . "$APP_DIR/.env"
 set +a
-export VITE_SUPABASE_URL="$SUPABASE_URL"
+export PUBLIC_SUPABASE_URL="${PUBLIC_SUPABASE_URL:-$SUPABASE_URL}"
+export VITE_SUPABASE_URL="$PUBLIC_SUPABASE_URL"
 export VITE_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
 # --- 4. Build and start ------------------------------------------------------
