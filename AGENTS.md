@@ -660,3 +660,21 @@ traps worth remembering:
 - The connected sandbox `GITHUB_TOKEN` has no push rights on this repo. The
   owner's own token is required to push to `wasimmostakim2965-ui/USCS`; keep it
   out of the remote URL and out of logs (`git push https://user:$TOKEN@...`).
+
+## Domain last mile: publish and withdraw (2026-09-28)
+
+- The hosting adapter sets an app's hostnames with `PUT /apps/:id/domains`. The
+  runtime's request dispatcher only read a body for POST/PATCH, so every PUT
+  arrived empty and `setDomains` silently *cleared* the hostnames instead of
+  publishing them. Any verb that can carry a body is now read.
+- `domains.remove` used to withdraw only the firewall (envoy) route. The hosting
+  engine was never told, so the router kept answering for a released hostname.
+  Removal now re-sets the engine to the project's remaining verified hostnames;
+  the runtime turns that whole-set set into an explicit `DELETE` for each host
+  the caller dropped. Both outcomes are recorded in the `domain.removed` audit
+  event (`routeWithdrawn` for the edge, `hostingRouteWithdrawn` for the engine).
+- `tests/engines/selfhosted.test.ts` uses a *mock* runtime that reads the body
+  itself, so it never exercised the real dispatcher's body handling. Prefer
+  `tests/runtime/router-publishing.test.ts` (real `runtime-server.mjs` + a
+  recording router) for anything about the publish/withdraw wire format.
+
