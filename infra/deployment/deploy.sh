@@ -161,7 +161,20 @@ ensure_supabase() {
     return
   fi
   say "starting the Supabase stack (first run pulls images; this can take a while)"
-  setsid nohup $SUPABASE_BIN start >"$LOG_DIR/supabase.log" 2>&1 </dev/null &
+  # `supabase start` loads `.env` as a dotenv file too, and rejects it for the
+  # same reason `status` does: the per-organization keys this product writes
+  # there carry a UUID suffix (`COOLIFY_TOKEN__<organizationId>`) whose hyphens
+  # an upstream parser refuses. The stack does not read those keys — the control
+  # plane does, from the real `.env` — so start it from a directory that has
+  # `supabase/` but no `.env`, exactly as the status probe below does.
+  local start_dir="" start_cwd
+  if [[ -d supabase ]] && [[ -z "${SUPABASE_CONFIG_DIR:-}" ]] && [[ -f .env ]]; then
+    start_dir="$(mktemp -d)"
+    ln -s "$PWD/supabase" "$start_dir/supabase"
+  fi
+  start_cwd="${SUPABASE_CONFIG_DIR:-${start_dir:-$PWD}}"
+  setsid nohup bash -c "cd '$start_cwd' && exec $SUPABASE_BIN start" \
+    >"$LOG_DIR/supabase.log" 2>&1 </dev/null &
   if ! wait_for_http "http://127.0.0.1:${SUPABASE_PORT}/auth/v1/health" 180; then
     tail -20 "$LOG_DIR/supabase.log" >&2
     die "Supabase did not become healthy. See $LOG_DIR/supabase.log"
@@ -229,7 +242,10 @@ apply_migrations() {
 # --- 4. Build ----------------------------------------------------------------
 build() {
   say "installing dependencies"
-  pnpm install --frozen-lockfile >"$LOG_DIR/install.log" 2>&1 || die "pnpm install failed. See $LOG_DIR/install.log"
+  # A deploy is non-interactive: there is no TTY to answer pnpm's "remove and
+  # reinstall node_modules?" prompt, and the answer it never gets aborts the
+  # install with EBADF. CI=1 makes pnpm take the affirmative path itself.
+  CI=1 pnpm install --frozen-lockfile >"$LOG_DIR/install.log" 2>&1 || die "pnpm install failed. See $LOG_DIR/install.log"
 
   say "building the workspaces"
   pnpm build >"$LOG_DIR/build.log" 2>&1 || die "Build failed. See $LOG_DIR/build.log"
