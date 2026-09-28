@@ -87,11 +87,15 @@ services:
       BUILDER_BUILD_TIMEOUT_MS: ${BUILDER_BUILD_TIMEOUT_MS:-900000}
       BUILDER_MAX_LOG_LINES: ${BUILDER_MAX_LOG_LINES:-5000}
       BUILDER_JOB_TTL_MS: ${BUILDER_JOB_TTL_MS:-3600000}
+      BUILDER_DATA_DIR: /data
     # The daemon socket is what makes a build produce an image the runtime can
     # deploy. It is the reason this service is isolated: anything that can talk
     # to the daemon can start a container, so only the builder is given it.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # The job index, so a restart does not lose every in-flight build. A build
+      # id a caller already holds stays answerable across a container recreate.
+      - builder-state:/data
     # Published on loopback only, never a public interface, so nothing off the
     # host can reach the builder directly. This lets the single-host `deploy.sh`
     # shape — where the API and worker run as host processes — reach the builder
@@ -242,6 +246,9 @@ volumes:
   # restart loses the mapping and a redeploy would hand a new port to apps that
   # are still running on the old one.
   runtime-state:
+  # The build plane's job index. Its own volume so a builder restart keeps the
+  # jobs a caller may still be polling.
+  builder-state:
   # Issued certificates and the ACME account key. Persisted so a restart does not
   # re-request a certificate and risk a rate limit.
   router-data:

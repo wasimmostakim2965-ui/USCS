@@ -511,12 +511,16 @@ async function resumeRunningDeployment(
   // The engine's answer is the truth: it may now be finished, still running, or
   // failed. Reporting its status is what lets the processor complete the job
   // when the build finally succeeds, and requeue it again while it still runs.
+  //
+  // The engine's own reason is carried through on failure. Without it the row
+  // would say only "failed", and the build log — where the real error lives —
+  // would never be explained to the customer.
   return {
     status: state.value.status,
     url: state.value.url,
     providerResourceId: stored.providerResourceId,
     deploymentResourceId: handle,
-    reason: null,
+    reason: state.value.reason ?? null,
   };
 }
 
@@ -592,16 +596,22 @@ async function confirm(
 
   let status: EngineStatus = action.status;
   let url: string | null = null;
+  let reason: string | null = null;
   const state = await engine.getDeployment(adapterCtx, action.value.providerRef);
   if (state.ok) {
     status = state.value.status;
     url = state.value.url;
+    // The engine's own reason, so a synchronously-failed deploy is explained
+    // rather than reported as a bare "failed".
+    if (status !== "succeeded" && status !== "running" && status !== "pending") {
+      reason = state.value.reason ?? null;
+    }
   }
   return {
     status,
     url,
     providerResourceId: resolvedId,
     deploymentResourceId,
-    reason: null,
+    reason,
   };
 }

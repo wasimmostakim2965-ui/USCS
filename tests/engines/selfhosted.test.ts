@@ -43,7 +43,13 @@ const envs = new Map<
   string,
   Map<string, { key: string; value: string; isBuildTime: boolean; engineRef: string }>
 >();
+/** Deploy attempts the runtime has issued, keyed by attempt id. */
+const attempts = new Map<
+  string,
+  { app: string; status: string; url: string | null; engineReason: string | null }
+>();
 let appSeq = 0;
+let attemptSeq = 0;
 
 function tokenFor(auth: string | undefined): string | null {
   if (auth === `Bearer ${TOKEN_A}`) return TOKEN_A;
@@ -101,7 +107,23 @@ beforeAll(async () => {
     const appMatch = url.pathname.match(
       /^\/apps\/([^/]+)(?:\/(deploy|logs|cancel|rollback|env|domains))?$/,
     );
-    if (!appMatch) return send(res, 404, { message: "Not found." });
+    if (!appMatch) {
+      // A deploy attempt is addressable on its own, the way the pinned runtime
+      // serves it, so a caller holding only the attempt ref can read it back.
+      const attemptMatch = url.pathname.match(/^\/deployments\/([^/]+)(\/cancel)?$/);
+      if (attemptMatch && req.method === "GET") {
+        const attempt = attempts.get(attemptMatch[1]!);
+        if (!attempt) return send(res, 404, { message: "Deployment attempt not found." });
+        return send(res, 200, {
+          id: attempt.app,
+          status: attempt.status,
+          url: attempt.url,
+          engineReason: attempt.engineReason,
+        });
+      }
+      if (attemptMatch && req.method === "POST") return send(res, 200, {});
+      return send(res, 404, { message: "Not found." });
+    }
     const id = appMatch[1]!;
     const action = appMatch[2];
     // A tenant can only see its own applications.
@@ -112,9 +134,23 @@ beforeAll(async () => {
       return send(res, 200, { id, status: app.status, url: app.url, artifact: null });
     }
     if (action === "deploy" && req.method === "POST") {
-      app.status = "succeeded";
-      app.url = `http://127.0.0.1:18100/${id}`;
-      return send(res, 202, { id });
+      // An app named `fail-build` makes the runtime report a build failure, so
+      // the adapter's reason propagation is exercised for real rather than
+      // assumed.
+      const failed = app.name.startsWith("fail-build");
+      app.status = failed ? "failed" : "succeeded";
+      app.url = failed ? null : `http://127.0.0.1:18100/${id}`;
+      // The pinned runtime mints a per-attempt id and returns it. The adapter
+      // must hand back a *deployment* ref carrying it, so a requeue polls this
+      // attempt rather than starting a second deploy.
+      const attemptId = `attempt-${++attemptSeq}`;
+      attempts.set(attemptId, {
+        app: id,
+        status: app.status,
+        url: app.url,
+        engineReason: failed ? "build failed" : null,
+      });
+      return send(res, 202, { id, attemptId });
     }
     if (action === "logs" && req.method === "GET") {
       const cursor = url.searchParams.get("cursor");
@@ -229,12 +265,39 @@ describe("createSelfHostedHostingAdapter", () => {
     if (!deployed.ok) throw new Error("unreachable");
     // The runtime accepted the deploy; it has not finished when this returns.
     expect(deployed.status).toBe("running");
+    // The handle names the *attempt*, so a requeued job can poll this run's own
+    // settled state instead of the application's, which a new attempt would
+    // overwrite.
+    const runRef = deployed.value.providerRef;
+    expect(runRef.resourceType).toBe("deployment");
 
-    const state = await host.getDeployment(ctx(ORG_A, "k3"), ref);
+    const state = await host.getDeployment(ctx(ORG_A, "k3"), runRef);
     expect(state.ok).toBe(true);
     if (!state.ok) throw new Error("unreachable");
     expect(state.value.status).toBe("succeeded");
     expect(state.value.url).toContain("127.0.0.1");
+  });
+
+  it("carries the engine's failure reason so a failed build is explained", async () => {
+    const host = adapter();
+    const created = await host.createApplication(ctx(ORG_A), {
+      name: "fail-build-site",
+      gitRepository: "https://github.com/example/site.git",
+      gitBranch: "main",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const ref = created.value.providerRef;
+
+    const deployed = await host.deploy(ctx(ORG_A, "kb1"), { applicationRef: ref });
+    expect(deployed.ok).toBe(true);
+    if (!deployed.ok) throw new Error("unreachable");
+
+    const state = await host.getDeployment(ctx(ORG_A, "kb2"), deployed.value.providerRef);
+    expect(state.ok).toBe(true);
+    if (!state.ok) throw new Error("unreachable");
+    expect(state.value.status).toBe("failed");
+    // The reason comes from the engine, not a fabrication at the adapter.
+    expect(state.value.reason).toBe("build failed");
   });
 
   it("cannot reach another tenant's application with its own token", async () => {

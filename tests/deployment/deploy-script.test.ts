@@ -136,6 +136,44 @@ describe("the one-command deploy script", () => {
     ).not.toThrow();
   });
 
+  it("lets .env win over an ambient variable of the same name", () => {
+    // A host may define a name this deployment also uses. The sandbox this was
+    // written in exports RUNTIME_URL for the OpenHands runtime, a different
+    // thing from our self-hosted engine, so `--env-file=.env` lost our value
+    // and the deploy called `https://<host>/apps` (404). Prove the file wins.
+    const scratch = mkdtempSync(join(tmpdir(), "cw-env-"));
+    writeFileSync(join(scratch, ".env"), "RUNTIME_URL=http://127.0.0.1:8095\n");
+    const body = script.slice(
+      script.indexOf("export_env_authoritative()"),
+      script.indexOf("start_process()"),
+    );
+    const scriptPath = join(scratch, "snippet.sh");
+    writeFileSync(
+      scriptPath,
+      `set -uo pipefail\n${body}\nexport_env_authoritative\nprintf '%s\\n' "$RUNTIME_URL"\n`,
+    );
+    const out = execFileSync("bash", [scriptPath], {
+      cwd: scratch,
+      encoding: "utf8",
+      env: { ...process.env, RUNTIME_URL: "https://host-defined.example" },
+    });
+    expect(out.trim()).toBe("http://127.0.0.1:8095");
+  });
+
+  it("applies the file before any process starts", () => {
+    // `start_all` (whose definition sits earlier in the file) is only reached
+    // from `cmd_deploy`, so order the two calls there, not the definition.
+    const callEnv = script.indexOf("\n  export_env_authoritative\n");
+    const callStart = script.indexOf("\n  start_all\n");
+    expect(callEnv).toBeGreaterThan(-1);
+    expect(callStart).toBeGreaterThan(-1);
+    expect(callEnv).toBeLessThan(callStart);
+  });
+
+  it("gives the runtime a public host for app URLs", () => {
+    expect(script).toMatch(/RUNTIME_PUBLIC_HOST/);
+  });
+
   it("starts each service through the wrapper, and the wrapper execs it", () => {
     const scratch = mkdtempSync(join(tmpdir(), "cw-deploy-"));
     mkdirSync(join(scratch, "bin"), { recursive: true });

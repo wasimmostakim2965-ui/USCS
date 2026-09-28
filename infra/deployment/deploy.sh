@@ -309,6 +309,21 @@ ensure_runtime() {
   else
     printf 'RUNTIME_URL=%s\n' "$runtime_url" >>.env
   fi
+  # The hostname an app URL carries. The runtime's own default is 127.0.0.1,
+  # which is right only when a browser runs on the host itself; behind a public
+  # host it is unreachable. Prefer an explicit override, then the host's own
+  # public URL, then loopback.
+  if ! grep -q '^RUNTIME_PUBLIC_HOST=' .env; then
+    local public_host="${CLOUD_WAI_PUBLIC_HOST:-}"
+    if [[ -z "$public_host" && -n "${PUBLIC_SUPABASE_URL:-}" ]]; then
+      public_host="${PUBLIC_SUPABASE_URL#*://}"
+      public_host="${public_host%%/*}"
+      public_host="${public_host%%:*}"
+    fi
+    [[ -z "$public_host" ]] && public_host="127.0.0.1"
+    printf 'RUNTIME_PUBLIC_HOST=%s\n' "$public_host" >>.env
+    ok "runtime app URLs will use ${public_host}"
+  fi
   # Wire the runtime to every organization already in the control plane, so an
   # existing tenant gains the container engine. New organizations are wired the
   # same way after they are created.
@@ -439,6 +454,53 @@ build() {
     pnpm --filter @cloud-wai/web build:web >"$LOG_DIR/webbuild.log" 2>&1 \
     || die "Dashboard build failed. See $LOG_DIR/webbuild.log"
   ok "build complete"
+}
+
+# Export every key in .env over the ambient environment.
+#
+# Node's `--env-file` (and docker compose's `${VAR}` interpolation) let a
+# variable that already exists in the environment win over the file. A host is
+# free to define any name we do — this deployment's own sandbox exports
+# `RUNTIME_URL` to mean "the OpenHands runtime", a different thing from our
+# self-hosted container engine — so `RUNTIME_URL=http://127.0.0.1:8095` in .env
+# was silently shadowed by the host's `https://<host>` and every deploy asked
+# the wrong server for `/apps` (404). Read the file back with the file winning,
+# so what the operator wrote is what the processes get.
+export_env_authoritative() {
+  local key val
+  while IFS= read -r line; do
+    case "$line" in
+      ''|\#*) continue ;;
+    esac
+    key="${line%%=*}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    val="${line#*=}"
+    export "$key=$val"
+  done <.env
+}
+
+# Generate the shared service tokens once, before any container starts, and
+# export them.
+#
+# Compose resolves `environment: ROUTER_TOKEN: ${ROUTER_TOKEN:-}` against the
+# *shell*, and a key written to .env after compose runs is invisible to it, so
+# the empty default overrode the file and the router refused to boot
+# unauthenticated. Generate here so every service's interpolation sees the token.
+ensure_infra_tokens() {
+  local name token
+  for name in BUILDER_TOKEN RUNTIME_TOKEN ROUTER_TOKEN; do
+    token="$(grep "^${name}=" .env | cut -d= -f2- || true)"
+    if [[ -z "$token" ]]; then
+      token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+      if grep -q "^${name}=" .env; then
+        sed -i "s|^${name}=.*|${name}=${token}|" .env
+      else
+        printf '%s=%s\n' "$name" "$token" >>.env
+      fi
+      ok "generated ${name}"
+    fi
+    export "$name=$token"
+  done
 }
 
 # --- 5. Processes ------------------------------------------------------------
@@ -618,6 +680,8 @@ cmd_deploy() {
   ensure_container_network
   ensure_supabase
   ensure_env
+  export_env_authoritative
+  ensure_infra_tokens
   apply_migrations
   ensure_builder
   ensure_runtime

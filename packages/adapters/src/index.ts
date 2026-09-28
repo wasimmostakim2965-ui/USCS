@@ -44,6 +44,13 @@ export interface DeploymentState {
   readonly ref: ProviderRef;
   readonly status: "pending" | "running" | "succeeded" | "failed" | "degraded" | "not_configured";
   readonly url: string | null;
+  /**
+   * The engine's own reason for a non-success state, when it gives one.
+   *
+   * Optional: an engine that does not explain itself leaves it absent, and a
+   * caller then falls back to its own description rather than inventing one.
+   */
+  readonly reason?: string | null;
 }
 
 /** The build packs Coolify accepts for a public application. */

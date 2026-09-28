@@ -25,7 +25,7 @@
  */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -113,6 +113,11 @@ let state = { apps: {} };
 
 async function loadState() {
   await mkdir(DATA_DIR, { recursive: true });
+  // Sweep temp files a previous version left behind. Older builds wrote an
+  // `apps.json.<hex>` beside the state file and never removed it, so a long-lived
+  // volume accumulated one per save. The atomic rename below no longer leaves
+  // any, and this clears the backlog on the first boot of the fixed runtime.
+  await sweepStateTemps();
   if (!existsSync(STATE_FILE)) return;
   try {
     state = JSON.parse(await readFile(STATE_FILE, "utf8"));
@@ -121,10 +126,29 @@ async function loadState() {
   }
 }
 
+/** Remove `apps.json.<suffix>` temp files left by earlier writes. */
+async function sweepStateTemps() {
+  const dir = await readdir(DATA_DIR).catch(() => []);
+  const prefix = `${STATE_FILE.split("/").pop()}.`;
+  await Promise.all(
+    dir
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => rm(join(DATA_DIR, name), { force: true }).catch(() => {})),
+  );
+}
+
 async function saveState() {
   const tmp = `${STATE_FILE}.${randomBytes(4).toString("hex")}`;
   await writeFile(tmp, JSON.stringify(state, null, 2));
-  await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
+  // Atomic replace, so a crash mid-write leaves the previous good file rather
+  // than a truncated one. The tmp file is renamed over the target instead of
+  // written beside it, and removed on failure.
+  try {
+    await rename(tmp, STATE_FILE);
+  } catch {
+    await rm(tmp, { force: true }).catch(() => {});
+    await writeFile(STATE_FILE, JSON.stringify(state, null, 2));
+  }
 }
 
 function send(res, code, body) {
@@ -271,6 +295,15 @@ async function withdrawAppRoutes(app) {
 /** Live log subscribers per app id, for the SSE stream the dashboard reads. */
 const logStreams = new Map();
 
+/**
+ * Deploy attempts a customer cancelled, keyed by attempt id.
+ *
+ * The build in progress is a child process driven by `buildSource`'s poll loop;
+ * this flag is what that loop checks to stop waiting and report the attempt as
+ * cancelled, rather than continuing to build something no longer wanted.
+ */
+const cancelledAttempts = new Set();
+
 function log(app, line) {
   app.logs.push(line);
   if (app.logs.length > 2000) app.logs.splice(0, app.logs.length - 2000);
@@ -279,7 +312,7 @@ function log(app, line) {
 }
 
 /** Poll the build plane until the job finishes; returns the image or an error. */
-async function buildSource(app, source) {
+async function buildSource(app, source, attemptId) {
   if (BUILDER_URL === "") return { error: "no build plane is configured (BUILDER_URL)" };
   const create = await fetchJson(`${BUILDER_URL}/builds`, {
     method: "POST",
@@ -294,6 +327,9 @@ async function buildSource(app, source) {
   const deadline = Date.now() + BUILD_TIMEOUT_MS;
   let cursor = "0";
   while (Date.now() < deadline) {
+    if (attemptId && cancelledAttempts.has(attemptId)) {
+      return { error: "cancelled" };
+    }
     await sleep(BUILD_POLL_MS);
     // Stream the build's new lines as they appear, so the dashboard shows the
     // build live rather than only when it finishes. A failed poll is ignored:
@@ -309,7 +345,16 @@ async function buildSource(app, source) {
     const job = await fetchJson(`${BUILDER_URL}/builds/${jobId}`, {
       headers: { authorization: `Bearer ${BUILDER_TOKEN}` },
     });
-    if (!job.ok) continue;
+    if (!job.ok) {
+      // A 404 means the builder no longer knows this job — it restarted and the
+      // job was never persisted, or its record aged out. Polling cannot bring it
+      // back, so this is terminal: the deploy fails with a reason rather than
+      // spinning until the deadline.
+      if (job.reason === "404") {
+        return { error: "the build plane lost this build (it may have restarted)" };
+      }
+      continue;
+    }
     if (job.value?.status === "succeeded") {
       const image = job.value.artifact?.image;
       if (!image) return { error: "build reported success with no image" };
@@ -370,9 +415,52 @@ async function runContainer(app, image) {
 }
 
 async function deploy(app) {
-  app.deployCount = (app.deployCount ?? 0) + 1;
+  // Each deploy gets its own attempt id, minted fresh and reported back to the
+  // caller with the 202. It is what makes this run resumeable: a caller that
+  // requeues can read `GET /apps/:id/deployments/:attemptId` and get *this*
+  // attempt's settled state, rather than a status that resets to `running` each
+  // time a new attempt replaces the old one and hides a failure forever.
+  const attemptId = randomUUID().replace(/-/g, "").slice(0, 20);
+  app.deployAttemptId = attemptId;
+  const previousDeployCount = app.deployCount ?? 0;
+  app.deployCount = previousDeployCount + 1;
   app.status = "running";
   app.engineReason = null;
+  // Register the attempt before any work, so a caller that receives the id with
+  // the 202 can read it back immediately. If the record were written only at the
+  // end, every poll while the deploy runs would 404 — which a resuming caller
+  // reads as a lost build and fails, the very bug this route exists to fix.
+  if (!app.attempts) app.attempts = {};
+  app.attempts[attemptId] = { status: "running", url: null, engineReason: null };
+  await saveState();
+  try {
+    await runDeploy(app);
+  } catch (error) {
+    // An unexpected throw is this attempt's failure, recorded below like any
+    // other. Without it the caller would poll `running` forever.
+    app.status = "failed";
+    app.engineReason = String(error);
+  } finally {
+    // Record this attempt's settled state under its own id. The app's top-level
+    // status cannot serve a resuming caller: a new attempt overwrites it, so a
+    // caller polling a failed attempt would read `running` again and requeue
+    // forever. The per-attempt record is the durable answer.
+    if (!app.attempts) app.attempts = {};
+    app.attempts[attemptId] = {
+      status: app.status,
+      url: app.url ?? null,
+      engineReason: app.engineReason ?? null,
+    };
+    const ids = Object.keys(app.attempts);
+    for (const stale of ids.slice(0, Math.max(0, ids.length - 50))) {
+      delete app.attempts[stale];
+      cancelledAttempts.delete(stale);
+    }
+    await saveState();
+  }
+}
+
+async function runDeploy(app) {
   const source = app.gitRepository
     ? {
         kind: "git",
@@ -398,14 +486,19 @@ async function deploy(app) {
     return;
   }
 
+  if (app.deployAttemptId && cancelledAttempts.has(app.deployAttemptId)) {
+    app.status = "failed";
+    app.engineReason = "cancelled";
+    return;
+  }
+
   let image = app.image ?? null;
   if (source.kind === "git") {
-    const built = await buildSource(app, source);
+    const built = await buildSource(app, source, app.deployAttemptId);
     for (const line of built.logs ?? []) log(app, line);
     if (built.error) {
       app.status = "failed";
       app.engineReason = built.error;
-      await saveState();
       return;
     }
     image = built.image;
@@ -416,13 +509,11 @@ async function deploy(app) {
   if (result.error) {
     app.status = "failed";
     app.engineReason = result.error;
-    await saveState();
     return;
   }
   if (!result.running) {
     app.status = "failed";
     app.engineReason = "container started but is not running";
-    await saveState();
     return;
   }
   app.currentImage = image;
@@ -434,7 +525,6 @@ async function deploy(app) {
   app.routeError = route.published ? null : route.reason;
   log(app, `deployed ${image} on ${app.url}`);
   if (!route.published && route.reason) log(app, `[runtime] route not published: ${route.reason}`);
-  await saveState();
 }
 
 async function containerLogs(app) {
@@ -491,6 +581,7 @@ const ROUTES = {
       routeError: null,
       url: null,
       deployCount: 0,
+      deployAttemptId: null,
       logs: [],
     };
     state.apps[id] = app;
@@ -518,12 +609,27 @@ const ROUTES = {
   },
 
   async deploy(app) {
-    deploy(app).catch(async (error) => {
+    deploy(app).catch((error) => {
       app.status = "failed";
       app.engineReason = String(error);
-      await saveState();
     });
-    return { code: 202, body: { id: app.id } };
+    return { code: 202, body: { id: app.id, attemptId: app.deployAttemptId } };
+  },
+
+  /** The settled state of one deploy attempt, for a caller that requeues. */
+  async getDeployAttempt(app, attemptId) {
+    const attempt = app.attempts?.[attemptId];
+    if (!attempt) return { code: 404, body: { message: "Deployment attempt not found." } };
+    return {
+      code: 200,
+      body: {
+        id: app.id,
+        attemptId,
+        status: attempt.status,
+        url: attempt.url,
+        engineReason: attempt.engineReason,
+      },
+    };
   },
 
   async logs(app, query) {
@@ -694,6 +800,35 @@ const server = createServer(async (req, res) => {
     return send(res, 401, { message: "Unauthenticated." });
   }
 
+  // A deploy attempt is addressable on its own, so a caller that holds only the
+  // attempt handle (the reference the hosting adapter returns) can read its
+  // settled state without also knowing the application id.
+  const attemptMatch = url.pathname.match(/^\/deployments\/([^/]+)(\/cancel)?$/);
+  if (attemptMatch) {
+    const attemptId = attemptMatch[1];
+    for (const candidate of Object.values(state.apps)) {
+      const attempt = candidate.attempts?.[attemptId];
+      if (!attempt) continue;
+      if (attemptMatch[2] === "/cancel" && req.method === "POST") {
+        candidate.status = "pending";
+        candidate.engineReason = "cancelled";
+        cancelledAttempts.add(attemptId);
+        await saveState();
+        return send(res, 200, {});
+      }
+      if (attemptMatch[2] === undefined && req.method === "GET") {
+        return send(res, 200, {
+          id: candidate.id,
+          attemptId,
+          status: attempt.status,
+          url: attempt.url,
+          engineReason: attempt.engineReason,
+        });
+      }
+    }
+    return send(res, 404, { message: "Deployment attempt not found." });
+  }
+
   if (req.method === "POST" && url.pathname === "/apps") {
     const body = await readBody(req);
     if (body === null) return send(res, 400, { message: "Invalid JSON body." });
@@ -702,7 +837,7 @@ const server = createServer(async (req, res) => {
   }
 
   const match = url.pathname.match(
-    /^\/apps\/([^/]+)(?:\/(deploy|logs|stream|cancel|rollback|env|domains))?(?:\/(.+))?$/,
+    /^\/apps\/([^/]+)(?:\/(deploy|deployments|logs|stream|cancel|rollback|env|domains))?(?:\/(.+))?$/,
   );
   if (!match) return send(res, 404, { message: "Not found." });
   const app = state.apps[match[1]];
@@ -730,6 +865,10 @@ const server = createServer(async (req, res) => {
   }
   if (action === "deploy" && req.method === "POST") {
     const out = await ROUTES.deploy(app);
+    return send(res, out.code, out.body);
+  }
+  if (action === "deployments" && sub && req.method === "GET") {
+    const out = await ROUTES.getDeployAttempt(app, sub);
     return send(res, out.code, out.body);
   }
   if (action === "logs" && req.method === "GET") {

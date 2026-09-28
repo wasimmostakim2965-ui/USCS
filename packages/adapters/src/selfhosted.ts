@@ -161,7 +161,7 @@ export function createSelfHostedHostingAdapter(options: SelfHostedAdapterOptions
       const resolved = credentialsFor<OperationRef>(ctx);
       if (!resolved.ok) return resolved.result;
       const id = input.applicationRef.resourceId;
-      const response = await call<{ id?: string }>(
+      const response = await call<{ id?: string; attemptId?: string }>(
         ctx,
         resolved.creds,
         "POST",
@@ -169,12 +169,39 @@ export function createSelfHostedHostingAdapter(options: SelfHostedAdapterOptions
       );
       if (!response.ok) return response;
       // The deploy is asynchronous: it has been accepted, not finished.
-      return ok("running", opRef(ctx, id, "application"));
+      //
+      // The ref names the *attempt*, not the application. A requeued job polls
+      // its own attempt's settled state; if this were an application ref the
+      // resume path could not address the run it started, so every requeue
+      // would launch a fresh deploy — and a failure would be overwritten by the
+      // next attempt's `running` before anyone could read it.
+      const attemptId = response.value.value?.attemptId;
+      return ok(
+        "running",
+        attemptId ? opRef(ctx, attemptId, "deployment") : opRef(ctx, id, "application"),
+      );
     },
 
     async getDeployment(ctx, ref): Promise<AdapterResult<DeploymentState>> {
       const resolved = credentialsFor<DeploymentState>(ctx);
       if (!resolved.ok) return resolved.result;
+      // A deployment ref addresses one attempt; an application ref is the
+      // app's current top-level state.
+      if (ref.resourceType === "deployment") {
+        const response = await call<RuntimeApp>(
+          ctx,
+          resolved.creds,
+          "GET",
+          `/deployments/${encodeURIComponent(ref.resourceId)}`,
+        );
+        if (!response.ok) return response;
+        return ok("succeeded", {
+          ref,
+          status: mapStatus(response.value.value?.status),
+          url: response.value.value?.url ?? null,
+          reason: response.value.value?.engineReason ?? null,
+        });
+      }
       const response = await call<RuntimeApp>(
         ctx,
         resolved.creds,
@@ -187,18 +214,20 @@ export function createSelfHostedHostingAdapter(options: SelfHostedAdapterOptions
         ref,
         status: mapStatus(app.status),
         url: app.url ?? null,
+        reason: app.engineReason ?? null,
       });
     },
 
     async cancelDeployment(ctx, ref): Promise<AdapterResult<void>> {
       const resolved = credentialsFor<void>(ctx);
       if (!resolved.ok) return resolved.result;
-      const response = await call<void>(
-        ctx,
-        resolved.creds,
-        "POST",
-        `/apps/${encodeURIComponent(ref.resourceId)}/cancel`,
-      );
+      // A deployment ref names one attempt; an application ref names the app.
+      // The runtime serves both, so either handle can be cancelled.
+      const path =
+        ref.resourceType === "deployment"
+          ? `/deployments/${encodeURIComponent(ref.resourceId)}/cancel`
+          : `/apps/${encodeURIComponent(ref.resourceId)}/cancel`;
+      const response = await call<void>(ctx, resolved.creds, "POST", path);
       if (!response.ok) return response;
       return ok("succeeded", undefined);
     },

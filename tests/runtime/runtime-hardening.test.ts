@@ -168,4 +168,42 @@ describe("runtime request hardening", () => {
     expect(new TextDecoder().decode(value)).toContain("event: open");
     controller.abort();
   });
+
+  describe("deploy attempts", () => {
+    it("returns a per-attempt id and serves that attempt's state on its own", async () => {
+      const created = await rpc("POST", "/apps", {
+        name: "attempt-app",
+        gitRepository: "https://example.test/repo.git",
+      });
+      const id = created.json.id as string;
+
+      // No builder configured in this deployment, so the deploy fails — but the
+      // point is the *handle*: the id returned, and the state it answers for.
+      const accepted = await rpc("POST", `/apps/${id}/deploy`);
+      expect([202, 200]).toContain(accepted.status);
+      const attemptId = accepted.json.attemptId as string;
+      expect(typeof attemptId).toBe("string");
+      expect(attemptId.length).toBeGreaterThan(0);
+
+      // The attempt settles to `failed` (no build plane), and the caller can read
+      // that under the attempt's own id — not only the app's top-level status.
+      const deadline = Date.now() + 5_000;
+      let state: Record<string, unknown> = {};
+      while (Date.now() < deadline) {
+        const read = await rpc("GET", `/deployments/${attemptId}`);
+        expect(read.status).toBe(200);
+        state = read.json;
+        if (state.status !== "running") break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(state.status).toBe("failed");
+      // The reason names the missing build plane, so the failure is explained.
+      expect(String(state.engineReason)).toMatch(/build plane/);
+    });
+
+    it("answers 404 for an attempt id it never issued", async () => {
+      const res = await rpc("GET", "/deployments/does-not-exist");
+      expect(res.status).toBe(404);
+    });
+  });
 });

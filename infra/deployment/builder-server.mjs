@@ -33,7 +33,7 @@
  */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -58,6 +58,13 @@ const JOB_TTL_MS = Math.max(1000, Number(process.env.BUILDER_JOB_TTL_MS ?? 3_600
 // A build log is capped so a repository that prints forever cannot exhaust the
 // process's memory; the cap is reported in the log so the truncation is visible.
 const MAX_LOG_LINES = Math.max(100, Number(process.env.BUILDER_MAX_LOG_LINES ?? 5_000));
+// Where the job index is persisted. Without it every in-flight job is lost on a
+// restart: the caller's poll then gets a 404 it must interpret as a failure,
+// and a build that was actually running is reported as crashed. With it, a job
+// that was in flight is reaped to a terminal failure on the next boot, so the
+// caller learns the truth instead of waiting out its own ceiling.
+const STATE_DIR = process.env.BUILDER_DATA_DIR ?? "";
+const STATE_FILE = STATE_DIR ? join(STATE_DIR, "jobs.json") : "";
 
 if (!TOKEN) {
   console.error("BUILDER_TOKEN is not set; refusing to start an unauthenticated builder.");
@@ -69,6 +76,88 @@ const jobs = new Map();
 /** @type {Map<string, string>} */
 const byIdempotencyKey = new Map();
 
+// Persistence. Every mutation of a job's reported state marks the index dirty;
+// a debounced flush writes it, and the process exits only after a final flush.
+let dirty = false;
+function markDirty() {
+  dirty = true;
+}
+
+function jobIndex() {
+  return {
+    jobs: [...jobs.values()].map((job) => ({
+      id: job.id,
+      status: job.status,
+      artifact: job.artifact ?? null,
+      lines: job.lines,
+      nextCursor: job.nextCursor ?? null,
+      idempotencyKey: job.idempotencyKey ?? null,
+      cancelled: Boolean(job.cancelled),
+      startedAt: job.startedAt ?? null,
+      finishedAt: job.finishedAt ?? null,
+    })),
+  };
+}
+
+async function flushState() {
+  if (!STATE_FILE || !dirty) return;
+  dirty = false;
+  const payload = JSON.stringify(jobIndex());
+  const tmp = `${STATE_FILE}.${randomUUID().slice(0, 8)}`;
+  try {
+    await writeFile(tmp, payload);
+    await rename(tmp, STATE_FILE);
+  } catch (error) {
+    // A failed write must not crash the builder; the next flush retries.
+    await rm(tmp, { force: true }).catch(() => {});
+    console.error(`[cloud-wai] builder state flush failed: ${String(error)}`);
+  }
+}
+
+/**
+ * Load the job index and fail anything that was mid-flight when we last exited.
+ *
+ * A job persisted as `running` or `queued` cannot still be running: this is a
+ * fresh process, so its child is gone. Reporting it as `failed` is the honest
+ * answer — a caller polling it settles instead of waiting out its ceiling — and
+ * the reason says why, so the failure is not mysterious.
+ */
+async function loadState() {
+  if (!STATE_FILE) return;
+  await mkdir(STATE_DIR, { recursive: true }).catch(() => {});
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(STATE_FILE, "utf8"));
+  } catch {
+    return; // no prior index, or an unreadable one: start empty
+  }
+  for (const row of parsed?.jobs ?? []) {
+    if (!row?.id) continue;
+    const interrupted = row.status === "running" || row.status === "queued";
+    const job = {
+      id: row.id,
+      status: interrupted ? "failed" : row.status,
+      artifact: row.artifact ?? null,
+      lines: Array.isArray(row.lines) ? row.lines : [],
+      nextCursor: row.nextCursor ?? null,
+      idempotencyKey: row.idempotencyKey ?? undefined,
+      cancelled: Boolean(row.cancelled),
+      startedAt: row.startedAt ?? undefined,
+      finishedAt: row.finishedAt ?? undefined,
+    };
+    if (interrupted) {
+      job.finishedAt = Date.now();
+      log(
+        job,
+        "[cloud-wai] the builder restarted while this build was in flight; it did not finish",
+      );
+    }
+    jobs.set(job.id, job);
+    if (job.idempotencyKey) byIdempotencyKey.set(job.idempotencyKey, job.id);
+  }
+  dirty = true;
+}
+
 // Builds beyond MAX_CONCURRENT_BUILDS wait here. Each entry resumes the build
 // it names; a queued job reports `queued` until a slot frees, so a caller sees
 // the real state rather than a build that claims to have started.
@@ -77,6 +166,7 @@ let running = 0;
 const waiting = [];
 
 function log(job, line) {
+  markDirty();
   if (job.lines.length >= MAX_LOG_LINES) {
     // Say so once, then stop recording. Silently dropping the tail would make
     // the log look complete when it is not.
@@ -126,11 +216,20 @@ function sweepJobs() {
     if (finished && job.finishedAt !== undefined && job.finishedAt < cutoff) {
       jobs.delete(id);
       if (job.idempotencyKey) byIdempotencyKey.delete(job.idempotencyKey);
+      markDirty();
     }
   }
 }
 
 setInterval(sweepJobs, Math.min(JOB_TTL_MS, 60_000)).unref();
+
+// Debounced persistence: a build writes many log lines, and flushing each one
+// would spend more time in fsync than in the build. A short interval bounds the
+// work a crash can lose to a few hundred milliseconds of log lines.
+const flushTimer = setInterval(() => {
+  void flushState();
+}, 500);
+flushTimer.unref();
 
 function run(cmd, args, options = {}) {
   return new Promise((resolve) => {
@@ -182,6 +281,7 @@ async function runBuild(job, payload) {
     return;
   }
   job.status = "running";
+  markDirty();
   const source = payload.source ?? {};
   const workspace = await mkdtemp(join(tmpdir(), "cloudwai-build-"));
   const sourceDir = join(workspace, "src");
@@ -278,6 +378,7 @@ async function runBuild(job, payload) {
     }
     job.artifact = { image: tag, framework };
     job.status = "succeeded";
+    markDirty();
     log(job, `build succeeded: ${tag}`);
   } catch (error) {
     job.status = "failed";
@@ -286,6 +387,7 @@ async function runBuild(job, payload) {
     if (job.status === "succeeded" || job.status === "failed") {
       job.finishedAt = Date.now();
     }
+    markDirty();
     await rm(workspace, { recursive: true, force: true }).catch(() => {});
     releaseSlot();
   }
@@ -337,6 +439,11 @@ const server = createServer(async (req, res) => {
     };
     jobs.set(id, job);
     if (key) byIdempotencyKey.set(key, id);
+    // Persist the job before it starts. A caller that receives the id from a
+    // response this process wrote can then always read *something* back, even
+    // if the process dies before the build reports anything.
+    markDirty();
+    await flushState();
     log(job, `accepted build for ${payload.source?.kind ?? "unknown"} source`);
     void runBuild(job, payload);
     return send(res, 201, { id });
@@ -349,6 +456,7 @@ const server = createServer(async (req, res) => {
     const suffix = match[2];
     if (suffix === "/cancel" && req.method === "POST") {
       job.cancelled = true;
+      markDirty();
       return send(res, 200, {});
     }
     if (suffix === "/logs" && req.method === "GET") {
@@ -373,3 +481,18 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Cloud Wai build plane listening on http://${HOST}:${PORT}`);
 });
+
+// Load the job index before serving, so a build id a caller already holds is
+// answerable the moment the process is up. Anything caught mid-flight is reaped
+// to a terminal failure here (see `loadState`).
+await loadState();
+await flushState();
+
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => {
+    // Flush synchronously-ish before exiting so the last log lines and the final
+    // statuses survive a clean stop (a `docker stop` sends SIGTERM).
+    void flushState().finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 2_000).unref();
+  });
+}
