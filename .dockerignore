@@ -14,6 +14,7 @@ engines-src
 .git
 .github
 .agent_tmp
+.agents
 
 .env
 .env.*

@@ -5,3 +5,7 @@ supabase/.temp
 pnpm-lock.yaml
 *.md
 LICENSES/engines.json
+# Third-party agent skills are vendored verbatim under their own authors'
+# formatting; reformatting them would diverge from upstream and misattribute the
+# change. They are excluded from the format gate, like node_modules and dist.
+.agents/skills
