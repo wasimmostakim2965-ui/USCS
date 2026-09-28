@@ -209,7 +209,7 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
 ### Follow-up pass (2026-09-28)
 
 এই audit-এর পরের pass-এ নিচের কাজ সম্পন্ন, এবং সব evidence `pnpm verify`
-(918 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
+(919 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
 
 - **AWS Terraform environment gaps বন্ধ** — `cloud_wai_secret_encryption_key`
   (`sensitive`, 43-char validation) ও `public_supabase_url` variable যোগ, এবং
@@ -228,8 +228,40 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
   (exit করা কিন্তু reaped না হওয়া process); এখন `/proc/<pid>/stat`-এর `Z` state
   down হিসেবে গণ্য হয়। live host-এ verified (api/worker/edge/gateway সব up,
   dashboard/api/gateway 200)।
-- **Test count** — 910/53 থেকে 918/54 (`tests/deployment/deploy-script.test.ts`
+- **Test count** — 918/54 থেকে 919/54 (`tests/deployment/deploy-script.test.ts`
   যোগ হয়েছে)।
+
+### Clean-slate pass (2026-09-28, দ্বিতীয়)
+
+ডাটাবেস সম্পূর্ণ মুছে (`supabase stop --no-backup`, volumes সরিয়ে) একবার
+`deploy.sh deploy` চালানো হয়েছে, যাতে "প্রথমবার চালানোই কাজ করে" প্রমাণ হয়।
+এই pass-এ তিনটি আসল bug ধরা পড়েছে ও ঠিক হয়েছে:
+
+- **Demo tenant কখনো seed হত না।** ড্যাশবোর্ডের no-login bypass
+  (`DEMO_AUTOLOGIN=1`) `demo.session` দিয়ে `DEMO_EMAIL`-এর আসল password grant
+  করে। fresh স্ট্যাকে ওই account নেই, তাই grant fail → `demo.session` 502 →
+  ড্যাশবোর্ড চিরকাল "Connecting to Cloud Wai…"-এ আটকে থাকে; অর্থাৎ যে host-এর
+  জন্য bypass বানানো, তার উপরেই সেটা কাজ করত না। এখন `deploy.sh`-এর
+  `ensure_demo_tenant` (`build`/`start_all`-এর পরে) ইউজার ও একটা demo
+  organization idempotently seed করে: `auth/v1/admin/users`-এ তৈরি (থাকলে
+  list থেকে id), তারপর db container-এর `psql` দিয়ে `organizations` +
+  `organization_members` (`owner`) insert।
+- **`NODE_ENV=production`-এ jsdom test-এ `node:*` builtin খালি হয়ে যেত।**
+  production host `NODE_ENV=production` export করে; তখন Vite production
+  mode-এ `node:http`-এর মতো builtin empty module হিসেবে externalize হয়,
+  ফলে `createServer` undefined → `tests/web/dashboard.e2e.test.tsx`-এর 166টি
+  টেস্ট (`createServer is not a function`) fail করে যদিও কোড অপরিবর্তিত। এটা
+  পুরোনো NODE_ENV=production-এ আবার এলে যেকোনো production host-এ `pnpm verify`
+  ভাঙত। `vitest.config.ts` এখন config load-এ `process.env.NODE_ENV = "test"`
+  পিন করে (Vite পড়ার আগেই)। `NODE_ENV=production pnpm verify` → 919/54 green।
+- **Dashboard bundle-এ loopback Supabase URL bake হত।** public URL ছাড়া
+  build করলে `127.0.0.1:12001` bundle-এ ঢুকে যেত, তাই remote ব্রাউজারে
+  "Connecting…"-এ আটকাত। `PUBLIC_SUPABASE_URL` দিয়ে build করলে public gateway
+  URL bake হয়; browser-এ verified।
+
+Clean slate থেকে এক কমান্ডে: `demo tenant ready (demo@cloudwai.test)`, সব
+service up, dashboard/api/gateway 200, public `/healthz` ok, এবং ব্রাউজারে
+`#/orgs` live render (Demo Organization row)। এছাড়া deploy-script test ৯টি।
 
 অপরিবর্তিত open gate: live external engine validation (Coolify/MinIO/edge/
 runtime) — gate 6–9, অর্থাৎ `terraform apply` ও one real deployment path এখনও

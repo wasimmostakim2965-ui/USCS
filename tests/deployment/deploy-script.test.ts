@@ -118,6 +118,17 @@ describe("the one-command deploy script", () => {
     expect(script).toMatch(/sudo chmod 666 \/var\/run\/docker\.sock/);
   });
 
+  it("seeds the demo tenant the no-login bypass signs in with", () => {
+    // `demo.session` performs a real password grant for DEMO_EMAIL. On a fresh
+    // stack that account does not exist, so the dashboard sits on "Connecting
+    // to Cloud Wai…" forever. The deploy must create the user and an
+    // organization, or the bypass is dead on the host it was built for.
+    expect(script).toMatch(/ensure_demo_tenant\(\)/);
+    expect(script).toMatch(/auth\/v1\/admin\/users/);
+    expect(script).toMatch(/organization_members/);
+    expect(script).toMatch(/^\s*ensure_demo_tenant$/m);
+  });
+
   it("runs the terminating path under the script's real shell", () => {
     // A syntax error in the edited functions would only surface on the host.
     expect(() =>

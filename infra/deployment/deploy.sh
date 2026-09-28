@@ -411,6 +411,63 @@ start_all() {
   ok "supabase gateway on :${GATEWAY_PORT}"
 }
 
+# --- Demo tenant -------------------------------------------------------------
+# The pre-launch no-login bypass (DEMO_AUTOLOGIN=1) signs the visitor in with
+# `demo.session`, which performs a real password grant for DEMO_EMAIL. On a
+# fresh stack that account does not exist, so the grant fails, `demo.session`
+# answers 502 and the dashboard sits on "Connecting to Cloud Wai…" forever --
+# the bypass silently does not work on the very host it was built for. Seed the
+# account and a demo organization here so the one-command deploy leaves a
+# working product. It is idempotent: an existing user or organization is left
+# alone.
+ensure_demo_tenant() {
+  local enabled email password
+  enabled="$(env_value DEMO_AUTOLOGIN 0)"
+  [[ "$enabled" == "1" ]] || return 0
+  email="$(env_value DEMO_EMAIL "")"
+  password="$(env_value DEMO_PASSWORD "")"
+  if [[ -z "$email" || -z "$password" ]]; then
+    warn "DEMO_AUTOLOGIN=1 but DEMO_EMAIL/DEMO_PASSWORD are unset; the dashboard will not auto-enter"
+    return 0
+  fi
+
+  local svc uid
+  svc="$(env_value SUPABASE_SERVICE_ROLE_KEY "")"
+  [[ -n "$svc" ]] || { warn "no service-role key; cannot seed the demo tenant"; return 0; }
+
+  say "seeding the demo tenant"
+  # Create the user if it is absent. A duplicate is fine: the admin endpoint
+  # answers 422 and we fall through to look the id up.
+  uid="$(curl -s -X POST "http://127.0.0.1:${SUPABASE_PORT}/auth/v1/admin/users" \
+    -H "apikey: ${svc}" -H "Authorization: Bearer ${svc}" -H 'content-type: application/json' \
+    -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"email_confirm\":true,\"user_metadata\":{\"display_name\":\"Demo Owner\"}}" \
+    | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const j=JSON.parse(d);console.log(j.id||"")}catch{console.log("")}})')"
+  if [[ -z "$uid" ]]; then
+    uid="$(curl -s "http://127.0.0.1:${SUPABASE_PORT}/auth/v1/admin/users?per_page=200" \
+      -H "apikey: ${svc}" -H "Authorization: Bearer ${svc}" \
+      | EMAIL="$email" node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const j=JSON.parse(d);const u=(j.users||[]).find(x=>x.email===process.env.EMAIL);console.log(u?u.id:"")}catch{console.log("")}})')"
+  fi
+  [[ -n "$uid" ]] || { warn "could not create or find the demo user"; return 0; }
+
+  # The organization and the owner membership. Written through the database
+  # container's own psql so the seed does not depend on PostgREST's RLS or a
+  # published port.
+  local db
+  db="$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)"
+  [[ -n "$db" ]] || { warn "no Supabase database container; demo tenant not seeded"; return 0; }
+  docker exec -i "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v uid="$uid" </dev/null \
+    >>"$LOG_DIR/supabase.log" 2>&1 <<'SQL' \
+    || { warn "demo tenant seed failed; see $LOG_DIR/supabase.log"; return 0; }
+insert into organizations (id, name, slug, created_by)
+values ('11111111-1111-1111-1111-111111111111', 'Demo Organization', 'demo-org', :'uid')
+on conflict (id) do nothing;
+insert into organization_members (organization_id, user_id, role)
+values ('11111111-1111-1111-1111-111111111111', :'uid', 'owner')
+on conflict (organization_id, user_id) do nothing;
+SQL
+  ok "demo tenant ready ($email)"
+}
+
 # --- Commands ----------------------------------------------------------------
 # `kill -0` succeeds against a zombie: a process whose parent was reaped by init
 # still answers the zero signal, so `status` called a dead service "up". A pid
@@ -460,6 +517,7 @@ cmd_deploy() {
   ensure_builder
   build
   start_all
+  ensure_demo_tenant
   echo
   cmd_status
   echo
