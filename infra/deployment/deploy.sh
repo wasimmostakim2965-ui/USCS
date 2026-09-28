@@ -28,6 +28,7 @@ GATEWAY_PORT="${GATEWAY_PORT:-12001}"
 API_PORT="${API_PORT:-8787}"
 SUPABASE_PORT="${SUPABASE_PORT:-54321}"
 RUNTIME_PORT="${RUNTIME_PORT:-8095}"
+ROUTER_ADMIN_PORT="${ROUTER_ADMIN_PORT:-8096}"
 RUN_DIR="$ROOT/.deploy"
 LOG_DIR="$RUN_DIR/logs"
 
@@ -325,6 +326,49 @@ ensure_runtime() {
   return 0
 }
 
+ensure_router() {
+  # The router — this deployment's own front door (ADR-0021). It maps a verified
+  # hostname to a deployed app's loopback port and terminates TLS, so a domain
+  # that verifies is actually reachable. It shares the host's loopback with the
+  # runtime (compose `network_mode: host`), so the `127.0.0.1:<port>` upstreams
+  # the runtime publishes are addresses the router can reach.
+  #
+  # It runs under the `edge` profile and is optional: a host that fronts its apps
+  # with another proxy (or HTTP-01 is impossible behind a TLS-terminating load
+  # balancer) leaves it off, and the runtime still deploys — its domains are then
+  # reported as not yet routable, never as reachable.
+  local token
+  token="$(grep '^ROUTER_TOKEN=' .env | cut -d= -f2- || true)"
+  if [[ -z "$token" ]]; then
+    token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+    if grep -q '^ROUTER_TOKEN=' .env; then
+      sed -i "s|^ROUTER_TOKEN=.*|ROUTER_TOKEN=${token}|" .env
+    else
+      printf 'ROUTER_TOKEN=%s\n' "$token" >>.env
+    fi
+    ok "generated ROUTER_TOKEN"
+  fi
+
+  say "starting the router"
+  local router_url="http://127.0.0.1:${ROUTER_ADMIN_PORT:-8096}"
+  if ! docker compose -f infra/deployment/docker-compose.yml --profile edge up -d --build router \
+      >>"$LOG_DIR/router.log" 2>&1; then
+    warn "the router did not start; verified domains stay unreachable until it does"
+    return
+  fi
+  if ! wait_for_http "${router_url}/healthz" 60; then
+    warn "the router did not become healthy; verified domains stay unreachable until it does"
+    return
+  fi
+  ok "router on ${router_url}"
+  if grep -q '^ROUTER_URL=' .env; then
+    sed -i "s|^ROUTER_URL=.*|ROUTER_URL=${router_url}|" .env
+  else
+    printf 'ROUTER_URL=%s\n' "$router_url" >>.env
+  fi
+  return 0
+}
+
 
 apply_migrations() {
   # `supabase start` already applies supabase/migrations on a fresh stack, so this
@@ -577,6 +621,7 @@ cmd_deploy() {
   apply_migrations
   ensure_builder
   ensure_runtime
+  ensure_router
   build
   start_all
   ensure_demo_tenant

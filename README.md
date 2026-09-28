@@ -27,12 +27,22 @@ Browser -> Cloud Wai Web -> Cloud Wai API/BFF -> Control-plane Supabase PostgreS
                                       -> Database/Storage Adapters
                                       -> Security Edge Adapter
                                       -> Domain Reseller Adapter
+
+Public traffic -> Router (public hostname + automatic TLS, ADR-0021)
+                       -> deployed app on a loopback port (runtime)
+                       -> or the dashboard
 ```
 
 The container engine is one port with two implementations: this deployment's own
 runtime (`infra/deployment/runtime-server.mjs`, ADR-0020) or a Coolify instance
 (ADR-0002). A host that owns its runtime needs no third-party hosting control
 plane; a host that already runs Coolify is unchanged.
+
+The router (`infra/deployment/router-server.mjs`, ADR-0021) is the front door on
+such a host: it maps a verified hostname to a deployed app's loopback port and
+terminates TLS with an ACME-issued certificate, with a self-signed fallback that
+is recorded rather than hidden. A host that terminates TLS elsewhere (a load
+balancer, an existing proxy) leaves it off.
 
 The control-plane database is permanent and stores identity, organizations,
 memberships, projects, deployments, data resources, domains, security policies,

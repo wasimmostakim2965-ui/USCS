@@ -1,0 +1,11 @@
+{
+  "name": "@cloud-wai/deploy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone entrypoints for this platform's own hosting plane: the router/TLS front door and the container runtime.",
+  "dependencies": {
+    "acme-client": "^5.4.0",
+    "selfsigned": "^5.5.0"
+  }
+}

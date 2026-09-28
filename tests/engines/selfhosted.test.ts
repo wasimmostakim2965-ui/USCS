@@ -35,7 +35,10 @@ let baseUrl = "";
 const requests: Recorded[] = [];
 
 /** Applications per token, keyed by id. */
-const apps = new Map<string, Map<string, { name: string; status: string; url: string | null }>>();
+const apps = new Map<
+  string,
+  Map<string, { name: string; status: string; url: string | null; domains: string[] }>
+>();
 const envs = new Map<
   string,
   Map<string, { key: string; value: string; isBuildTime: boolean; engineRef: string }>
@@ -91,12 +94,12 @@ beforeAll(async () => {
     if (req.method === "POST" && url.pathname === "/apps") {
       const body = await readJson(req);
       const id = `app-${++appSeq}`;
-      tenant.set(id, { name: String(body.name ?? ""), status: "pending", url: null });
+      tenant.set(id, { name: String(body.name ?? ""), status: "pending", url: null, domains: [] });
       return send(res, 201, { id });
     }
 
     const appMatch = url.pathname.match(
-      /^\/apps\/([^/]+)(?:\/(deploy|logs|cancel|rollback|env))?$/,
+      /^\/apps\/([^/]+)(?:\/(deploy|logs|cancel|rollback|env|domains))?$/,
     );
     if (!appMatch) return send(res, 404, { message: "Not found." });
     const id = appMatch[1]!;
@@ -126,6 +129,17 @@ beforeAll(async () => {
     }
     if (action === "env" && req.method === "GET") {
       return send(res, 200, { env: [...tenantEnv.values()] });
+    }
+    if (action === "domains" && req.method === "PUT") {
+      const body = await readJson(req);
+      app.domains = Array.isArray(body.domains) ? (body.domains as string[]) : [];
+      // An application named `fail-route` makes the runtime report a route
+      // failure through `routeError` — the shape the adapter turns into
+      // `published: false` — so the honesty mapping is exercised for real.
+      const routeError = app.name.startsWith("fail-route")
+        ? "runtime could not reach the router"
+        : null;
+      return send(res, 200, { domains: app.domains, routeError });
     }
     if (action === "env" && req.method === "POST") {
       const body = await readJson(req);
@@ -276,5 +290,47 @@ describe("createSelfHostedHostingAdapter", () => {
     // The runtime answers 404 for an unknown application; that is a real
     // refusal surfaced as a non-success result, never a fabricated success.
     expect(result.ok).toBe(false);
+  });
+
+  it("sets an application's domains and reports the runtime published them", async () => {
+    const host = adapter();
+    const created = await host.createApplication(ctx(ORG_A), {
+      name: "site",
+      gitRepository: "https://github.com/example/site.git",
+      gitBranch: "main",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const ref = created.value.providerRef;
+
+    const result = await host.setDomains?.(ctx(ORG_A, "k-domains"), {
+      applicationRef: ref,
+      hostnames: ["app.example.com"],
+    });
+    expect(result?.ok).toBe(true);
+    if (!result || !result.ok) throw new Error("unreachable");
+    expect(result.value.published).toBe(true);
+    expect(result.value.reason).toBeNull();
+  });
+
+  it("surfaces a route the runtime could not publish, never a false success", async () => {
+    const host = adapter();
+    const created = await host.createApplication(ctx(ORG_A), {
+      name: "fail-route",
+      gitRepository: "https://github.com/example/site.git",
+      gitBranch: "main",
+    });
+    if (!created.ok) throw new Error("create failed");
+    const ref = created.value.providerRef;
+
+    // The runtime answers 200 with a `routeError`; the adapter must report
+    // `published: false` carrying the runtime's own reason, not a false success.
+    const result = await host.setDomains?.(ctx(ORG_A, "k-domains-fail"), {
+      applicationRef: ref,
+      hostnames: ["app.example.com"],
+    });
+    expect(result?.ok).toBe(true);
+    if (!result || !result.ok) throw new Error("unreachable");
+    expect(result.value.published).toBe(false);
+    expect(result.value.reason).toContain("router");
   });
 });

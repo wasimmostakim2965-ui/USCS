@@ -133,29 +133,82 @@ services:
       - ../../.env
     environment:
       RUNTIME_PORT: "8095"
-      RUNTIME_HOST: "0.0.0.0"
-      BUILDER_URL: "http://builder:8090"
+      RUNTIME_HOST: "127.0.0.1"
+      # The builder publishes on host loopback, and this service shares the host
+      # network for the same reason the router does, so the address is a real one.
+      BUILDER_URL: ${BUILDER_URL:-http://127.0.0.1:8090}
       RUNTIME_DATA_DIR: /data
       RUNTIME_APP_PORT: ${RUNTIME_APP_PORT:-3000}
       RUNTIME_PORT_BASE: ${RUNTIME_PORT_BASE:-18100}
       RUNTIME_PORT_RANGE: ${RUNTIME_PORT_RANGE:-400}
+      # The runtime publishes an app's hostname routes to the router, so a
+      # verified domain reaches the container. Absent these, an app is still
+      # deployed but its hostname is reported as not yet routable.
+      ROUTER_URL: ${ROUTER_URL:-http://127.0.0.1:8096}
+      ROUTER_TOKEN: ${ROUTER_TOKEN:-}
+    # Host networking, so the app ports this runtime publishes on 127.0.0.1 are
+    # reachable by the router on the same loopback, and the router's loopback-only
+    # admin API is reachable here. Ports are therefore not remapped; the runtime
+    # binds 127.0.0.1:8095 itself.
+    network_mode: host
     volumes:
       # The daemon socket is what lets a deploy become a running container.
       - /var/run/docker.sock:/var/run/docker.sock
       # App state (which image is live, which port) survives a runtime restart.
       - runtime-state:/data
-    ports:
-      # Loopback only: the edge reaches deployed apps through the runtime's
-      # host-published app ports on 127.0.0.1, never directly.
-      - "127.0.0.1:8095:8095"
-    expose:
-      - "8095"
     healthcheck:
       test:
         - CMD
         - node
         - -e
         - "fetch('http://127.0.0.1:8095/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # The router — this deployment's own front door (ADR-0021).
+  #
+  # The runtime binds each app to a loopback port; the router is what turns a
+  # public hostname into that port and terminates TLS for it, the way Vercel's
+  # edge does. It is what makes a verified domain actually resolve to a running
+  # container instead of merely being recorded as verified.
+  #
+  # It writes certificates to its data volume and reads ACME account state from
+  # the same place, so a restart does not re-request certificates. HTTP :8080 is
+  # taken by the dashboard in this shape, so the router listens on :80/:443 and
+  # the dashboard is expected to sit behind it (see the runbook).
+  router:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/router.Dockerfile
+    profiles: ["edge"]
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      ROUTER_HTTP_PORT: "80"
+      ROUTER_HTTPS_PORT: "443"
+      ROUTER_ADMIN_PORT: "8096"
+      ROUTER_ADMIN_HOST: "127.0.0.1"
+      ROUTER_HOST: "0.0.0.0"
+      ROUTER_DATA_DIR: /data
+      ROUTER_TOKEN: ${ROUTER_TOKEN:-}
+      ROUTER_ACME_EMAIL: ${ROUTER_ACME_EMAIL:-}
+      ROUTER_DEFAULT_UPSTREAM: ${ROUTER_DEFAULT_UPSTREAM:-}
+    # Host networking, so the router's loopback-only admin API (127.0.0.1:8096)
+    # is the same loopback the runtime publishes app ports on. That is what lets
+    # the runtime hand the router a `127.0.0.1:<port>` upstream it can actually
+    # reach, while the admin API stays off every public interface.
+    network_mode: host
+    volumes:
+      - router-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8096/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
       interval: 30s
       timeout: 3s
       retries: 3
@@ -189,3 +242,6 @@ volumes:
   # restart loses the mapping and a redeploy would hand a new port to apps that
   # are still running on the old one.
   runtime-state:
+  # Issued certificates and the ACME account key. Persisted so a restart does not
+  # re-request a certificate and risk a rate limit.
+  router-data:

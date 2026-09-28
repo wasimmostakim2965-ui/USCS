@@ -1434,11 +1434,19 @@ function DeploymentLogsDrawer({
   // the engine already sent; it never re-queries, so the count below always
   // names the same tail the "full tail" note describes.
   const [filter, setFilter] = useState("");
+  // Vercel's "follow": while a build is in flight the drawer re-reads the log
+  // from its last cursor every couple of seconds, so output appears as it is
+  // produced rather than only when you reopen the drawer.
+  const [live, setLive] = useState(false);
+  const cursorRef = useRef<string | null>(null);
+  const endRef = useRef<HTMLPreElement | null>(null);
 
   const load = useCallback(async () => {
     if (!deployment) return;
     setState({ kind: "loading" });
+    cursorRef.current = null;
     const logs = await loadDeploymentLogs(client, projectId, deployment.id);
+    cursorRef.current = logs.cursor;
     if (logs.engineReason && logs.lines.length === 0) {
       setState({ kind: "degraded", reason: logs.engineReason });
       return;
@@ -1446,19 +1454,61 @@ function DeploymentLogsDrawer({
     setState({ kind: "success", data: logs });
   }, [client, projectId, deployment]);
 
+  /** One incremental read: append what is new since the held cursor. */
+  const poll = useCallback(async () => {
+    if (!deployment) return;
+    const logs = await loadDeploymentLogs(
+      client,
+      projectId,
+      deployment.id,
+      cursorRef.current ?? undefined,
+    );
+    if (logs.engineReason && logs.lines.length === 0) return;
+    cursorRef.current = logs.cursor ?? cursorRef.current;
+    setState((current) => {
+      if (current.kind !== "success") return { kind: "success", data: logs };
+      // The engine returns either the new lines since the cursor or (Coolify,
+      // which has no cursor) the whole tail; append-only when a cursor exists so
+      // lines are never duplicated in the view.
+      const merged =
+        cursorRef.current === null ? logs.lines : [...current.data.lines, ...logs.lines];
+      return { kind: "success", data: { ...logs, lines: merged } };
+    });
+  }, [client, projectId, deployment]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Follow runs only for a build that is still moving; a finished or failed
+  // deployment is static, so polling it would be churn on the engine.
+  useEffect(() => {
+    if (!live || !deployment) return;
+    const active = deployment.status === "running" || deployment.status === "pending";
+    if (!active) {
+      setLive(false);
+      return;
+    }
+    const timer = setInterval(() => void poll(), 2000);
+    return () => clearInterval(timer);
+  }, [live, poll, deployment]);
 
   // A new deployment in the same drawer starts with a clean filter, so a term
   // that matched the previous run does not silently hide the new one's lines.
   useEffect(() => {
     setFilter("");
+    setLive(false);
   }, [deployment?.id]);
+
+  // Auto-scroll to the newest line while following, the way a live tail behaves.
+  useEffect(() => {
+    if (live) endRef.current?.scrollIntoView({ block: "end" });
+  }, [live, state]);
 
   const lines = state.kind === "success" ? state.data.lines : [];
   const needle = filter.trim().toLowerCase();
   const shown = needle === "" ? lines : lines.filter((line) => line.toLowerCase().includes(needle));
+  const isActive = deployment?.status === "running" || deployment?.status === "pending";
 
   return (
     <Drawer
@@ -1498,6 +1548,16 @@ function DeploymentLogsDrawer({
                   placeholder="Filter lines…"
                   ariaLabel="Filter log lines"
                 />
+                {isActive ? (
+                  <label className="log__follow small">
+                    <input
+                      type="checkbox"
+                      checked={live}
+                      onChange={(event) => setLive(event.target.checked)}
+                    />
+                    Follow
+                  </label>
+                ) : null}
                 <span className="log__count small muted">
                   {needle === ""
                     ? `${String(lines.length)} lines`
@@ -1510,7 +1570,7 @@ function DeploymentLogsDrawer({
                   message={`No line in the tail the engine returned contains “${filter.trim()}”.`}
                 />
               ) : (
-                <pre className="log" aria-label="Deployment logs">
+                <pre className="log" aria-label="Deployment logs" ref={endRef}>
                   {shown.join("\n")}
                 </pre>
               )}

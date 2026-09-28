@@ -123,4 +123,49 @@ describe("runtime request hardening", () => {
     // The value is never returned in the clear.
     expect(good.json.value).toBe("********");
   });
+
+  it("accepts only DNS-shaped app domains", async () => {
+    const created = await rpc("POST", "/apps", {
+      name: "web3",
+      gitRepository: "https://example.test/repo.git",
+      domains: ["app.example.com", "-bad", "not a host", "UPPER.example.com"],
+    });
+    expect(created.status).toBe(201);
+    const id = created.json.id as string;
+    const got = await rpc("GET", `/apps/${id}`);
+    expect(got.status).toBe(200);
+    expect(got.json.domains).toEqual(["app.example.com"]);
+  });
+
+  it("reports a route error honestly when no router is configured", async () => {
+    const created = await rpc("POST", "/apps", {
+      name: "web4",
+      gitRepository: "https://example.test/repo.git",
+      domains: ["app.example.com"],
+    });
+    const id = created.json.id as string;
+    const set = await rpc("PUT", `/apps/${id}/domains`, { domains: ["app.example.com"] });
+    expect(set.status).toBe(200);
+    // No ROUTER_URL in this deployment: the hostname is not claimed reachable.
+    expect(set.json.routeError).toMatch(/no router is configured/);
+  });
+
+  it("streams the app log as server-sent events", async () => {
+    const created = await rpc("POST", "/apps", {
+      name: "web5",
+      gitRepository: "https://example.test/repo.git",
+    });
+    const id = created.json.id as string;
+    const controller = new AbortController();
+    const res = await fetch(`http://127.0.0.1:${PORT}/apps/${id}/stream`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+      signal: controller.signal,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    const reader = res.body.getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toContain("event: open");
+    controller.abort();
+  });
 });

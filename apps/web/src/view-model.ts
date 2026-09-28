@@ -423,10 +423,12 @@ export async function loadDeploymentLogs(
   client: ApiClient,
   projectId: string,
   deploymentId: string,
+  cursor?: string,
 ): Promise<DeploymentLogsSummary> {
   const response = await client.call<DeploymentLogsSummary>("deployments.logs", {
     projectId,
     deploymentId,
+    ...(cursor ? { cursor } : {}),
   });
   if (response.notConfigured) {
     return {

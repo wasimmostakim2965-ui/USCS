@@ -21,6 +21,7 @@
 | [0018](0018-build-engine-port.md) | The build engine port: source in, artifact out | accepted |
 | [0019](0019-rewrite-scope.md) | Rewrite scope: rebuild the pipeline and dashboard, keep the connection layer | accepted |
 | [0020](0020-self-hosted-runtime-engine.md) | A self-hosted runtime: this deployment owns the container engine | accepted |
+| [0021](0021-router-public-domain-and-tls.md) | The router: a public hostname and automatic TLS, owned by the deployment | accepted |
 
 Source of truth for this project:
 

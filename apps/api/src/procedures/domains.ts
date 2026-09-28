@@ -16,7 +16,7 @@ import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import type { Engines } from "@cloud-wai/adapters";
 import type { ControlPlaneWrites, DataStore, Domain } from "@cloud-wai/database";
-import type { DomainId, OrganizationId, ProjectId } from "@cloud-wai/contracts";
+import type { DomainId, OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
 import type { RequestContext } from "../context.js";
 import type { SettingsDeps } from "./settings.js";
 
@@ -169,6 +169,19 @@ export interface VerifyDomainResult {
    * unconfigured engine is reported, never papered over.
    */
   readonly edge: { readonly published: boolean; readonly reason: string | null } | null;
+  /**
+   * Whether the hosting engine now serves this hostname, and why not when it
+   * does not.
+   *
+   * This is distinct from `edge`: the *hosting* route is what makes the
+   * container (bound to a private port) reachable on the customer's hostname,
+   * while `edge` is the security layer in front of it. A project with no
+   * deployment has nothing to route, so this is `null` — not a failure.
+   */
+  readonly hostingRoute: {
+    readonly published: boolean;
+    readonly reason: string | null;
+  } | null;
 }
 
 /**
@@ -271,6 +284,44 @@ export async function verifyDomain(
     });
   }
 
+  // A verified hostname must also be reachable on the hosting engine: the
+  // container binds to a private port, and the engine's front door maps the
+  // hostname to it. A domain whose project has no application yet has nothing
+  // to route, which is `null` rather than a failure. A project with an
+  // application the engine could not route is reported, never swallowed.
+  let hostingRoute: VerifyDomainResult["hostingRoute"] = null;
+  if (result.value.verified && domain.projectId) {
+    const target = await deps.store.getProjectDeploymentTargetForService?.(
+      domain.organizationId,
+      domain.projectId,
+    );
+    const resourceId = target?.providerResourceId ?? null;
+    // Only an engine that can set hostnames has a hosting-route fact to report;
+    // Coolify owns its own proxy, so the route is its to manage and there is
+    // nothing to publish through this port.
+    if (resourceId && typeof deps.engines.hosting.setDomains === "function") {
+      const routed = await deps.engines.hosting.setDomains(
+        {
+          organizationId: domain.organizationId,
+          idempotencyKey: `set-domains-${domain.id}`,
+          timeoutMs: ADAPTER_TIMEOUT_MS,
+        },
+        {
+          applicationRef: {
+            organizationId: domain.organizationId,
+            provider: (target?.provider ?? "selfhosted") as ProviderRef["provider"],
+            resourceType: "application",
+            resourceId,
+          },
+          hostnames: [domain.hostname],
+        },
+      );
+      hostingRoute = routed.ok
+        ? { published: routed.value.published, reason: routed.value.reason }
+        : { published: false, reason: routed.reason };
+    }
+  }
+
   await deps.store.recordAuditEvent({
     organizationId: domain.organizationId,
     actorId: ctx.principal.userId,
@@ -285,6 +336,7 @@ export async function verifyDomain(
     domain: updated ?? { ...domain, verified: result.value.verified },
     detail: result.value.detail,
     edge,
+    hostingRoute,
   };
 }
 

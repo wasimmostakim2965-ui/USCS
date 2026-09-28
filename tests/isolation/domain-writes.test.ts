@@ -253,6 +253,17 @@ function makeStore() {
       domains[domains.indexOf(d)] = next;
       return next;
     },
+    // A deployment target for project A only, so a verified domain on A has an
+    // application to route and one on B does not.
+    async getProjectDeploymentTargetForService(_org: OrganizationId, projectId: string) {
+      if (projectId !== PROJ_A) return null;
+      return {
+        providerResourceId: "app-1",
+        provider: "selfhosted",
+        executionModel: "container" as const,
+        rootDirectory: null,
+      };
+    },
   } satisfies DataStore & Partial<ControlPlaneWrites>;
 
   return { store, domains, audit };
@@ -297,6 +308,36 @@ function routerWith(
 }
 
 const KNOWN_TOKEN = "cw-domain-verify=testtoken";
+
+/**
+ * A recording hosting adapter.
+ *
+ * The defect these tests pin: verifying a domain recorded it, but nothing asked
+ * the *hosting engine* to serve the hostname, so the container — bound to a
+ * private port — was never reachable on the customer's domain. This makes the
+ * `setDomains` call site observable, including that it is skipped, not faked,
+ * when there is nothing to route.
+ */
+function recordingHosting(): {
+  hosting: Engines["hosting"];
+  calls: { applicationRef: ProviderRef; hostnames: readonly string[] }[];
+  failNext: (reason: string) => void;
+} {
+  const calls: { applicationRef: ProviderRef; hostnames: readonly string[] }[] = [];
+  let failure: string | null = null;
+  const base = hostingNotConfigured("coolify");
+  const hosting: Engines["hosting"] = {
+    ...base,
+    async setDomains(_ctx, input) {
+      calls.push(input);
+      if (failure) {
+        return { ok: false, status: "engine_unavailable", reason: failure } as const;
+      }
+      return { ok: true, status: "succeeded", value: { published: true, reason: null } } as const;
+    },
+  };
+  return { hosting, calls, failNext: (reason) => (failure = reason) };
+}
 
 describe("domains.create through the registered procedures", () => {
   it("adds an unverified domain and issues a DNS challenge", async () => {
@@ -732,7 +773,105 @@ describe("the edge route follows the domain lifecycle", () => {
   });
 });
 
-describe("domains.remove through the registered procedures", () => {
+describe("the hosting route follows the domain lifecycle", () => {
+  function enginesWithHosting(hosting: Engines["hosting"], resolver: DnsResolver): Engines {
+    return { ...enginesWith(resolver), hosting };
+  }
+
+  it("tells the hosting engine to serve the hostname once the domain is verified", async () => {
+    const { store } = makeStore();
+    const { hosting, calls } = recordingHosting();
+    const router = routerWith(
+      store,
+      enginesWithHosting(
+        hosting,
+        stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": [KNOWN_TOKEN] } }),
+      ),
+    );
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as { hostingRoute: { published: boolean; reason: string | null } | null };
+    expect(data.hostingRoute).toEqual({ published: true, reason: null });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.hostnames).toEqual(["app.example.com"]);
+    expect(calls[0]?.applicationRef.resourceId).toBe("app-1");
+  });
+
+  it("does not tell the hosting engine about a domain with nothing deployed", async () => {
+    const { store } = makeStore();
+    const { hosting, calls } = recordingHosting();
+    const router = routerWith(
+      store,
+      enginesWithHosting(
+        hosting,
+        stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": [KNOWN_TOKEN] } }),
+      ),
+    );
+    // No project: a domain registered organization-wide has no application to
+    // route, so there is no hosting fact to report — not a failure.
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    const data = res.data as { hostingRoute: unknown };
+    expect(data.hostingRoute).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("keeps the verification when the hosting engine cannot route, and says so", async () => {
+    const { store, domains } = makeStore();
+    const { hosting, failNext } = recordingHosting();
+    failNext("the router is not reachable from the runtime.");
+    const router = routerWith(
+      store,
+      enginesWithHosting(
+        hosting,
+        stubResolver({ txt: { "_cloud-wai-challenge.app.example.com": [KNOWN_TOKEN] } }),
+      ),
+    );
+    const created = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A, hostname: "app.example.com" },
+    });
+    const domain = (created.data as { domain: Domain }).domain;
+
+    const res = await router.route({
+      procedure: "domains.verify",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, domainId: domain.id },
+    });
+
+    // DNS was confirmed; the route was not published. The domain stays verified
+    // and the caller is told, in the engine's own words, why it is not reachable.
+    expect((res.data as { domain: Domain }).domain.verified).toBe(true);
+    expect(domains[0]?.verified).toBe(true);
+    expect(
+      (res.data as { hostingRoute: { published: boolean; reason: string } }).hostingRoute,
+    ).toEqual({ published: false, reason: "the router is not reachable from the runtime." });
+  });
+
   it("removes a domain and records the removal", async () => {
     const { store, domains, audit } = makeStore();
     const router = routerWith(store, enginesWith(stubResolver({})));

@@ -246,6 +246,20 @@ export interface HostingAdapter extends NotConfiguredBrand {
   ): Promise<AdapterResult<void>>;
   deleteApplication(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<void>>;
   reconcile(ctx: AdapterContext, ref: ProviderRef): Promise<AdapterResult<DeploymentState>>;
+  /**
+   * Set the hostnames an application answers on, and have the engine publish
+   * their routes.
+   *
+   * This is the step that makes a verified domain *reachable*: the container is
+   * bound to a private port, and the engine's front door is what maps the
+   * customer's hostname to it and terminates TLS. It is optional on the port
+   * because Coolify's own proxy owns its hostnames; an adapter that cannot set
+   * them simply omits the method.
+   */
+  setDomains?(
+    ctx: AdapterContext,
+    input: { applicationRef: ProviderRef; hostnames: readonly string[] },
+  ): Promise<AdapterResult<{ readonly published: boolean; readonly reason: string | null }>>;
 }
 
 export interface DatabaseAdapter extends NotConfiguredBrand {

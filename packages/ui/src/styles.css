@@ -1834,6 +1834,16 @@ a.card:hover,
   white-space: nowrap;
 }
 
+/* A live-tail toggle, shown only while a build is still moving. */
+.log__follow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 /* ------------------------------------------------------------------ landing */
 
 /**

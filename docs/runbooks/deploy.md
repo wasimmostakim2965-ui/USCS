@@ -63,6 +63,7 @@ decide whether the deployment is real:
 | `SECURITY_EDGE_URL`, `SECURITY_EDGE_ORIGIN`, `SECURITY_EDGE_TOKEN__<orgId>`, `EDGE_HOSTNAME` | The edge. The API and worker build the real adapter when the URL, a **private** origin and a per-org token are set; `EDGE_HOSTNAME` is what a domain CNAMEs to. Without the URL/origin/token the edge stays honestly `not_configured`. |
 | `BUILDER_TOKEN`, `BUILD_ENGINE_URL__<orgId>`, `BUILD_ENGINE_TOKEN__<orgId>` | The build plane (ADR-0018). The builder runs as its own container with the Docker socket; the per-org endpoint/token point the adapter at it. Unset leaves builds honestly `not_configured`. See [`build-plane.md`](build-plane.md). |
 | `RUNTIME_URL`, `RUNTIME_TOKEN__<orgId>` | The self-hosted runtime (ADR-0020): this deployment's own container engine, the piece Coolify otherwise supplies. The one-command deploy generates `RUNTIME_TOKEN` and wires every organization automatically; set these by hand only when the runtime runs on another host. Unset, with no Coolify, leaves the container engine honestly `not_configured`. |
+| `ROUTER_TOKEN`, `ROUTER_URL`, `ROUTER_ACME_EMAIL` | The router (ADR-0021): this deployment's own front door, which maps a verified hostname to a deployed app and terminates TLS with an automatically issued certificate. `deploy.sh` generates `ROUTER_TOKEN` and starts it under the `edge` profile. Without `ROUTER_ACME_EMAIL` it serves a self-signed certificate and records why; without the router a verified domain is recorded but not reachable. |
 
 An engine left unset is not an error: its adapter reports `not_configured` and
 the dashboard shows that honestly. That is the intended state until the engine
@@ -106,11 +107,38 @@ SUPABASE_URL=... SUPABASE_ANON_KEY=... \
 
 ## 5. Put TLS in front
 
-The containers speak plain HTTP. Terminate TLS at the host's reverse proxy and
-forward to `:8080`. The browser must reach the dashboard over HTTPS, because the
-Supabase session is a bearer token.
+The dashboard and API containers speak plain HTTP. There are two ways to serve
+custom domains over HTTPS, and the choice is which process terminates TLS.
 
-An nginx example for the host:
+**Option A — the router (ADR-0021).** Preferred on a single host that owns its
+own front door. The router runs under the `edge` profile and does two jobs: it
+maps a verified hostname to a deployed app's loopback port, and it obtains and
+renews a Let's Encrypt certificate for it over ACME HTTP-01. It shares the host
+loopback with the runtime, so the app ports the runtime publishes are reachable
+to it. Start it with the runtime:
+
+```bash
+docker compose -f infra/deployment/docker-compose.yml \
+  --profile build --profile runtime --profile edge up -d --build
+```
+
+`./infra/deployment/deploy.sh` generates `ROUTER_TOKEN` and starts it
+automatically. Set `ROUTER_ACME_EMAIL` to the address Let's Encrypt should
+contact; without it the router serves a self-signed certificate and records why,
+rather than serving plaintext. Point each app domain's A/AAAA record at this
+host — HTTP-01 needs the name reachable on `:80`. The dashboard itself can be
+fronted too by setting `ROUTER_DEFAULT_UPSTREAM=http://127.0.0.1:8080`.
+
+While testing issuance, set
+`ROUTER_ACME_DIRECTORY=https://acme-staging-v02.api.letsencrypt.org/directory`
+so a mistake does not consume the production rate limit; clear it — and delete
+the `router-data` volume — to switch to real certificates.
+
+**Option B — your own proxy.** On a host that already terminates TLS (an
+ALB/ingress, or an existing nginx), leave the router off and configure that proxy
+as below. A load balancer that terminates TLS upstream is also the case where
+HTTP-01 is impossible, so the router is not used and the balancer holds
+certificates (ADR-0015). Forward the dashboard to `:8080`:
 
 ```nginx
 server {
@@ -127,7 +155,9 @@ server {
 }
 ```
 
-Redirect `:80` to `:443`, and set HSTS once TLS is confirmed working.
+Either way, redirect `:80` to `:443`, and set HSTS once TLS is confirmed working.
+The browser must reach the dashboard over HTTPS, because the Supabase session is
+a bearer token.
 
 ## 6. Verify the deployment
 
@@ -151,6 +181,13 @@ Redirect `:80` to `:443`, and set HSTS once TLS is confirmed working.
    confirm a new container appears (`docker ps` shows `cw-app-<id>`) and its url
    answers. On a Coolify-backed host the same step reads `coolify: ready` and
    `selfhosted: not_configured`.
+7. **Domain reachability (router):** with the `edge` profile up, add a domain,
+   point its A record at this host, and verify it. The result reports two facts —
+   the DNS record was confirmed, and the route was published. Then
+   `curl -fsS https://<the-domain>/` reaches the deployed app over HTTPS. If the
+   route did not publish, the response says so with the engine's own reason
+   instead of a silent success. With the router off, the domain is still recorded
+   and reported as not yet routable.
 
 ## 7. Operating it
 
@@ -159,6 +196,7 @@ Redirect `:80` to `:443`, and set HSTS once TLS is confirmed working.
 - **Rollback:** redeploy the previous image tag. The control plane's schema is
   additive; a rollback does not undo a migration.
 - **Backups and disaster recovery:** `docs/runbooks/backup-and-dr.md`.
+- **The router (public domains and TLS):** `docs/runbooks/router.md`.
 - **Incidents:** `docs/runbooks/incident-response.md`.
 - **SLOs:** `docs/runbooks/slos.md`.
 

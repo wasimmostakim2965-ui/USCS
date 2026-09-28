@@ -45,6 +45,10 @@ const PORT_RANGE = Number(process.env.RUNTIME_PORT_RANGE ?? 400);
 const BUILD_TIMEOUT_MS = Number(process.env.RUNTIME_BUILD_TIMEOUT_MS ?? 900000);
 const BUILD_POLL_MS = Number(process.env.RUNTIME_BUILD_POLL_MS ?? 2500);
 const LOG_TAIL = Number(process.env.RUNTIME_LOG_TAIL ?? 500);
+const ROUTER_URL = (process.env.ROUTER_URL ?? "").replace(/\/+$/, "");
+const ROUTER_TOKEN = process.env.ROUTER_TOKEN ?? "";
+
+const routerConfigured = ROUTER_URL !== "" && ROUTER_TOKEN !== "";
 
 if (TOKEN === "") {
   console.error("RUNTIME_TOKEN is required: an unauthenticated runtime is not a runtime.");
@@ -210,9 +214,68 @@ function appUrl(app) {
   return app.hostPort ? `http://${PUBLIC_HOST}:${app.hostPort}` : null;
 }
 
+/** A DNS name the router may be asked to serve an app on. */
+function isHostname(host) {
+  return (
+    typeof host === "string" &&
+    host.length > 0 &&
+    host.length <= 253 &&
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)
+  );
+}
+
+/**
+ * Publish an app's route to the router, so its hostname reaches the container.
+ *
+ * The runtime already binds the app to a loopback port; the router is what turns
+ * a public hostname into that port and terminates TLS for it. Publishing is
+ * best-effort-but-reported: an app is still deployed when the router is
+ * unconfigured, but the caller is told the hostname is not yet reachable rather
+ * than being told a URL that does not resolve.
+ */
+async function publishAppRoutes(app) {
+  if (!routerConfigured)
+    return { published: false, reason: "no router is configured (ROUTER_URL)" };
+  if (!app.hostPort) return { published: false, reason: "the app has no host port yet" };
+  const hosts = (app.domains ?? []).filter(isHostname);
+  if (hosts.length === 0) return { published: true, reason: null };
+  const failures = [];
+  for (const host of hosts) {
+    const res = await fetchJson(`${ROUTER_URL}/routes`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${ROUTER_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        host,
+        upstream: `http://127.0.0.1:${app.hostPort}`,
+        tls: "auto",
+      }),
+    });
+    if (!res.ok) failures.push(`${host}: ${res.reason ?? "refused"}`);
+  }
+  return failures.length > 0
+    ? { published: false, reason: failures.join("; ") }
+    : { published: true, reason: null };
+}
+
+/** Withdraw every route for an app, so a released hostname stops being served. */
+async function withdrawAppRoutes(app) {
+  if (!routerConfigured) return;
+  for (const host of (app.domains ?? []).filter(isHostname)) {
+    await fetchJson(`${ROUTER_URL}/routes/${encodeURIComponent(host)}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${ROUTER_TOKEN}` },
+    });
+  }
+}
+
+/** Live log subscribers per app id, for the SSE stream the dashboard reads. */
+const logStreams = new Map();
+
 function log(app, line) {
   app.logs.push(line);
   if (app.logs.length > 2000) app.logs.splice(0, app.logs.length - 2000);
+  const listeners = logStreams.get(app.id);
+  if (listeners) for (const fn of listeners) fn(line);
 }
 
 /** Poll the build plane until the job finishes; returns the image or an error. */
@@ -229,8 +292,20 @@ async function buildSource(app, source) {
   const jobId = create.value.id;
   log(app, `build job ${jobId} accepted`);
   const deadline = Date.now() + BUILD_TIMEOUT_MS;
+  let cursor = "0";
   while (Date.now() < deadline) {
     await sleep(BUILD_POLL_MS);
+    // Stream the build's new lines as they appear, so the dashboard shows the
+    // build live rather than only when it finishes. A failed poll is ignored:
+    // the next one retries, and the job's own status decides the outcome.
+    const tail = await fetchJson(
+      `${BUILDER_URL}/builds/${jobId}/logs?cursor=${encodeURIComponent(cursor)}`,
+      { headers: { authorization: `Bearer ${BUILDER_TOKEN}` } },
+    );
+    if (tail.ok) {
+      for (const line of tail.value?.logs ?? []) log(app, line);
+      if (tail.value?.nextCursor) cursor = tail.value.nextCursor;
+    }
     const job = await fetchJson(`${BUILDER_URL}/builds/${jobId}`, {
       headers: { authorization: `Bearer ${BUILDER_TOKEN}` },
     });
@@ -355,7 +430,10 @@ async function deploy(app) {
   app.container = result.container;
   app.status = "succeeded";
   app.url = appUrl(app);
+  const route = await publishAppRoutes(app);
+  app.routeError = route.published ? null : route.reason;
   log(app, `deployed ${image} on ${app.url}`);
+  if (!route.published && route.reason) log(app, `[runtime] route not published: ${route.reason}`);
   await saveState();
 }
 
@@ -400,6 +478,7 @@ const ROUTES = {
       buildPack: body.buildPack ?? null,
       rootDirectory: body.rootDirectory ?? null,
       image: body.image ?? null,
+      domains: Array.isArray(body.domains) ? body.domains.filter(isHostname) : [],
       port: body.port ?? DEFAULT_PORT,
       env: {},
       envRefs: {},
@@ -409,6 +488,7 @@ const ROUTES = {
       previousImage: null,
       status: "pending",
       engineReason: null,
+      routeError: null,
       url: null,
       deployCount: 0,
       logs: [],
@@ -430,6 +510,8 @@ const ROUTES = {
         status: app.status,
         url: app.url,
         engineReason: app.engineReason,
+        routeError: app.routeError ?? null,
+        domains: app.domains ?? [],
         artifact: app.currentImage ? { image: app.currentImage } : null,
       },
     };
@@ -450,6 +532,40 @@ const ROUTES = {
     const all = [...app.logs, ...live];
     const slice = all.slice(Number.isFinite(from) ? from : 0);
     return { code: 200, body: { logs: slice, nextCursor: String(all.length) } };
+  },
+
+  /**
+   * Stream an app's log as Server-Sent Events.
+   *
+   * The dashboard opens this and appends each `data:` line as it arrives; the
+   * runtime pushes a line the moment the build plane or the container emits one,
+   * so a deploy is watched live rather than polled. The backlog is sent first so
+   * a client that connects mid-deploy still sees the whole log.
+   */
+  async stream(app, res) {
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    const write = (line) => {
+      res.write(`data: ${JSON.stringify(line)}\n\n`);
+    };
+    res.write(`event: open\ndata: ${JSON.stringify({ id: app.id })}\n\n`);
+    for (const line of app.logs.slice(-LOG_TAIL)) write(line);
+    const listeners = logStreams.get(app.id) ?? new Set();
+    listeners.add(write);
+    logStreams.set(app.id, listeners);
+    const heartbeat = setInterval(() => res.write(": ping\n\n"), 15_000);
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      listeners.delete(write);
+      if (listeners.size === 0) logStreams.delete(app.id);
+    };
+    res.on("close", cleanup);
+    res.on("error", cleanup);
+    return null;
   },
 
   async cancel(app) {
@@ -480,9 +596,19 @@ const ROUTES = {
   async destroy(app) {
     const name = app.container ?? `${CONTAINER_PREFIX}-${app.id}`;
     await run("docker", ["rm", "-f", name], { timeoutMs: 60_000 });
+    await withdrawAppRoutes(app);
     delete state.apps[app.id];
     await saveState();
     return { code: 200, body: {} };
+  },
+
+  async setDomains(app, body) {
+    const domains = Array.isArray(body?.domains) ? body.domains.filter(isHostname) : [];
+    app.domains = domains;
+    const route = await publishAppRoutes(app);
+    app.routeError = route.published ? null : route.reason;
+    await saveState();
+    return { code: 200, body: { domains, routeError: app.routeError } };
   },
 
   async listEnv(app) {
@@ -562,7 +688,7 @@ const server = createServer(async (req, res) => {
   }
 
   const match = url.pathname.match(
-    /^\/apps\/([^/]+)(?:\/(deploy|logs|cancel|rollback|env))?(?:\/(.+))?$/,
+    /^\/apps\/([^/]+)(?:\/(deploy|logs|stream|cancel|rollback|env|domains))?(?:\/(.+))?$/,
   );
   if (!match) return send(res, 404, { message: "Not found." });
   const app = state.apps[match[1]];
@@ -571,9 +697,19 @@ const server = createServer(async (req, res) => {
   const sub = match[3];
   const body = req.method === "POST" || req.method === "PATCH" ? await readBody(req) : {};
 
+  if (action === "stream" && req.method === "GET") {
+    return ROUTES.stream(app, res);
+  }
+
   if (action === undefined && req.method === "GET") {
     const out = await ROUTES.getApp(app);
     return send(res, out.code, out.body);
+  }
+  if (action === "domains") {
+    if (req.method === "PUT" || req.method === "POST") {
+      const out = await ROUTES.setDomains(app, body);
+      return send(res, out.code, out.body);
+    }
   }
   if (action === "deploy" && req.method === "POST") {
     const out = await ROUTES.deploy(app);

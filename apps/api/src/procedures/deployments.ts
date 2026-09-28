@@ -388,6 +388,15 @@ export interface RollbackDeploymentInput {
 export interface DeploymentLogsInput {
   readonly projectId: ProjectId;
   readonly deploymentId: string;
+  /**
+   * Where to resume from, as the engine's own cursor.
+   *
+   * The runtime engine returns a `nextCursor` with every page, so a caller that
+   * holds it can ask for what is new since — the basis of the live log view.
+   * Coolify has no cursor, so it answers with null and the caller re-reads the
+   * whole tail; that is reported, never faked.
+   */
+  readonly cursor?: string | undefined;
 }
 
 export interface CancelDeploymentInput {
@@ -798,6 +807,7 @@ export async function deploymentsLogs(
       timeoutMs: ADAPTER_TIMEOUT_MS,
     },
     ref,
+    input.cursor,
   );
 
   if (!result.ok) {

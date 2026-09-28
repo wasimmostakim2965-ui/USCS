@@ -81,7 +81,7 @@ export function createSelfHostedHostingAdapter(options: SelfHostedAdapterOptions
   const call = <T>(
     ctx: AdapterContext,
     creds: SelfHostedCredentials,
-    method: "GET" | "POST" | "PATCH" | "DELETE",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
   ) =>
@@ -330,6 +330,32 @@ export function createSelfHostedHostingAdapter(options: SelfHostedAdapterOptions
 
     async reconcile(ctx, ref): Promise<AdapterResult<DeploymentState>> {
       return this.getDeployment(ctx, ref);
+    },
+
+    async setDomains(
+      ctx,
+      input,
+    ): Promise<AdapterResult<{ readonly published: boolean; readonly reason: string | null }>> {
+      const resolved = credentialsFor<{ published: boolean; reason: string | null }>(ctx);
+      if (!resolved.ok) return resolved.result;
+      const response = await call<{
+        domains?: readonly string[];
+        routeError?: string | null;
+      }>(
+        ctx,
+        resolved.creds,
+        "PUT",
+        `/apps/${encodeURIComponent(input.applicationRef.resourceId)}/domains`,
+        {
+          domains: input.hostnames,
+        },
+      );
+      if (!response.ok) return response;
+      // The runtime reports its own result: a route it could not publish is
+      // surfaced as `published: false` with the runtime's reason, never as a
+      // success the hostname does not actually resolve on.
+      const routeError = response.value.value?.routeError ?? null;
+      return ok("succeeded", { published: routeError === null, reason: routeError });
     },
   };
 }
