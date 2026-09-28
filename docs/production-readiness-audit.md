@@ -2,6 +2,38 @@
 
 **Audit date:** 2026-09-28
 
+> **Status update (2026-09-28).** Parts of this snapshot described an earlier
+> checkout and no longer match the code. Each is listed here with the evidence
+> rather than edited out, so the original finding and its resolution stay
+> together. Read the section below before acting on the body.
+>
+> - *"no durable queue, worker lease, retry/backoff, attempt table, worker-owned
+>   state transition"* — now present: `orchestration_jobs` and `attempts`
+>   (`supabase/migrations/0001_control_plane.sql`), claim/lease/reap
+>   (`0003_jobs_lease_and_idempotency.sql`, `0008_jobs_claim_and_reap_functions.sql`)
+>   and the worker-owned status guard (`0009_deployment_status_guard.sql`), driven
+>   by `apps/worker/src/processor.ts` (claim, lease, reaper) and
+>   `packages/database/src/sql-queue.ts`. The `apps/worker` app is real.
+> - *"no root LICENSE"* — `LICENSE` exists and is MIT, matching `package.json`.
+> - *"hardcoded browser-safe Supabase fallback values"* — none remain; the web
+>   entry points read `import.meta.env.VITE_SUPABASE_*` and the API reads its env
+>   (`apps/api/src/bootstrap.ts` refuses a session with no `SUPABASE_URL`).
+> - *"redirect example must point to `/auth/callback`, not only `/`"* — it points
+>   to `/auth/callback` (`apps/web/src/session.ts`, `apps/web/src/routes.ts`).
+> - *"the missing production-critical layer is the execution plane"* — the build
+>   plane now ships as a deployable service with a bounded, authenticated
+>   contract (`infra/deployment/builder-server.mjs`, `builder.Dockerfile`,
+>   `docs/runbooks/build-plane.md`, ADR-0018) and is wired into compose,
+>   Terraform and the AWS bootstrap.
+>
+> Still genuinely open, and not contradicted: real public-origin OAuth/logout
+> on a live deployment, narrow-mobile screenshot QA, and connecting the external
+> engine credentials (Coolify, MinIO, edge, DNS/TLS, Stripe) — those need live
+> accounts, which is the operator's step. This is the same honest boundary the
+> release gates 6–9 mark as *Open — needs an engine*. See
+> [`deployment-readiness-2026-09-28.md`](audit/deployment-readiness-2026-09-28.md)
+> for the deployment-specific audit.
+
 ## Executive verdict
 
 Cloud Wai is a substantial control-plane foundation, not yet a complete Vercel-like deployment platform. The repository has a real Supabase-backed multi-tenant model, protected tRPC routers, RLS migrations, adapter boundaries, resource control records, and an original control-plane UI. The missing production-critical layer is the execution plane that turns a deployment request into a durable, observable, recoverable build and release.

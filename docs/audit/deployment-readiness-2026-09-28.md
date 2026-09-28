@@ -96,19 +96,19 @@ Repository-তে adapter contracts এবং conformance tests আছে, ক�
 
 **রায়:** control-plane UI-তে deployment request তৈরি হওয়া এবং worker job record হওয়া সম্ভব; কিন্তু user-এর repository সত্যিই build/deploy হয়েছে—এমন production proof নেই যতক্ষণ না Coolify/build/runtime engine provision করে end-to-end smoke test চালানো হয়।
 
-### P0 — Builder service deploy stack-এ অন্তর্ভুক্ত নয়
+### P0 — Builder service deploy stack-এ অন্তর্ভুক্ত নয় — **সমাধান হয়েছে (2026-09-28)**
 
-`infra/deployment/builder-server.mjs` একটি বাস্তব Nixpacks-driven builder implementation। এটি authenticated এবং Docker socket ব্যবহার করে। কিন্তু এটি:
+`infra/deployment/builder-server.mjs` একটি বাস্তব Nixpacks-driven builder, যেটি authenticated এবং Docker socket ব্যবহার করে। audit-এর সময় এটি production topology-তে চালু করার কোনো পথ ছিল না। এখন যোগ/ঠিক করা হয়েছে:
 
-- `docker-compose.yml`-এ service হিসেবে নেই;
-- AWS bootstrap-এ start হয় না;
-- Terraform-এ কোনো builder host/service নেই;
-- `.env.example`-এ `BUILDER_URL` বা builder endpoint contract নেই;
-- production deployment-এর জন্য Docker socket এবং image registry lifecycle নির্ধারিত নয়।
+- `infra/deployment/builder.Dockerfile` — Nixpacks binary version ও digest পিন করা, Docker CLI এবং buildx plugin ইনস্টল (buildx ছাড়া Nixpacks build ব্যর্থ হয়)।
+- `docker-compose.yml`-এ `builder` service — `build` profile-এ opt-in, শুধু loopback-এ `127.0.0.1:8090`, শুধুমাত্র এটিকেই Docker socket দেওয়া; healthcheck সহ।
+- `deploy.sh`-এ `ensure_builder` — token generate, service start, health check, এবং প্রতিটি বিদ্যমান organization-কে wire করা।
+- `.env.example`, Terraform `variables.tf`/`compute.tf` SSM template এবং AWS bootstrap-এ builder keys।
+- Bounds: `BUILDER_CONCURRENCY`, `BUILDER_BUILD_TIMEOUT_MS`, `BUILDER_MAX_LOG_LINES`, `BUILDER_JOB_TTL_MS` — concurrency, timeout, log truncation, retention; cancel বাস্তবভাবে কাজ করে।
+- দুইটি আসল bug ঠিক হয়েছে: `docker run <nixpacks-image> build` (প্রতিটি build-এ ব্যর্থ হতো `executable file not found`) → pinned binary; এবং framework detection `plan.providers[0]` (সবসময় `null`) → `plan.variables.NIXPACKS_METADATA`। দুটোই live build দিয়ে যাচাই করা হয়েছে।
+- Operator path ও trust shapes: `docs/runbooks/build-plane.md`; ADR-0018-এ implementation note।
 
-**রায়:** build plane code আছে, কিন্তু production topology-তে চালু করার পথ নেই। অন্য system deploy করানোর core flow এখানে অসম্পূর্ণ।
-
-**প্রয়োজনীয় সংশোধন:** builder-কে আলাদা privileged service হিসেবে deploy করতে হবে অথবা Coolify/Nixpacks build path-এর সঙ্গে স্পষ্টভাবে একটিকে canonical করতে হবে। Docker socket exposure, job concurrency, workspace cleanup, image registry, quota, timeout, cancellation, retention এবং authorization লিখিতভাবে enforce করতে হবে।
+**অবশিষ্ট (সৎ সীমা):** image এখনো local daemon-এ tag হয়, registry push নয়; প্রতি-build CPU/memory limit এই layer-এ নেই (host-এ cgroup বা per-tenant builder দিয়ে enforce করতে হবে); cross-build cache নেই; multi-tenant hardening-এর জন্য builder-per-tenant shape প্রস্তাবিত। বিস্তারিত `docs/runbooks/build-plane.md`-এ।
 
 ### P1 — AWS host builds from `main` on the instance
 

@@ -56,6 +56,62 @@ services:
       api:
         condition: service_started
 
+  # The build plane (ADR-0018). It is the one component that runs untrusted
+  # customer source, so it is a separate image and the only service given the
+  # Docker socket. The API and worker never receive that mount.
+  #
+  # It has no published host port: the worker reaches it as `http://builder:8090`
+  # inside the compose network, which is the only route in. It is the one engine
+  # whose credential is per organization — the control plane reaches it at
+  # BUILD_ENGINE_URL__<organizationId> with BUILD_ENGINE_TOKEN__<organizationId>.
+  # In this single-host shape one builder serves every tenant and the token is
+  # the boundary; a deployment that needs a hard runtime boundary runs a builder
+  # per tenant and points each org's URL at its own (see
+  # docs/runbooks/build-plane.md).
+  #
+  # Opt-in via a compose profile: a host that does not run a build plane leaves
+  # the build adapter `not_configured`, so a serverless deploy stops for an
+  # honest reason rather than a fabricated artifact.
+  builder:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/builder.Dockerfile
+    profiles: ["build"]
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      BUILDER_PORT: "8090"
+      BUILDER_HOST: "0.0.0.0"
+      BUILDER_CONCURRENCY: ${BUILDER_CONCURRENCY:-2}
+      BUILDER_BUILD_TIMEOUT_MS: ${BUILDER_BUILD_TIMEOUT_MS:-900000}
+      BUILDER_MAX_LOG_LINES: ${BUILDER_MAX_LOG_LINES:-5000}
+      BUILDER_JOB_TTL_MS: ${BUILDER_JOB_TTL_MS:-3600000}
+    # The daemon socket is what makes a build produce an image the runtime can
+    # deploy. It is the reason this service is isolated: anything that can talk
+    # to the daemon can start a container, so only the builder is given it.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Published on loopback only, never a public interface, so nothing off the
+    # host can reach the builder directly. This lets the single-host `deploy.sh`
+    # shape — where the API and worker run as host processes — reach the builder
+    # at 127.0.0.1:8090, while the all-container shape reaches it as
+    # http://builder:8090.
+    ports:
+      - "127.0.0.1:8090:8090"
+    expose:
+      - "8090"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
   web:
     build:
       context: ../..

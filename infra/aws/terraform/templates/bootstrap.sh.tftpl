@@ -72,13 +72,23 @@ set -a
 # shellcheck disable=SC1090
 . "$APP_DIR/.env"
 set +a
-export PUBLIC_SUPABASE_URL="${PUBLIC_SUPABASE_URL:-$SUPABASE_URL}"
+# The doubled dollar is Terraform's escape for a literal shell expansion;
+# without it the default-expansion is parsed as an interpolation and validate fails.
+export PUBLIC_SUPABASE_URL="$${PUBLIC_SUPABASE_URL:-$SUPABASE_URL}"
 export VITE_SUPABASE_URL="$PUBLIC_SUPABASE_URL"
 export VITE_SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
 # --- 4. Build and start ------------------------------------------------------
 cd "$APP_DIR/repo"
-docker compose -f infra/deployment/docker-compose.yml up -d --build
+# The builder runs only when a token is present; `--profile build` would fail a
+# host whose .env has no BUILDER_TOKEN, so the profile is selected by value
+# rather than by presence. Without it the build adapter stays honestly
+# not_configured and a serverless deploy stops for that reason.
+if grep -q '^BUILDER_TOKEN=..*' "$APP_DIR/.env"; then
+  docker compose -f infra/deployment/docker-compose.yml --profile build up -d --build
+else
+  docker compose -f infra/deployment/docker-compose.yml up -d --build
+fi
 
 # --- 5. Ship container logs to CloudWatch ------------------------------------
 # The host's own docker logs remain; this is the durable copy.

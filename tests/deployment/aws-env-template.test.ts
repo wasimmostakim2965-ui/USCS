@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 const terraformDir = fileURLToPath(new URL("../../infra/aws/terraform/", import.meta.url));
 const compute = readFileSync(`${terraformDir}compute.tf`, "utf8");
 const variables = readFileSync(`${terraformDir}variables.tf`, "utf8");
+const bootstrap = readFileSync(`${terraformDir}templates/bootstrap.sh.tftpl`, "utf8");
 
 /**
  * The keys the SSM value emits, read from the `"KEY=${var.…}"` lines inside the
@@ -67,6 +68,17 @@ describe("the AWS SSM environment template", () => {
     expect(compute).not.toContain("CLOUD_WAI_USE_FAKE_ENGINES=true");
   });
 
+  it("emits the builder's own keys, so a provisioned host can run the build plane", () => {
+    // BUILDER_TOKEN is the builder service's secret; without it on the host the
+    // bootstrap starts no builder and every build stays not_configured. The
+    // per-organization BUILD_ENGINE_URL__/TOKEN__ keys cannot be emitted here
+    // (their ids make the dotenv parser refuse the file, like COOLIFY_TOKEN__),
+    // so the operator appends them; that is why only the service's own key is
+    // asserted.
+    expect(keys.has("BUILDER_TOKEN")).toBe(true);
+    expect(keys.has("BUILDER_CONCURRENCY")).toBe(true);
+  });
+
   it("declares every input variable it interpolates", () => {
     // A `${var.x}` with no matching `variable "x"` block is a validate failure,
     // but this catches the edit before it reaches `terraform validate`.
@@ -76,5 +88,31 @@ describe("the AWS SSM environment template", () => {
     for (const match of variables.matchAll(/^variable\s+"([a-z0-9_]+)"/gm)) declared.add(match[1]!);
     const missing = [...referenced].filter((name) => !declared.has(name));
     expect(missing).toEqual([]);
+  });
+
+  it("escapes every shell expansion in the bootstrap template", () => {
+    // `templatefile` parses every `${…}` as a Terraform interpolation. A shell
+    // default-expansion like `${VAR:-$OTHER}` is invalid Terraform and makes
+    // `terraform validate` fail, so the bootstrap never provisioned. A literal
+    // shell expansion must be written `$${…}`; the only allowed single-dollar
+    // interpolations are this config's own `${project}`, `${environment}`,
+    // `${env_parameter}`, `${log_group}`, `${repo_url}`, `${repo_ref}` and
+    // `${config_bucket}`.
+    const terraformVars = new Set([
+      "project",
+      "environment",
+      "env_parameter",
+      "log_group",
+      "repo_url",
+      "repo_ref",
+      "config_bucket",
+    ]);
+    const bad: string[] = [];
+    // Every `${` that is not `$${` — i.e. an unescaped interpolation.
+    for (const match of bootstrap.matchAll(/(?<!\$)\$\{([^}]*)\}/g)) {
+      const inner = match[1]!.trim();
+      if (!terraformVars.has(inner)) bad.push(match[0]!);
+    }
+    expect(bad).toEqual([]);
   });
 });

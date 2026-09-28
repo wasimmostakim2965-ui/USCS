@@ -44,7 +44,13 @@ describe("the environment template", () => {
   it("documents the per-organization keys it cannot express as assignments", () => {
     // The keys a real tenant needs, named somewhere in the file even though the
     // assignment form is a comment.
-    for (const key of ["COOLIFY_TOKEN__", "STORAGE_ACCESS_KEY__", "STORAGE_SECRET_KEY__"]) {
+    for (const key of [
+      "COOLIFY_TOKEN__",
+      "STORAGE_ACCESS_KEY__",
+      "STORAGE_SECRET_KEY__",
+      "BUILD_ENGINE_URL__",
+      "BUILD_ENGINE_TOKEN__",
+    ]) {
       expect(source).toContain(key);
     }
     // And the operator-facing ones are real assignments.
@@ -56,6 +62,8 @@ describe("the environment template", () => {
       "HOST",
       "PORT",
       "CLOUD_WAI_USE_FAKE_ENGINES",
+      "BUILDER_TOKEN",
+      "BUILDER_CONCURRENCY",
     ]) {
       expect(keys.has(key)).toBe(true);
     }

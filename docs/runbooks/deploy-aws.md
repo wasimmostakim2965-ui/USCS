@@ -79,6 +79,10 @@ cloud_wai_secret_encryption_key = "<base64 32-byte key>"
 # the dashboard shows honestly. Set one to close its gate, not to fill the UI.
 coolify_url       = ""
 storage_endpoint  = ""
+# The build plane (ADR-0018). A non-empty token starts the Nixpacks builder on the
+# host (its own container, Docker socket mounted); empty leaves builds
+# not_configured. Generate one with `openssl rand -hex 32`.
+builder_token     = ""
 # The edge needs both the admin URL and the private origin it forwards to; a URL
 # alone stays not_configured, because the origin is what the edge exists to hide.
 security_edge_url    = ""
@@ -148,6 +152,12 @@ STORAGE_ENDPOINT=https://minio.example.com
 STORAGE_ACCESS_KEY__f1a2b3c4=<access key>
 STORAGE_SECRET_KEY__f1a2b3c4=<secret key>
 SECURITY_EDGE_TOKEN__f1a2b3c4=<edge admin token for this tenant>
+# The build plane (ADR-0018): the per-organization endpoint and token for the
+# Nixpacks builder that runs on this host. `BUILDER_TOKEN` (the builder's own
+# secret) is already in the parameter from Terraform; this key is the same value
+# scoped to the tenant. The builder is reached at 127.0.0.1:8090 on the host.
+BUILD_ENGINE_URL__f1a2b3c4=http://127.0.0.1:8090
+BUILD_ENGINE_TOKEN__f1a2b3c4=<the BUILDER_TOKEN value>
 ENV
 aws ssm put-parameter --name /cloud-wai/prod/env --type SecureString \
   --overwrite --value "file:///tmp/cw-env"

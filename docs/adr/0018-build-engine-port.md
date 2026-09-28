@@ -56,6 +56,35 @@ Add a `BuildEngine` port. It is the only new port this rewrite introduces.
 - Build logs must be streamed to the dashboard, which is a new write path and
   therefore needs the same tenant-scoped RLS treatment as every other write.
 
+## Implementation note (2026-09-28)
+
+The port and the adapter landed, and the build plane now has a shipped service
+behind them: `infra/deployment/builder-server.mjs` (the HTTP contract the
+adapter speaks) and `infra/deployment/builder.Dockerfile` (its image). The
+adapter's name is `build-railpack.ts` and the port is still the Railpack port,
+but the **shipped builder is Nixpacks**, invoked as a pinned binary: Railpack has
+no standalone CLI or published service, whereas Nixpacks does, so Nixpacks is
+what a self-hosted build plane can actually run today. The port is unchanged, so
+swapping in Railpack later (when it ships a runnable service) is an adapter
+change, not a port change.
+
+Two defects were found and fixed while wiring it, both recorded here because
+they are the kind that pass a type-check and fail a build:
+
+- The service drove Nixpacks with `docker run <nixpacks-image> build …`. The
+  published `ghcr.io/railwayapp/nixpacks` images are the generated Dockerfiles'
+  *base* images (CMD `/bin/bash`, no `nixpacks` executable), so every build died
+  with `exec: "build": executable file not found in $PATH`. It now runs the
+  binary, pinned by version and digest.
+- The detected framework was read from `plan.providers[0]`, which is empty for
+  the languages Nixpacks auto-detects, so every ordinary app reported `null`.
+  The language is `plan.variables.NIXPACKS_METADATA`.
+
+The build service is bounded — concurrency, wall-clock timeout, log volume,
+retention — because it is the one component that runs untrusted source. See
+[`docs/runbooks/build-plane.md`](../runbooks/build-plane.md) for the operator
+path and the single-host versus builder-per-tenant trust shapes.
+
 ## Alternatives considered
 
 - **No port; let Coolify build everything.** Rejected: Coolify builds inside

@@ -172,6 +172,16 @@ Ranked against the brief. Each row is a workstream, not a wish:
 
 Vercel rows come from Vercel's own docs pages named above; user rows come from the
 review sources named above. Our rows were read in the file cited, in this
-session. `pnpm verify` (694 tests) and `pnpm verify:rls` were green when this was
+session. `pnpm verify` (885 tests) and `pnpm verify:rls` were green when this was
 written. A row moves to **Wired** only with a procedure, a page and a test in the
 same commit.
+
+One row closed after this pass last ran: the build plane behind P23 is now a
+shipped, deployable service rather than an adapter against an unconfigured
+engine. `infra/deployment/builder-server.mjs` implements the adapter's HTTP
+contract on the pinned Nixpacks binary, `infra/deployment/builder.Dockerfile`
+builds it, the compose `builder` service and `deploy.sh`'s `ensure_builder` start
+it, and release gate 15 (`tests/deployment/build-plane.test.ts`) holds its
+bounds. The engine is still unconfigured *here*, so P23 remains **Honest n/c**
+end to end, exactly as before — what changed is that deploying it is now a
+documented operator step (`docs/runbooks/build-plane.md`) instead of missing.

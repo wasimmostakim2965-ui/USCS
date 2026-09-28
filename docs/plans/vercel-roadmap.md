@@ -153,6 +153,19 @@ Acceptance met: a serverless project receives a real artifact; with no builder
 configured a build reports `not_configured`; `tests/engines/build-engine.test.ts`
 and `tests/engines/build-step.test.ts` cover each path.
 
+**The service behind the port is now shipped (2026-09-28).** The adapter speaks
+an HTTP contract, and `infra/deployment/builder-server.mjs` implements it,
+running the pinned Nixpacks binary. It is deployable: `infra/deployment/
+builder.Dockerfile`, the `builder` service in `docker-compose.yml` (profile
+`build`, Docker socket mount, loopback only), `deploy.sh`'s `ensure_builder`,
+Terraform inputs, and the AWS bootstrap all start it. It is bounded on every
+axis untrusted source can exhaust (concurrency, timeout, log volume, retention).
+See [`docs/runbooks/build-plane.md`](../runbooks/build-plane.md) and ADR-0018.
+
+The port is named Railpack and a Railpack adapter would drop in unchanged, but
+the builder that actually runs is **Nixpacks**, because Nixpacks ships a
+standalone CLI and Railpack does not.
+
 ### Phase C — Deployment pipeline (upload → build → classify → deploy)
 
 Follow Vercel's three phases exactly:

@@ -61,6 +61,7 @@ decide whether the deployment is real:
 | `COOLIFY_URL`, `COOLIFY_TOKEN__<orgId>`, … | Per-organization Coolify credentials. One team per tenant. |
 | `STORAGE_ENDPOINT`, `STORAGE_ACCESS_KEY__<orgId>`, … | MinIO/S3 credentials. |
 | `SECURITY_EDGE_URL`, `SECURITY_EDGE_ORIGIN`, `SECURITY_EDGE_TOKEN__<orgId>`, `EDGE_HOSTNAME` | The edge. The API and worker build the real adapter when the URL, a **private** origin and a per-org token are set; `EDGE_HOSTNAME` is what a domain CNAMEs to. Without the URL/origin/token the edge stays honestly `not_configured`. |
+| `BUILDER_TOKEN`, `BUILD_ENGINE_URL__<orgId>`, `BUILD_ENGINE_TOKEN__<orgId>` | The build plane (ADR-0018). The builder runs as its own container with the Docker socket; the per-org endpoint/token point the adapter at it. Unset leaves builds honestly `not_configured`. See [`build-plane.md`](build-plane.md). |
 
 An engine left unset is not an error: its adapter reports `not_configured` and
 the dashboard shows that honestly. That is the intended state until the engine
@@ -71,6 +72,13 @@ exists.
 ```bash
 docker compose -f infra/deployment/docker-compose.yml up -d --build
 docker compose -f infra/deployment/docker-compose.yml ps
+```
+
+To include the build plane, add the `build` profile — it starts the builder
+container and the Docker socket is mounted into it alone:
+
+```bash
+docker compose -f infra/deployment/docker-compose.yml --profile build up -d --build
 ```
 
 The dashboard listens on `:8080`. The API and worker have no published port.

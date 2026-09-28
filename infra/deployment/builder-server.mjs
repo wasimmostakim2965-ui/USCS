@@ -10,12 +10,26 @@
  *   POST /builds/:id/cancel            -> {}
  *
  * The actual builder is Nixpacks (Railway's source-to-image tool, the predecessor
- * of Railpack and still the one with a published, runnable image). This process
- * only orchestrates: it clones the source, drives Nixpacks, records the log
- * lines and reports the produced image. It never invents an image: if Nixpacks
- * fails, the job fails with the real output.
+ * of Railpack, now in maintenance mode but still installable and runnable). This
+ * process only orchestrates: it clones the source, drives the Nixpacks CLI,
+ * records the log lines and reports the produced image. It never invents an
+ * image: if Nixpacks fails, the job fails with the real output.
+ *
+ * Nixpacks is invoked as a **binary** (`nixpacks build …`), not as
+ * `docker run <nixpacks-image> build …`. The published `ghcr.io/railwayapp/
+ * nixpacks` images are the generated Dockerfiles' *base* images — their CMD is
+ * `/bin/bash` and they carry no `nixpacks` executable — so the `docker run`
+ * form fails with `exec: "build": executable file not found in $PATH` on every
+ * build. `infra/deployment/builder.Dockerfile` installs the pinned binary and
+ * puts it on PATH; an operator running this process directly sets `NIXPACKS_BIN`.
  *
  *   node infra/deployment/builder-server.mjs
+ *
+ * The builder is the one part of the platform that runs untrusted customer
+ * source, so it is bounded on every axis an attacker or a broken repository
+ * could exhaust: concurrent builds, wall-clock time, log volume and job
+ * retention. The bounds are configuration, not constants, and each is applied
+ * where the untrusted input arrives.
  */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
@@ -28,7 +42,22 @@ const PORT = Number(process.env.BUILDER_PORT ?? 8090);
 const HOST = process.env.BUILDER_HOST ?? "0.0.0.0";
 const TOKEN = process.env.BUILDER_TOKEN ?? "";
 const IMAGE_PREFIX = process.env.BUILDER_IMAGE_PREFIX ?? "cloudwai";
-const NIXPACKS_IMAGE = process.env.NIXPACKS_IMAGE ?? "cloudwai-nixpacks:latest";
+// The Nixpacks executable. The builder image puts a pinned version on PATH; an
+// operator running this directly points this at the binary they installed.
+const NIXPACKS_BIN = process.env.NIXPACKS_BIN ?? "nixpacks";
+// How many builds may run at once. Each drives a Docker build, so an unbounded
+// value turns one tenant's build storm into a denial of service for every other
+// tenant on the host. Excess builds wait in a FIFO queue rather than failing.
+const MAX_CONCURRENT_BUILDS = Math.max(1, Number(process.env.BUILDER_CONCURRENCY ?? 2));
+// A build that has not finished in this long is killed and reported as a
+// timeout. Without it a hung `npm install` holds a slot forever.
+const BUILD_TIMEOUT_MS = Math.max(1000, Number(process.env.BUILDER_BUILD_TIMEOUT_MS ?? 900_000));
+// Finished jobs are kept for this long so a caller can read the logs back, then
+// dropped so the process does not grow without bound.
+const JOB_TTL_MS = Math.max(1000, Number(process.env.BUILDER_JOB_TTL_MS ?? 3_600_000));
+// A build log is capped so a repository that prints forever cannot exhaust the
+// process's memory; the cap is reported in the log so the truncation is visible.
+const MAX_LOG_LINES = Math.max(100, Number(process.env.BUILDER_MAX_LOG_LINES ?? 5_000));
 
 if (!TOKEN) {
   console.error("BUILDER_TOKEN is not set; refusing to start an unauthenticated builder.");
@@ -40,14 +69,81 @@ const jobs = new Map();
 /** @type {Map<string, string>} */
 const byIdempotencyKey = new Map();
 
+// Builds beyond MAX_CONCURRENT_BUILDS wait here. Each entry resumes the build
+// it names; a queued job reports `queued` until a slot frees, so a caller sees
+// the real state rather than a build that claims to have started.
+let running = 0;
+/** @type {Array<() => void>} */
+const waiting = [];
+
 function log(job, line) {
+  if (job.lines.length >= MAX_LOG_LINES) {
+    // Say so once, then stop recording. Silently dropping the tail would make
+    // the log look complete when it is not.
+    if (!job.logTruncated) {
+      job.logTruncated = true;
+      job.lines.push(`[cloud-wai] log truncated at ${MAX_LOG_LINES} lines`);
+    }
+    return;
+  }
   job.lines.push(line);
 }
+
+/**
+ * Claim a build slot, waiting in FIFO order if the limit is reached. Resolves
+ * when this job may run.
+ */
+function acquireSlot() {
+  if (running < MAX_CONCURRENT_BUILDS) {
+    running += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    waiting.push(() => {
+      // The slot is handed over, not freed: the releaser decremented `running`
+      // and this re-increments it, keeping the count correct across the handoff.
+      running += 1;
+      resolve();
+    });
+  });
+}
+
+function releaseSlot() {
+  running -= 1;
+  const next = waiting.shift();
+  if (next) next();
+}
+
+/**
+ * Drop finished jobs older than JOB_TTL_MS so a long-lived builder does not
+ * accumulate every build it has ever run. A running or queued job is never
+ * dropped.
+ */
+function sweepJobs() {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, job] of jobs) {
+    const finished = job.status === "succeeded" || job.status === "failed";
+    if (finished && job.finishedAt !== undefined && job.finishedAt < cutoff) {
+      jobs.delete(id);
+      if (job.idempotencyKey) byIdempotencyKey.delete(job.idempotencyKey);
+    }
+  }
+}
+
+setInterval(sweepJobs, Math.min(JOB_TTL_MS, 60_000)).unref();
 
 function run(cmd, args, options = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { ...options, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
+    let settled = false;
+    let timer;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(result);
+    };
     const onData = (buf) => {
       const text = buf.toString();
       out += text;
@@ -57,12 +153,34 @@ function run(cmd, args, options = {}) {
     };
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
-    child.on("error", (error) => resolve({ code: 127, out: String(error) }));
-    child.on("close", (code) => resolve({ code: code ?? 1, out }));
+    child.on("error", (error) => finish({ code: 127, out: String(error) }));
+    child.on("close", (code) => finish({ code: code ?? 1, out }));
+    // A build that hangs must not hold its slot forever. Kill the process group
+    // (`spawn` with `detached` would be needed for grandchildren) and report the
+    // timeout distinctly so the deploy fails with the real reason.
+    if (options.timeoutMs) {
+      timer = setTimeout(() => {
+        timer = undefined;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+        finish({ code: 124, out: `${out}\n[cloud-wai] build timed out` });
+      }, options.timeoutMs);
+    }
   });
 }
 
 async function runBuild(job, payload) {
+  await acquireSlot();
+  if (job.cancelled) {
+    job.status = "failed";
+    job.finishedAt = Date.now();
+    log(job, "build cancelled before it started");
+    releaseSlot();
+    return;
+  }
   job.status = "running";
   const source = payload.source ?? {};
   const workspace = await mkdtemp(join(tmpdir(), "cloudwai-build-"));
@@ -73,6 +191,7 @@ async function runBuild(job, payload) {
       log(job, `cloning ${source.repository}`);
       const clone = await run("git", ["clone", "--depth", "1", source.repository, sourceDir], {
         onLine: (line) => log(job, line),
+        timeoutMs: BUILD_TIMEOUT_MS,
       });
       if (clone.code !== 0) {
         job.status = "failed";
@@ -82,6 +201,7 @@ async function runBuild(job, payload) {
       if (source.gitRef) {
         const checkout = await run("git", ["-C", sourceDir, "checkout", source.gitRef], {
           onLine: (line) => log(job, line),
+          timeoutMs: BUILD_TIMEOUT_MS,
         });
         if (checkout.code !== 0) {
           job.status = "failed";
@@ -91,6 +211,7 @@ async function runBuild(job, payload) {
       }
     } else if (source.kind === "image") {
       job.status = "succeeded";
+      job.finishedAt = Date.now();
       job.artifact = { image: source.uri, resolvedCommit: undefined, framework: null };
       log(job, `image source ${source.uri}: nothing to build`);
       return;
@@ -100,27 +221,32 @@ async function runBuild(job, payload) {
       return;
     }
 
-    // Nixpacks builds through the Docker daemon; this process is given the
-    // socket so the image lands in the same registry the control plane deploys
-    // from. `--name` is the local image tag.
+    // Nixpacks builds through the Docker daemon; this process drives the CLI so
+    // the image lands in the same daemon the control plane deploys from.
+    // `--name` is the local image tag. The binary is invoked directly — see the
+    // header for why `docker run <nixpacks-image> build` is the wrong form.
     log(job, `building with nixpacks -> ${tag}`);
-    const args = [
-      "run",
-      "--rm",
-      "-v",
-      "/var/run/docker.sock:/var/run/docker.sock",
-      "-v",
-      `${sourceDir}:/app:ro`,
-      NIXPACKS_IMAGE,
-      "build",
-      "/app",
-      "--name",
-      tag,
-    ];
+    const args = ["build", sourceDir, "--name", tag];
     if (payload.buildCommand) args.push("--build-cmd", payload.buildCommand);
     if (payload.buildPack) args.push("--buildpacks", payload.buildPack);
+    // Non-secret build-time environment the adapter forwarded. It is applied so
+    // a build that was configured with it is not built without it — the adapter
+    // and the service agree on the contract. Nixpacks takes one `--env KEY=VAL`
+    // per variable as a repeated flag. Secrets are not sent here (the contract
+    // says so); they are resolved by the engine.
+    const buildEnv = payload.environment ?? {};
+    if (typeof buildEnv === "object" && buildEnv !== null) {
+      for (const [key, value] of Object.entries(buildEnv)) {
+        if (typeof key === "string" && key !== "" && typeof value === "string") {
+          args.push("--env", `${key}=${value}`);
+        }
+      }
+    }
 
-    const build = await run("docker", args, { onLine: (line) => log(job, line) });
+    const build = await run(NIXPACKS_BIN, args, {
+      onLine: (line) => log(job, line),
+      timeoutMs: BUILD_TIMEOUT_MS,
+    });
     if (job.cancelled) {
       job.status = "failed";
       log(job, "build cancelled");
@@ -132,23 +258,20 @@ async function runBuild(job, payload) {
       return;
     }
 
-    const detect = await run("docker", [
-      "run",
-      "--rm",
-      "-v",
-      `${sourceDir}:/app:ro`,
-      NIXPACKS_IMAGE,
-      "plan",
-      "/app",
-      "--format",
-      "json",
-    ]);
+    // `nixpacks plan` classifies the source the same way the build did. The
+    // detected language is `variables.NIXPACKS_METADATA` (e.g. "node"); the
+    // `providers` array is empty for the languages Nixpacks auto-detects, so
+    // reading only that would report `null` for every ordinary app. Neither
+    // field is guessed: a plan that fails leaves `framework` null.
+    const detect = await run(NIXPACKS_BIN, ["plan", sourceDir, "--format", "json"], {
+      timeoutMs: BUILD_TIMEOUT_MS,
+    });
     let framework = null;
     if (detect.code === 0) {
       try {
         const plan = JSON.parse(detect.out);
         const providers = plan.providers ?? [];
-        framework = providers[0] ?? null;
+        framework = plan.variables?.NIXPACKS_METADATA ?? providers[0] ?? null;
       } catch {
         framework = null;
       }
@@ -160,7 +283,11 @@ async function runBuild(job, payload) {
     job.status = "failed";
     log(job, `build failed: ${String(error)}`);
   } finally {
+    if (job.status === "succeeded" || job.status === "failed") {
+      job.finishedAt = Date.now();
+    }
     await rm(workspace, { recursive: true, force: true }).catch(() => {});
+    releaseSlot();
   }
 }
 

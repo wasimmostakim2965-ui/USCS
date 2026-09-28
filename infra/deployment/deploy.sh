@@ -201,6 +201,52 @@ ensure_container_network() {
     || warn "could not add the container MSS clamp"
 }
 
+ensure_builder() {
+  # The build plane (ADR-0018) runs as a container because it needs the Nixpacks
+  # binary and the Docker socket; the API and worker run as host processes. It is
+  # optional: with no BUILDER_TOKEN the build adapter stays `not_configured` and
+  # a serverless deploy stops honestly rather than inventing an artifact.
+  local token
+  token="$(grep '^BUILDER_TOKEN=' .env | cut -d= -f2- || true)"
+  if [[ -z "$token" ]]; then
+    token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+    # `set_env` is scoped to ensure_env; write the key here directly.
+    if grep -q '^BUILDER_TOKEN=' .env; then
+      sed -i "s|^BUILDER_TOKEN=.*|BUILDER_TOKEN=${token}|" .env
+    else
+      printf 'BUILDER_TOKEN=%s\n' "$token" >>.env
+    fi
+    ok "generated BUILDER_TOKEN"
+  fi
+  say "starting the build plane"
+  if ! docker compose -f infra/deployment/docker-compose.yml --profile build up -d --build builder \
+      >>"$LOG_DIR/builder.log" 2>&1; then
+    warn "the builder did not start; continuing without a build plane (builds stay not_configured)"
+    return
+  fi
+  if ! wait_for_http "http://127.0.0.1:8090/healthz" 60; then
+    warn "the builder did not become healthy; builds stay not_configured until it does"
+    return
+  fi
+  ok "builder on 127.0.0.1:8090"
+  # Wire the builder to every organization already in the control plane, so an
+  # existing tenant gains the build engine. New organizations are wired the same
+  # way after they are created (see docs/runbooks/build-plane.md).
+  local orgs
+  orgs="$(docker exec -i "$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)" \
+    psql -U postgres -d postgres -tAc "select id from organizations" 2>/dev/null | tr -d ' ' || true)"
+  local org wired=0
+  for org in $orgs; do
+    [[ -n "$org" ]] || continue
+    if ! grep -q "^BUILD_ENGINE_TOKEN__${org}=" .env; then
+      printf 'BUILD_ENGINE_URL__%s=http://127.0.0.1:8090\nBUILD_ENGINE_TOKEN__%s=%s\n' "$org" "$org" "$token" >>.env
+      wired=$((wired + 1))
+    fi
+  done
+  [[ "$wired" -gt 0 ]] && ok "wired the builder to $wired organization(s)"
+  return 0
+}
+
 apply_migrations() {
   # `supabase start` already applies supabase/migrations on a fresh stack, so this
   # only catches migrations added since. It never resets, so a redeploy does not
@@ -349,6 +395,7 @@ cmd_deploy() {
   ensure_supabase
   ensure_env
   apply_migrations
+  ensure_builder
   build
   start_all
   echo

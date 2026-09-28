@@ -154,6 +154,25 @@ variable "storage_endpoint" {
   default     = ""
 }
 
+// --- Build plane (optional) --------------------------------------------------
+// The Nixpacks build service (ADR-0018). It is the one engine that runs
+// untrusted customer source and needs the Docker socket, so on this host it runs
+// as its own container (`infra/deployment/builder.Dockerfile`) with the socket
+// mounted and no public port. Empty token leaves builds not_configured.
+
+variable "builder_token" {
+  description = "Shared secret the builder service requires. Empty disables the build plane (builds stay not_configured)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "builder_concurrency" {
+  description = "How many builds the builder runs at once. Each drives a Docker build; keep it small on one host."
+  type        = number
+  default     = 2
+}
+
 // --- Source ------------------------------------------------------------------
 // Where the host gets the code it runs. The bootstrap clones this and builds the
 // images on the instance, which keeps the deployment to one artifact the operator

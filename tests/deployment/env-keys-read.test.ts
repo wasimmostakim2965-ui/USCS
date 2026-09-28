@@ -10,7 +10,10 @@
  * code does not read has to be *after* it.
  *
  * Production source is `apps/`, `packages/` and `infra/`, excluding test files
- * and build output — a key only a test mentions is not wired.
+ * and build output — a key only a test mentions is not wired. `.mjs` is
+ * included because the build-plane service (`infra/deployment/builder-server.mjs`)
+ * is production source and reads its own builder keys; leaving it out would let
+ * a live key look unwired.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -39,7 +42,7 @@ function productionFiles(dir: string, into: string[] = []): string[] {
     if (entry === "node_modules" || entry === "dist" || entry === ".git") continue;
     const path = `${dir}${entry}`;
     if (statSync(path).isDirectory()) productionFiles(`${path}/`, into);
-    else if (/\.(ts|tsx|tftpl|yml|yaml|conf)$/.test(entry) && !/\.test\./.test(entry)) {
+    else if (/\.(ts|tsx|mjs|tftpl|yml|yaml|conf)$/.test(entry) && !/\.test\./.test(entry)) {
       into.push(path);
     }
   }

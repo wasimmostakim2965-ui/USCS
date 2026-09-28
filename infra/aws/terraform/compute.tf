@@ -112,6 +112,15 @@ resource "aws_ssm_parameter" "env" {
     "SECURITY_EDGE_BOT_ALLOWLIST=${var.security_edge_bot_allowlist}",
     "EDGE_HOSTNAME=${var.edge_hostname}",
     "STORAGE_ENDPOINT=${var.storage_endpoint}",
+    // The build plane (ADR-0018). BUILDER_TOKEN is the builder service's own
+    // secret; the per-organization BUILD_ENGINE_URL__/TOKEN__ keys cannot be
+    // expressed here (they carry an organization id, which the dotenv/Compose
+    // parser refuses — the same limitation as COOLIFY_TOKEN__) and are appended
+    // to this parameter by the operator after provisioning (see deploy-aws.md).
+    "BUILDER_TOKEN=${var.builder_token}",
+    "BUILDER_PORT=8090",
+    "BUILDER_HOST=0.0.0.0",
+    "BUILDER_CONCURRENCY=${var.builder_concurrency}",
   ]))
 }
 
