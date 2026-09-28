@@ -608,3 +608,27 @@ traps worth remembering:
   `.deploy/logs/supabase.log` — that is third-party, gitignored and untracked,
   but do not copy `.deploy/` into anything that ships.
 
+
+## Deploy / test environment gotchas (2026-09-28)
+
+- A fresh stack has no demo user, so the `DEMO_AUTOLOGIN=1` no-login bypass is
+  dead until `demo.session` can perform its password grant. `deploy.sh` now
+  calls `ensure_demo_tenant` after `start_all`: it creates `DEMO_EMAIL` through
+  `auth/v1/admin/users` (or looks the id up if it exists) and inserts a demo
+  `organizations` row plus an `owner` `organization_members` row via the db
+  container's `psql`. If you wipe the database and redeploy, this is what makes
+  the dashboard render instead of sitting on "Connecting to Cloud Wai…".
+- `NODE_ENV=production` (which production hosts export) makes Vite externalize
+  `node:*` builtins as empty modules under the jsdom test environment, so
+  `createServer` from `node:http` is `undefined` and every test that binds a
+  real server fails with "createServer is not a function" even though the code
+  is unchanged. `vitest.config.ts` pins `process.env.NODE_ENV = "test"` before
+  Vite reads it. Test `pnpm verify` with `NODE_ENV=production` set, because that
+  is how a real host runs it.
+- `scripts/verify-rls.sh` boots a throwaway Postgres on `PORT`. A production
+  shell often has `PORT` set for the app (deploy.sh exports it, and PaaS hosts
+  set it), which collides on `8787`. Use `CLOUDWAI_RLS_PORT` to pick the probe
+  port; `PORT` remains the fallback.
+- The connected sandbox `GITHUB_TOKEN` has no push rights on this repo. The
+  owner's own token is required to push to `wasimmostakim2965-ui/USCS`; keep it
+  out of the remote URL and out of logs (`git push https://user:$TOKEN@...`).
