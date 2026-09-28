@@ -1135,6 +1135,96 @@ export async function removeRateLimit(
 }
 
 /**
+ * A project's deployment-protection posture, as a member may read it.
+ *
+ * The password is deliberately absent: the dashboard shows the mode and the
+ * basic-auth user, never the digest that verifies a guess. A null posture means
+ * the project is open (no protection has ever been set), which is the honest
+ * default.
+ */
+export interface DeploymentProtectionSummary {
+  readonly mode: "none" | "password" | "ip";
+  readonly basicUser: string | null;
+  readonly allowedCidrs: readonly string[];
+  readonly protectionExpiresAt: string | null;
+  readonly version: number;
+  readonly updatedAt: string;
+}
+
+/**
+ * Load a project's deployment protection.
+ *
+ * A deployment that predates the table answers with the honest
+ * `engine_unavailable`, surfaced as degraded, so "protection is off" and "not
+ * supported here" stay distinguishable — the same shape the rate limits use.
+ */
+export async function loadDeploymentProtection(
+  client: ApiClient,
+  organizationId: string,
+  projectId: string,
+): Promise<Section<DeploymentProtectionSummary>> {
+  const title = "Deployment protection";
+  const response = await client.call<{ protection: DeploymentProtectionSummary | null }>(
+    "security.protection.get",
+    { organizationId, projectId },
+  );
+  if (response.notConfigured) {
+    return {
+      title,
+      state: { kind: "degraded", reason: response.error?.message ?? "Not configured." },
+    };
+  }
+  if (!response.ok) return errored(title, response.error?.message ?? "Request failed.");
+  const protection = response.data?.protection ?? null;
+  // A null posture is not an error and not empty: it is the open default, shown
+  // as one row so the page states the posture rather than showing a blank.
+  const items: readonly DeploymentProtectionSummary[] = protection
+    ? [protection]
+    : [
+        {
+          mode: "none",
+          basicUser: null,
+          allowedCidrs: [],
+          protectionExpiresAt: null,
+          version: 0,
+          updatedAt: "",
+        },
+      ];
+  return ready(title, items);
+}
+
+export interface SaveDeploymentProtectionInput {
+  readonly organizationId: string;
+  readonly projectId: string;
+  readonly mode: "none" | "password" | "ip";
+  readonly basicUser?: string;
+  /** The plaintext password. Hashed by the API; never returned. */
+  readonly basicPassword?: string;
+  readonly allowedCidrs?: readonly string[];
+  readonly protectionExpiresAt?: string;
+}
+
+/**
+ * Set a project's deployment protection.
+ *
+ * The API records the posture and then distributes it to the edge, answering
+ * `applied: false` with a reason when no edge is configured — so the UI can say
+ * "saved, not yet enforced" rather than claiming a protection that is not live.
+ */
+export async function saveDeploymentProtection(
+  client: ApiClient,
+  input: SaveDeploymentProtectionInput,
+): Promise<
+  ApiResponse<{
+    protection: DeploymentProtectionSummary;
+    applied: boolean;
+    engineReason: string | null;
+  }>
+> {
+  return client.call("security.protection.save", input);
+}
+
+/**
  * Load the edge's recent decisions — what it allowed, logged, challenged or
  * blocked, and at which stage of the ladder.
  *

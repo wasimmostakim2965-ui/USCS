@@ -26,6 +26,7 @@ import {
   StatBox,
   StatusBadge,
   Table,
+  TextArea,
   TextInput,
   presentDeploymentStatus,
   Icon,
@@ -66,6 +67,8 @@ import {
   loadRateLimits,
   addRateLimit,
   removeRateLimit,
+  loadDeploymentProtection,
+  saveDeploymentProtection,
   loadVerifiedBots,
   loadUsage,
   loadSecurityPolicy,
@@ -100,6 +103,7 @@ import {
   type SecurityRuleSummary,
   type TrustedSourceSummary,
   type RateLimitSummary,
+  type DeploymentProtectionSummary,
   type ObservabilityReportSummary,
   type OrchestrationJobSummary,
   type SecurityPolicySummary,
@@ -798,6 +802,7 @@ export function ProjectOverviewPage({
  * adapter writes them.
  */
 export function ProjectSettingsPage({
+  organizationId,
   projectId,
 }: {
   readonly organizationId: string;
@@ -809,6 +814,12 @@ export function ProjectSettingsPage({
     [client, projectId],
     "Project",
   );
+  const protection = useSection(
+    () => loadDeploymentProtection(client, organizationId, projectId),
+    [client, organizationId, projectId],
+    "Deployment protection",
+  );
+  const [editingProtection, setEditingProtection] = useState(false);
 
   const project = section.state.kind === "ready" ? section.state.items[0] : undefined;
   const [name, setName] = useState("");
@@ -988,6 +999,76 @@ export function ProjectSettingsPage({
           </div>
         </Card>
       </SectionShell>
+
+      <SectionShell
+        title="Deployment protection"
+        hint="Keep this project's deployments off the public internet. A preview URL is an unlisted address, not a private one: anyone it leaks to can open it. Password protection puts the edge in front of every host of this project and requires the credentials before a request reaches the app; an address allow-list admits only the networks you name. Both are enforced before the firewall, so no allow rule or inspection runs for a request that has not passed."
+        actions={
+          <Button size="sm" onClick={() => setEditingProtection(true)}>
+            Configure
+          </Button>
+        }
+      >
+        <Card flush>
+          <SectionView<DeploymentProtectionSummary>
+            section={protection.section}
+            onRetry={protection.reload}
+            emptyMessage="No protection configured."
+            columns={[
+              {
+                key: "mode",
+                header: "Protection",
+                render: (item) => <ProtectionPostureBadge mode={item.mode} />,
+              },
+              {
+                key: "detail",
+                header: "Detail",
+                render: (item) => (
+                  <span className="small">
+                    {item.mode === "password"
+                      ? item.basicUser
+                        ? `Sign-in user “${item.basicUser}”`
+                        : "A shared password is required"
+                      : item.mode === "ip"
+                        ? item.allowedCidrs.length > 0
+                          ? item.allowedCidrs.join(", ")
+                          : "No addresses allowed — everything is refused"
+                        : "Open to anyone with the URL"}
+                  </span>
+                ),
+              },
+              {
+                key: "expires",
+                header: "Expires",
+                render: (item) => (
+                  <span className="small">
+                    {item.protectionExpiresAt ? (
+                      <Timestamp value={item.protectionExpiresAt} />
+                    ) : (
+                      "Never"
+                    )}
+                  </span>
+                ),
+              },
+            ]}
+            rowKey={(item) => item.mode}
+          />
+        </Card>
+      </SectionShell>
+
+      <ProtectionModal
+        organizationId={organizationId}
+        projectId={projectId}
+        current={
+          protection.section.state.kind === "ready" ? protection.section.state.items[0] : undefined
+        }
+        open={editingProtection}
+        onClose={() => setEditingProtection(false)}
+        onSaved={() => {
+          setEditingProtection(false);
+          protection.reload();
+        }}
+      />
     </PageShell>
   );
 }
@@ -4081,6 +4162,223 @@ function ProtectionBadge({ policy }: { readonly policy: SecurityPolicySummary })
   if (!active) return <StatusBadge label="Normal" tone="neutral" />;
   return (
     <StatusBadge label={policy.protectionExpiresAt ? "Attack (timed)" : "Attack"} tone="danger" />
+  );
+}
+
+/**
+ * The deployment-protection posture.
+ *
+ * A password posture with no user is still protected — a single shared password
+ * — so it reads as protected rather than being downgraded to "off". An address
+ * allow-list with no entries is the most restrictive posture of all, so it reads
+ * as protected too, with the table row spelling out that everything is refused.
+ */
+function ProtectionPostureBadge({ mode }: { readonly mode: DeploymentProtectionSummary["mode"] }) {
+  if (mode === "password") return <StatusBadge label="Password" tone="positive" />;
+  if (mode === "ip") return <StatusBadge label="Address list" tone="positive" />;
+  return <StatusBadge label="Open" tone="warning" />;
+}
+
+/**
+ * Configure a project's deployment protection.
+ *
+ * The form picks one of three postures: open, a shared password, or an address
+ * allow-list. A save distributes to the edge, and the answer says whether it is
+ * live: `applied: false` with a reason is shown as "saved, not yet enforced",
+ * never as a success. The password is sent once and never read back — the field
+ * is left empty on reopen, and an empty field on a password project means "keep
+ * the current password".
+ */
+function ProtectionModal({
+  organizationId,
+  projectId,
+  current,
+  open,
+  onClose,
+  onSaved,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+  readonly current: DeploymentProtectionSummary | undefined;
+  readonly open: boolean;
+  readonly onClose: () => void;
+  readonly onSaved: () => void;
+}) {
+  const { client } = useApp();
+  const [mode, setMode] = useState<DeploymentProtectionSummary["mode"]>(
+    current && current.version > 0 ? current.mode : "none",
+  );
+  const [basicUser, setBasicUser] = useState(current?.basicUser ?? "");
+  const [basicPassword, setBasicPassword] = useState("");
+  const [allowedCidrs, setAllowedCidrs] = useState((current?.allowedCidrs ?? []).join("\n"));
+  const [expiresAt, setExpiresAt] = useState(current?.protectionExpiresAt ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const existing = current !== undefined && current.version > 0;
+  const keepsPassword = mode === "password" && existing && current?.mode === "password";
+
+  const close = () => {
+    setError(null);
+    setNotice(null);
+    onClose();
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const cidrs =
+      mode === "ip"
+        ? allowedCidrs
+            .split(/[\s,]+/)
+            .map((value) => value.trim())
+            .filter((value) => value !== "")
+        : [];
+    const response = await saveDeploymentProtection(client, {
+      organizationId,
+      projectId,
+      mode,
+      // Only send a user/password when they mean something, so an open or
+      // address-listed posture does not carry a stray credential.
+      ...(mode === "password" && basicUser.trim() !== "" ? { basicUser: basicUser.trim() } : {}),
+      ...(mode === "password" && basicPassword !== "" ? { basicPassword } : {}),
+      ...(mode === "ip" ? { allowedCidrs: cidrs } : {}),
+      ...(expiresAt.trim() !== ""
+        ? { protectionExpiresAt: new Date(expiresAt).toISOString() }
+        : {}),
+    });
+    setBusy(false);
+    if (!response.ok) {
+      setError(response.error?.message ?? "The protection could not be saved.");
+      return;
+    }
+    // Honest outcome: a save that did not reach an edge says so and stays open,
+    // rather than closing a dialog as if it were enforced.
+    if (response.data && !response.data.applied) {
+      setNotice(
+        response.data.engineReason
+          ? `Saved, but not yet enforced: ${response.data.engineReason}`
+          : "Saved, but not yet enforced — no edge is configured.",
+      );
+      return;
+    }
+    onSaved();
+  };
+
+  return (
+    <Modal
+      title="Deployment protection"
+      open={open}
+      onClose={close}
+      footer={
+        <>
+          <Button onClick={close}>Cancel</Button>
+          <Button variant="primary" onClick={() => void submit()} busy={busy}>
+            Save protection
+          </Button>
+        </>
+      }
+    >
+      <div className="stack">
+        <p className="muted small">
+          Enforced at the edge, before the firewall and before any allow rule. Choose one posture.
+        </p>
+        <Field label="Posture" {...(error ? { error } : {})}>
+          {() => (
+            <ChoiceGroup<DeploymentProtectionSummary["mode"]>
+              name="deployment-protection-mode"
+              value={mode}
+              onChange={(value) => {
+                setError(null);
+                setNotice(null);
+                setMode(value);
+              }}
+              options={[
+                {
+                  value: "none",
+                  label: "Open",
+                  hint: "Anyone with the URL can reach this project's deployments.",
+                },
+                {
+                  value: "password",
+                  label: "Password",
+                  hint: "The edge asks for HTTP basic credentials before the request reaches the app.",
+                },
+                {
+                  value: "ip",
+                  label: "Address allow-list",
+                  hint: "Only the networks you name may reach the deployments; everyone else is refused.",
+                },
+              ]}
+            />
+          )}
+        </Field>
+
+        {mode === "password" ? (
+          <>
+            <Field label="Sign-in user (optional)">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  value={basicUser}
+                  onChange={setBasicUser}
+                  placeholder="cloud-wai"
+                />
+              )}
+            </Field>
+            <Field
+              label="Password"
+              hint={
+                keepsPassword
+                  ? "Leave empty to keep the current password. A new value replaces it."
+                  : "At least 8 characters. Stored as a one-way digest — it cannot be read back."
+              }
+            >
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="password"
+                  value={basicPassword}
+                  onChange={setBasicPassword}
+                  placeholder={keepsPassword ? "••••••••" : ""}
+                />
+              )}
+            </Field>
+          </>
+        ) : null}
+
+        {mode === "ip" ? (
+          <Field
+            label="Allowed addresses"
+            hint="One per line. An IPv4 address or CIDR block. A bare address allows exactly that host; leave empty to refuse everything."
+          >
+            {(id) => (
+              <TextArea
+                id={id}
+                value={allowedCidrs}
+                onChange={setAllowedCidrs}
+                placeholder={"203.0.113.4\n198.51.100.0/24"}
+              />
+            )}
+          </Field>
+        ) : null}
+
+        {mode !== "none" ? (
+          <Field
+            label="Expires (optional)"
+            hint="Leave empty to keep the protection until you turn it off."
+          >
+            {(id) => (
+              <TextInput id={id} type="datetime-local" value={expiresAt} onChange={setExpiresAt} />
+            )}
+          </Field>
+        ) : null}
+
+        {notice ? <p className="muted small">{notice}</p> : null}
+      </div>
+    </Modal>
   );
 }
 

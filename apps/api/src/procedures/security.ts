@@ -23,19 +23,23 @@
  * the dashboard calls. Both use the same `@cloud-wai/security` rules, and this
  * module deliberately does not import that app — apps do not depend on apps.
  */
+import { createHash } from "node:crypto";
 import { requireCapability } from "../guard.js";
 import { ApiError } from "../errors.js";
 import {
   VERIFIED_BOTS,
   validateDenyRule,
+  validateProtection,
   validateRateLimitRule,
   validateTrustedSource,
+  type CompiledProtection,
   type Engines,
   type JobQueue,
 } from "@cloud-wai/adapters";
 import type {
   ControlPlaneWrites,
   DataStore,
+  DeploymentProtection,
   RateLimit,
   SecurityEvent,
   SecurityIncident,
@@ -44,7 +48,12 @@ import type {
   SecurityRule,
   TrustedSource,
 } from "@cloud-wai/database";
-import type { SecurityPolicyId, OrganizationId, ProviderRef } from "@cloud-wai/contracts";
+import type {
+  SecurityPolicyId,
+  OrganizationId,
+  ProjectId,
+  ProviderRef,
+} from "@cloud-wai/contracts";
 import { POLICY_JOB_KIND, type PolicyJobPayload } from "@cloud-wai/contracts";
 import {
   ENFORCEMENT_ACTIONS,
@@ -839,6 +848,243 @@ export async function removeRateLimit(
   });
 
   return { removed };
+}
+
+// ---------------------------------------------------------------------------
+// Deployment protection — keeping a preview URL off the public internet
+// ---------------------------------------------------------------------------
+
+/** The protection modes, validated at the boundary and again at compile time. */
+const PROTECTION_MODES = ["none", "password", "ip"] as const;
+type ProtectionMode = (typeof PROTECTION_MODES)[number];
+
+type ProtectionWrites = Pick<
+  ControlPlaneWrites,
+  "getDeploymentProtection" | "saveDeploymentProtection"
+>;
+
+const REQUIRED_PROTECTION_WRITES = [
+  "getDeploymentProtection",
+  "saveDeploymentProtection",
+] as const satisfies readonly (keyof ControlPlaneWrites)[];
+
+/**
+ * The protection writes, checked separately like the rule writes.
+ *
+ * A deployment that supports security policy but predates the protection table
+ * is still a working deployment for everything else; only these procedures
+ * report the honest `engine_unavailable`, and only when they are called.
+ */
+function protectionWritesFor(deps: SecurityDeps): ProtectionWrites {
+  const store = deps.store;
+  const missing = REQUIRED_PROTECTION_WRITES.filter((name) => typeof store[name] !== "function");
+  if (missing.length > 0) {
+    throw new ApiError(
+      "engine_unavailable",
+      `This deployment cannot record ${missing.join(", ")} yet.`,
+    );
+  }
+  return store as unknown as ProtectionWrites;
+}
+
+/** A project's protection posture, membership-scoped. Never the password hash. */
+export async function readDeploymentProtection(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+  projectId: ProjectId,
+): Promise<{ protection: DeploymentProtection | null }> {
+  requireCapability(ctx, organizationId, "security:read");
+  const protection = await protectionWritesFor(deps).getDeploymentProtection(
+    ctx.principal.userId,
+    projectId,
+  );
+  return { protection };
+}
+
+/**
+ * The SHA-256 hex digest of a password.
+ *
+ * One-way on purpose: the edge only ever verifies a supplied password, it never
+ * recovers one, so a digest is both sufficient and safer than a reversible
+ * ciphertext — a leaked digest does not reveal the password, and no
+ * `CLOUD_WAI_SECRET_ENCRYPTION_KEY` is needed to protect a preview.
+ */
+function passwordDigest(password: string): string {
+  return createHash("sha256").update(password, "utf8").digest("hex");
+}
+
+export interface SaveDeploymentProtectionInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly mode: ProtectionMode;
+  readonly basicUser?: string | null;
+  /** The plaintext password. Hashed here and never stored or returned. */
+  readonly basicPassword?: string | null;
+  readonly allowedCidrs?: readonly string[] | null;
+  readonly protectionExpiresAt?: string | null;
+}
+
+/**
+ * Set a project's deployment protection, then distribute it to the edge.
+ *
+ * The row is written before the edge is called, and the state the caller sees is
+ * the edge's answer, exactly like the policy path. A refusal leaves the row at
+ * its previous version and records a rejected transition, never a silent
+ * downgrade. When no edge is configured the save is still recorded and the
+ * caller learns it is not applied — honest absence, never a fake activation.
+ */
+export async function saveDeploymentProtection(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  input: SaveDeploymentProtectionInput,
+): Promise<{ protection: DeploymentProtection; applied: boolean; engineReason: string | null }> {
+  requireCapability(ctx, input.organizationId, "security:update");
+
+  if (!PROTECTION_MODES.includes(input.mode)) {
+    throw new ApiError("invalid_input", "Unknown protection mode.");
+  }
+
+  // HTTP basic auth always carries a user, so a password posture without one
+  // defaults to this deployment's name rather than being refused — an operator
+  // who only cares about the password is not forced to invent a username.
+  const basicUser =
+    input.mode === "password" ? (input.basicUser ?? "").trim() || "cloud-wai" : null;
+  const password = input.mode === "password" ? (input.basicPassword ?? "") : "";
+
+  // A project already protected keeps its password when a save omits one, so a
+  // mode/user/expiry edit does not silently require re-typing the password. A
+  // *new* password replaces the digest.
+  const writes = protectionWritesFor(deps);
+  const existing = await writes.getDeploymentProtection(ctx.principal.userId, input.projectId);
+
+  let basicPasswordHash: string | null = null;
+  if (input.mode === "password") {
+    if (password !== "") {
+      if (password.length < 8) {
+        throw new ApiError("invalid_input", "A protection password is at least 8 characters.");
+      }
+      basicPasswordHash = passwordDigest(password);
+    } else if (existing && existing.mode === "password") {
+      // Keep the stored digest. It is deliberately absent from the client-facing
+      // shape and from the client SELECT grant, so it is read on the service role
+      // through a dedicated method.
+      basicPasswordHash = await servicePasswordHash(deps, input.organizationId, input.projectId);
+      if (!basicPasswordHash) {
+        throw new ApiError("invalid_input", "A protection password is required.");
+      }
+    } else {
+      throw new ApiError("invalid_input", "A protection password is required.");
+    }
+  }
+
+  // The allow-list is only meaningful in `ip` mode; each address is validated
+  // with the same grammar the compiler runs, so an accepted address is always
+  // one the compiler will emit. A bare address is accepted and normalized to a
+  // /32 block, because "allow this one host" is the common case and forcing the
+  // operator to write the prefix would be a needless trap.
+  const allowedCidrs =
+    input.mode === "ip"
+      ? [
+          ...new Set(
+            (input.allowedCidrs ?? [])
+              .map((v) => v.trim())
+              .filter((v) => v !== "")
+              .map((v) => (v.includes("/") ? v : `${v}/32`)),
+          ),
+        ]
+      : [];
+
+  const posture: CompiledProtection = {
+    mode: input.mode,
+    ...(input.mode === "password" && basicUser ? { basicUser } : {}),
+    ...(basicPasswordHash ? { basicPasswordSha256: basicPasswordHash } : {}),
+    ...(input.mode === "ip" ? { allowedCidrs } : {}),
+  };
+  // One validator, shared with the compiler, so an API-accepted posture is
+  // always one the compiler will emit — never a half-specified setting that
+  // silently protects nothing.
+  const valid = validateProtection(posture);
+  if (!valid.ok) throw new ApiError("invalid_input", valid.reason);
+
+  const expiresAt = input.protectionExpiresAt?.trim() ?? null;
+  if (expiresAt !== null && Number.isNaN(Date.parse(expiresAt))) {
+    throw new ApiError("invalid_input", "The protection expiry is not a timestamp.");
+  }
+
+  const saved = await writes.saveDeploymentProtection({
+    id: existing?.id ?? deps.newId(),
+    organizationId: input.organizationId,
+    projectId: input.projectId,
+    mode: input.mode,
+    basicUser,
+    basicPasswordHash,
+    allowedCidrs,
+    protectionExpiresAt: expiresAt,
+    updatedBy: ctx.principal.userId,
+  });
+
+  await deps.store.recordAuditEvent({
+    organizationId: input.organizationId,
+    actorId: ctx.principal.userId,
+    actorEmail: ctx.principal.email,
+    event: "deployment_protection.saved",
+    targetType: "project",
+    targetId: input.projectId,
+    metadata: {
+      mode: saved.mode,
+      // The count, never the addresses themselves, so the audit row does not
+      // become an allow-list disclosure.
+      cidrCount: allowedCidrs.length,
+      expiring: expiresAt !== null,
+    },
+  });
+
+  // Distribute to the edge, honestly. There is no fake activation: when no edge
+  // is configured the answer says so and the caller knows the posture is stored
+  // but not yet enforced.
+  const distribution = await distributeDeploymentProtection(ctx, deps, input.organizationId);
+  return { protection: saved, applied: distribution.applied, engineReason: distribution.reason };
+}
+
+/**
+ * The stored password digest, read on the service role.
+ *
+ * The digest is deliberately absent from the client-facing `DeploymentProtection`
+ * shape, so a save that keeps an existing password needs the service-scoped
+ * reader. The store method is optional; a deployment without it reports
+ * `engine_unavailable` rather than storing a posture it cannot complete.
+ */
+async function servicePasswordHash(
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+  projectId: ProjectId,
+): Promise<string | null> {
+  const store = deps.store as Partial<ControlPlaneWrites>;
+  if (typeof store.getDeploymentProtectionPasswordHash !== "function") return null;
+  return store.getDeploymentProtectionPasswordHash(organizationId, projectId);
+}
+
+/**
+ * Distribute the organization's protection posture to the edge.
+ *
+ * Protection is compiled per organization (one artifact covers its hosts), so a
+ * save re-distributes the whole policy rather than a per-project fragment. This
+ * reuses the same `distributeSecurityPolicy` path the policy save uses, so the
+ * two cannot disagree about what the edge holds.
+ */
+async function distributeDeploymentProtection(
+  ctx: RequestContext,
+  deps: SecurityDeps,
+  organizationId: OrganizationId,
+): Promise<{ applied: boolean; reason: string | null }> {
+  try {
+    const result = await distributeSecurityPolicy(ctx, deps, { organizationId });
+    return { applied: result.distributed, reason: result.engineReason };
+  } catch (error) {
+    if (error instanceof ApiError) return { applied: false, reason: error.message };
+    throw error;
+  }
 }
 
 /** The edge's recent decisions for this organization, newest first. */

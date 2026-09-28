@@ -78,6 +78,9 @@ import type {
   SecurityRuleCreateInput,
   RateLimit,
   RateLimitCreateInput,
+  DeploymentProtection,
+  DeploymentProtectionSaveInput,
+  DeploymentProtectionEngineRefInput,
   TrustedSource,
   TrustedSourceCreateInput,
   UsageRecord,
@@ -509,6 +512,27 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       note: nullableStr(row, "note"),
       createdBy: str(row, "created_by") as UserId,
       createdAt: str(row, "created_at"),
+    };
+  }
+
+  function toDeploymentProtection(row: Row): DeploymentProtection {
+    return {
+      id: str(row, "id"),
+      organizationId: str(row, "organization_id") as OrganizationId,
+      projectId: str(row, "project_id") as ProjectId,
+      mode: str(row, "mode") as DeploymentProtection["mode"],
+      basicUser: nullableStr(row, "basic_user"),
+      // PostgREST returns a `text[]` as a JSON array; a null (which the table
+      // forbids, but a defensive read tolerates) becomes an empty list so a
+      // caller never has to guard a second time.
+      allowedCidrs: Array.isArray(row["allowed_cidrs"])
+        ? (row["allowed_cidrs"] as unknown[]).map((v) => String(v))
+        : [],
+      protectionExpiresAt: nullableStr(row, "protection_expires_at"),
+      version: Number(row["version"]),
+      updatedBy: str(row, "updated_by") as UserId,
+      createdAt: str(row, "created_at"),
+      updatedAt: str(row, "updated_at"),
     };
   }
 
@@ -1015,6 +1039,36 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         path: `/security_rate_limits?select=*&organization_id=eq.${q(organizationId)}&order=created_at.desc&limit=200`,
       });
       return found.map(toRateLimit);
+    },
+
+    async getDeploymentProtectionForService(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<DeploymentProtection | null> {
+      const found = await rows("getDeploymentProtectionForService", {
+        method: "GET",
+        // The service role bypasses the client grant. `organization_id` is the
+        // tenant boundary, because a distribution job has no session to join on.
+        // The password hash is not named: a distribution job needs the mode, the
+        // user and the allow-list, never the digest.
+        path: `/project_deployment_protection?select=id,organization_id,project_id,mode,basic_user,allowed_cidrs,protection_expires_at,version,updated_by,created_at,updated_at&project_id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDeploymentProtection(row) : null;
+    },
+
+    async getDeploymentProtectionPasswordHash(
+      organizationId: OrganizationId,
+      projectId: ProjectId,
+    ): Promise<string | null> {
+      const found = await rows("getDeploymentProtectionPasswordHash", {
+        method: "GET",
+        // The service role bypasses the client grant, so the digest is readable
+        // here and nowhere on a browser-facing path.
+        path: `/project_deployment_protection?select=basic_password_hash&project_id=eq.${q(projectId)}&organization_id=eq.${q(organizationId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? nullableStr(row, "basic_password_hash") : null;
     },
 
     async findDomainByHostnameForService(
@@ -1931,6 +1985,69 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
         prefer: "return=representation",
       });
       return deleted.length > 0;
+    },
+
+    async getDeploymentProtection(
+      userId: UserId,
+      projectId: ProjectId,
+    ): Promise<DeploymentProtection | null> {
+      const found = await rows("getDeploymentProtection", {
+        method: "GET",
+        // The password hash is not named here, and is not in the client SELECT
+        // grant either, so even a widened select cannot return it.
+        path: `/project_deployment_protection?select=id,organization_id,project_id,mode,basic_user,allowed_cidrs,protection_expires_at,version,updated_by,created_at,updated_at,organizations!inner(organization_members!inner(user_id))&project_id=eq.${q(projectId)}&organizations.organization_members.user_id=eq.${q(userId)}&limit=1`,
+      });
+      const row = found[0];
+      return row ? toDeploymentProtection(row) : null;
+    },
+
+    async saveDeploymentProtection(
+      input: DeploymentProtectionSaveInput,
+    ): Promise<DeploymentProtection> {
+      const saved = await must<Row[]>("saveDeploymentProtection", {
+        method: "POST",
+        // An upsert on `project_id`: a project has one posture, so saving
+        // replaces it rather than failing. The service role bypasses the client
+        // grant, so the safe columns are returned here — this method is not on a
+        // browser-facing read path, and the hash is not in the select either.
+        path: "/project_deployment_protection?select=id,organization_id,project_id,mode,basic_user,allowed_cidrs,protection_expires_at,version,updated_by,created_at,updated_at&on_conflict=project_id",
+        prefer: "return=representation,resolution=merge-duplicates",
+        body: {
+          id: input.id,
+          organization_id: input.organizationId,
+          project_id: input.projectId,
+          mode: input.mode,
+          basic_user: input.basicUser,
+          basic_password_hash: input.basicPasswordHash,
+          allowed_cidrs: input.allowedCidrs,
+          protection_expires_at: input.protectionExpiresAt,
+          updated_by: input.updatedBy,
+        },
+      });
+      const row = Array.isArray(saved) ? saved[0] : undefined;
+      if (!row)
+        throw new ControlPlaneUnavailableError("saveDeploymentProtection", "no row returned");
+      return toDeploymentProtection(row);
+    },
+
+    async recordDeploymentProtectionEngineRef(
+      input: DeploymentProtectionEngineRefInput,
+    ): Promise<DeploymentProtection | null> {
+      const updated = await rows("recordDeploymentProtectionEngineRef", {
+        method: "PATCH",
+        // Service-scoped: `organization_id` and `project_id` are the tenant
+        // boundary, and the columns set are engine-observed, which a client
+        // cannot write (`0030` guard).
+        path: `/project_deployment_protection?select=id,organization_id,project_id,mode,basic_user,allowed_cidrs,protection_expires_at,version,updated_by,created_at,updated_at&project_id=eq.${q(input.projectId)}&organization_id=eq.${q(input.organizationId)}`,
+        prefer: "return=representation",
+        body: {
+          engine_ref: input.engineRef,
+          provider: input.provider,
+          provider_resource_id: input.providerResourceId,
+        },
+      });
+      const row = updated[0];
+      return row ? toDeploymentProtection(row) : null;
     },
 
     async saveEnvVar(input: EnvVarSaveInput): Promise<ProjectEnvVar> {

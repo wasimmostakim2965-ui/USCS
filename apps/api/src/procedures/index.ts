@@ -103,9 +103,11 @@ import {
   listTrustedSources,
   readSecurityPolicy,
   readVerifiedBots,
+  readDeploymentProtection,
   removeRateLimit,
   removeSecurityRule,
   removeTrustedSource,
+  saveDeploymentProtection,
   saveSecurityPolicy,
   transitionSecurityIncident,
   type AddRateLimitInput,
@@ -115,6 +117,7 @@ import {
   type RemoveRateLimitInput,
   type RemoveSecurityRuleInput,
   type RemoveTrustedSourceInput,
+  type SaveDeploymentProtectionInput,
   type SavePolicyInput,
   type SecurityDeps,
   type TransitionIncidentInput,
@@ -594,6 +597,18 @@ export function buildProcedures(
         ),
     },
     {
+      name: "security.protection.get",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) => {
+        const parsed = inputOf<{ organizationId: OrganizationId; projectId: ProjectId }>(input);
+        return readDeploymentProtection(ctx, securityDeps, parsed.organizationId, parsed.projectId);
+      },
+    },
+    {
+      name: "security.protection.save",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        saveDeploymentProtection(ctx, securityDeps, inputOf<SaveDeploymentProtectionInput>(input)),
+    },
+    {
       name: "security.events.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) => {
         const parsed = inputOf<{ organizationId: OrganizationId; limit?: number }>(input);
@@ -854,6 +869,16 @@ export const ROUTE_SHAPES = {
   },
   "security.rateLimits.remove": { organizationId: "OrganizationId", rateLimitId: "string" },
   "security.bots.list": { organizationId: "OrganizationId" },
+  "security.protection.get": { organizationId: "OrganizationId", projectId: "ProjectId" },
+  "security.protection.save": {
+    organizationId: "OrganizationId",
+    projectId: "ProjectId",
+    mode: "none|password|ip",
+    basicUser: "string?",
+    basicPassword: "string?",
+    allowedCidrs: "string[]?",
+    protectionExpiresAt: "string?",
+  },
   "security.events.list": { organizationId: "OrganizationId", limit: "number?" },
   "security.incidents.list": { organizationId: "OrganizationId" },
   "security.incidents.transition": {

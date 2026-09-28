@@ -18,7 +18,7 @@
  *     or no edge origin yields `null`, and the adapter turns that into an honest
  *     refusal rather than a made-up route.
  */
-import type { OrganizationId, ProviderRef } from "@cloud-wai/contracts";
+import type { OrganizationId, ProjectId, ProviderRef } from "@cloud-wai/contracts";
 import {
   buildEngines,
   createControlPlaneSecurityEdge,
@@ -33,7 +33,7 @@ import {
   type VerifiedBot,
   validateVerifiedBot,
 } from "@cloud-wai/adapters";
-import { protectionIsActive } from "./protection.js";
+import { compiledProtectionFor, protectionIsActive } from "./protection.js";
 import type { ControlPlaneStore } from "./index.js";
 
 /** The default path prefix a published route serves at. */
@@ -158,11 +158,46 @@ export function createSecurityEdgeLoaders(
     organizationId,
   });
 
+  /**
+   * The compiled protection posture for one project, cached per compile.
+   *
+   * Protection is per project, and one artifact covers an organization's whole
+   * domain set, so the same project may be asked for more than once. The cache
+   * keeps that one read rather than one per hostname. A project without a row is
+   * open; a password posture reads its digest on the service role, because the
+   * digest is not in the client-facing shape. Both store methods are optional so
+   * a deployment that predates `0030` still compiles a policy.
+   */
+  const protectionCache = new Map<string, EdgeRoute["protection"]>();
+  const protectionForProject = async (
+    organizationId: OrganizationId,
+    projectId: ProjectId | null,
+  ): Promise<EdgeRoute["protection"]> => {
+    if (!projectId) return undefined;
+    const cached = protectionCache.get(projectId);
+    if (cached !== undefined) return cached;
+    if (typeof store.getDeploymentProtectionForService !== "function") return undefined;
+    const protection = await store.getDeploymentProtectionForService(organizationId, projectId);
+    const hash =
+      protection?.mode === "password" &&
+      typeof store.getDeploymentProtectionPasswordHash === "function"
+        ? await store.getDeploymentProtectionPasswordHash(organizationId, projectId)
+        : null;
+    const compiled = compiledProtectionFor(protection, hash);
+    const answer: EdgeRoute["protection"] = compiled.mode === "none" ? undefined : compiled;
+    protectionCache.set(projectId, answer);
+    return answer;
+  };
+
   return {
     async loadRoute(ref): Promise<EdgeRoute | null> {
       const domain = await store.findDomainByHostnameForService(ref.organizationId, ref.resourceId);
       if (!domain || !domain.verified) return null;
-      return routeFor(domain.hostname, ref.organizationId);
+      const protection = await protectionForProject(ref.organizationId, domain.projectId);
+      return {
+        ...routeFor(domain.hostname, ref.organizationId),
+        ...(protection ? { protection } : {}),
+      };
     },
 
     async loadPolicy(ref): Promise<CompileInput | null> {
@@ -198,9 +233,19 @@ export function createSecurityEdgeLoaders(
         windowSeconds: limit.windowSeconds,
       }));
 
-      const [primary, ...rest] = routes.map((domain) =>
-        routeFor(domain.hostname, ref.organizationId),
-      );
+      // Each verified host carries its own project's posture, so one artifact
+      // can protect one project's preview while another stays open. Sequential
+      // rather than `Promise.all` so the per-project cache is honoured and the
+      // store is read at most once per project.
+      const mapped: EdgeRoute[] = [];
+      for (const domain of routes) {
+        const protection = await protectionForProject(ref.organizationId, domain.projectId);
+        mapped.push({
+          ...routeFor(domain.hostname, ref.organizationId),
+          ...(protection ? { protection } : {}),
+        });
+      }
+      const [primary, ...rest] = mapped;
 
       return {
         route: primary!,

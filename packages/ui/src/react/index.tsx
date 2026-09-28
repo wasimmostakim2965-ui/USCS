@@ -873,6 +873,44 @@ export function TextInput({
 }
 
 /**
+ * A multi-line input, for a value that is naturally a list.
+ *
+ * The address allow-list is one address per line, so a single-line field would
+ * hide the shape of the value. Sharing the `Field` id keeps the label bound to
+ * the control exactly as `TextInput` does.
+ */
+export function TextArea({
+  id,
+  value,
+  onChange,
+  placeholder,
+  rows = 4,
+  error,
+  disabled = false,
+}: {
+  readonly id?: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly placeholder?: string;
+  readonly rows?: number;
+  readonly error?: boolean;
+  readonly disabled?: boolean;
+}) {
+  return (
+    <textarea
+      id={id}
+      className="textarea"
+      value={value}
+      rows={rows}
+      placeholder={placeholder}
+      aria-invalid={error ? true : undefined}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+/**
  * A segmented choice for a small, closed set of options.
  *
  * It renders radio inputs rather than a `<select>` so the options are visible

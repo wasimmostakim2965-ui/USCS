@@ -433,6 +433,32 @@ export interface ControlPlaneWrites {
    */
   listRateLimitsForService(organizationId: OrganizationId): Promise<readonly RateLimit[]>;
   /**
+   * A project's deployment protection, scoped by organization only.
+   *
+   * The edge compiles the posture into a decision for a sessionless caller (the
+   * worker draining a distribution job), so it reads the row on the service role:
+   * `organization_id` is the tenant boundary, and the mode, the basic-auth user
+   * and the allow-list are all it needs. The password *hash* is deliberately
+   * absent from this shape — the edge verifies at request time through its own
+   * path, and a distribution job has no business carrying it.
+   */
+  getDeploymentProtectionForService(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<DeploymentProtection | null>;
+  /**
+   * A project's stored protection password digest, scoped by organization only.
+   *
+   * Read only when a save keeps an existing password: the digest is absent from
+   * the client-facing shape and from the client SELECT grant, so this is the one
+   * service-scoped path that returns it. It is never returned to a browser and
+   * never leaves the API.
+   */
+  getDeploymentProtectionPasswordHash(
+    organizationId: OrganizationId,
+    projectId: ProjectId,
+  ): Promise<string | null>;
+  /**
    * A domain by hostname, scoped by organization only.
    *
    * The edge's route loader resolves a hostname to the private origin behind it
@@ -637,6 +663,37 @@ export interface ControlPlaneWrites {
   getGitLinkSecret(organizationId: OrganizationId, linkId: string): Promise<string | null>;
   /** Remove a link. Idempotent: removing an absent link reports false. */
   deleteGitLink(userId: UserId, organizationId: OrganizationId, linkId: string): Promise<boolean>;
+
+  /**
+   * A project's deployment protection posture, as a member may read it.
+   *
+   * Membership-scoped like every read. The password hash is deliberately absent
+   * from this shape and from the client SELECT grant, so a list response can
+   * never contain it — the dashboard shows the mode and the user, never the
+   * digest that verifies a guess.
+   */
+  getDeploymentProtection(
+    userId: UserId,
+    projectId: ProjectId,
+  ): Promise<DeploymentProtection | null>;
+  /**
+   * Set a project's deployment protection.
+   *
+   * The password hash is computed by the caller and is never a plaintext here,
+   * so a store cannot become the place a password leaks. The write is an upsert
+   * on `project_id`: a project has one posture, and saving replaces it.
+   */
+  saveDeploymentProtection(input: DeploymentProtectionSaveInput): Promise<DeploymentProtection>;
+  /**
+   * Record the engine's handle for an applied protection policy.
+   *
+   * Service-scoped, like the other engine-writeback methods: the columns it sets
+   * are engine-observed and a client cannot assert them (`0030` guard). A null
+   * answer means the row is gone, not that the write failed silently.
+   */
+  recordDeploymentProtectionEngineRef(
+    input: DeploymentProtectionEngineRefInput,
+  ): Promise<DeploymentProtection | null>;
 
   /**
    * A project by id, scoped by organization only.
@@ -1223,6 +1280,62 @@ export interface RateLimitCreateInput {
   readonly windowSeconds: number;
   readonly note: string | null;
   readonly createdBy: UserId;
+}
+
+/**
+ * A project's deployment protection posture.
+ *
+ * This is what keeps a preview URL from being a public URL: Vercel's Deployment
+ * Protection equivalent. Protection is a property of an application, so there is
+ * one posture per project rather than one per hostname, and `none` is a stored
+ * choice (turning protection off is a change worth recording), not a missing row.
+ *
+ * The password hash is not part of this shape. The dashboard shows the mode and
+ * the basic-auth user; only the service-scoped verification path ever sees the
+ * digest, and a client's SELECT grant does not include the column (`0030`).
+ */
+export interface DeploymentProtection {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  /** `none` = open; `password` = HTTP basic auth; `ip` = a source allow-list. */
+  readonly mode: "none" | "password" | "ip";
+  /** The basic-auth user, present only in `password` mode. */
+  readonly basicUser: string | null;
+  /** The `ip` mode's allow-list, empty for the other modes. */
+  readonly allowedCidrs: readonly string[];
+  /** When an expiring protection lapses back to `none`. Null means no expiry. */
+  readonly protectionExpiresAt: string | null;
+  /** Monotonic, so a distribution never applies an older posture. */
+  readonly version: number;
+  readonly updatedBy: UserId;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface DeploymentProtectionSaveInput {
+  readonly id: string;
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly mode: DeploymentProtection["mode"];
+  readonly basicUser: string | null;
+  /**
+   * The SHA-256 hex digest of the password, computed by the caller. Never a
+   * plaintext, and never a reversible ciphertext: the edge only verifies, it
+   * never recovers, so a digest is both sufficient and safer.
+   */
+  readonly basicPasswordHash: string | null;
+  readonly allowedCidrs: readonly string[];
+  readonly protectionExpiresAt: string | null;
+  readonly updatedBy: UserId;
+}
+
+export interface DeploymentProtectionEngineRefInput {
+  readonly organizationId: OrganizationId;
+  readonly projectId: ProjectId;
+  readonly engineRef: string;
+  readonly provider: string | null;
+  readonly providerResourceId: string | null;
 }
 
 /**

@@ -991,6 +991,80 @@ describe("the five traffic classes the Security differentiator promises to handl
 });
 
 /**
+ * Deployment protection compiles onto the route fragment, not the WAF.
+ *
+ * Envoy is in front of Coraza, so it is the only layer that can require basic
+ * auth or refuse a source address before the request is inspected. The compiler's
+ * job is to carry a validated posture onto each route, to refuse one that does
+ * not validate, and to name the `protect` stage in the ladder so an edge that
+ * reports that decision has an accepted vocabulary.
+ */
+describe("deployment protection", () => {
+  const policy = { riskLevel: "high" as const, action: "block" as const, version: 1 };
+  const digest = "a".repeat(64);
+
+  it("carries a password posture onto the route fragment", () => {
+    const compiled = compileEdge({
+      route: route({
+        protection: { mode: "password", basicUser: "cloud-wai", basicPasswordSha256: digest },
+      }),
+      policy,
+    });
+    expect(compiled.envoyConfig.protection).toEqual({
+      mode: "password",
+      basicUser: "cloud-wai",
+      basicPasswordSha256: digest,
+    });
+    // The ladder names the stage so the vocabulary matches `security_events`.
+    expect(compiled.ladder.some((step) => step.stage === "protect")).toBe(true);
+  });
+
+  it("carries an address allow-list onto the fragment", () => {
+    const compiled = compileEdge({
+      route: route({
+        protection: { mode: "ip", allowedCidrs: ["203.0.113.0/24", "198.51.100.0/24"] },
+      }),
+      policy,
+    });
+    expect(compiled.envoyConfig.protection).toEqual({
+      mode: "ip",
+      allowedCidrs: ["203.0.113.0/24", "198.51.100.0/24"],
+    });
+  });
+
+  it("does not name the protect stage when no route is protected", () => {
+    const compiled = compileEdge({ route: route(), policy });
+    expect(compiled.envoyConfig.protection).toEqual({ mode: "none" });
+    expect(compiled.ladder.some((step) => step.stage === "protect")).toBe(false);
+  });
+
+  it("drops a posture that does not validate rather than emitting it half-specified", () => {
+    // A password posture with no digest cannot be enforced. The compiler refuses
+    // it to `none` — the API refused it long before it was stored — so a route
+    // never claims a protection it cannot apply.
+    const compiled = compileEdge({
+      route: route({ protection: { mode: "password", basicUser: "cloud-wai" } }),
+      policy,
+    });
+    expect(compiled.envoyConfig.protection).toEqual({ mode: "none" });
+  });
+
+  it("protects one project's host without touching another's", () => {
+    // One artifact covers an organization's domain set, and protection is per
+    // project, so a second host stays open while the first requires a password.
+    const compiled = compileEdge({
+      route: route({
+        protection: { mode: "password", basicUser: "cloud-wai", basicPasswordSha256: digest },
+      }),
+      routes: [route({ host: "open.example.com" })],
+      policy,
+    });
+    expect(compiled.envoyRoutes[0]!.protection.mode).toBe("password");
+    expect(compiled.envoyRoutes[1]!.protection.mode).toBe("none");
+  });
+});
+
+/**
  * The recorded vocabulary must match the recorded-vocabulary *constraint*.
  *
  * `DECISION_STAGES` is the compiler's stage union; `security_events.stage` is a
@@ -1004,7 +1078,11 @@ describe("the five traffic classes the Security differentiator promises to handl
  */
 describe("decision-stage vocabulary", () => {
   it("matches the security_events.stage check constraint the migrations install", () => {
-    const migrations = ["0010_security_protection_and_events", "0018_security_rate_limits"]
+    const migrations = [
+      "0010_security_protection_and_events",
+      "0018_security_rate_limits",
+      "0030_project_deployment_protection",
+    ]
       .map((name) =>
         readFileSync(new URL(`../../supabase/migrations/${name}.sql`, import.meta.url), "utf8"),
       )

@@ -52,6 +52,14 @@ export interface EdgeRoute {
   readonly origin: string;
   readonly pathPrefix: string;
   readonly organizationId: AdapterContext["organizationId"];
+  /**
+   * The deployment-protection posture for this host's project.
+   *
+   * Protection is per project, and one artifact covers an organization's whole
+   * domain set, so the posture is a property of each route rather than of the
+   * artifact. Absent (or `none`) means the route is open.
+   */
+  readonly protection?: CompiledProtection | undefined;
 }
 
 /**
@@ -135,6 +143,7 @@ export type RouteProtectionMode = (typeof ROUTE_PROTECTION_MODES)[number];
  * Order is the ladder's evaluation order, so a reader can see precedence here.
  */
 export const DECISION_STAGES = [
+  "protect",
   "allow-verified-bot",
   "allow-internal",
   "allow-trusted-ip",
@@ -324,6 +333,102 @@ export interface CompiledRateLimit {
   readonly descriptor: string;
   readonly limit: number;
   readonly windowSeconds: number;
+}
+
+/**
+ * The protection posture applied to a project's hostnames.
+ *
+ * This is Deployment Protection: the control that keeps a preview URL from being
+ * a public URL. `none` is open; `password` is HTTP basic auth served by the edge
+ * before the request reaches the origin; `ip` is a source-address allow-list.
+ *
+ * `basicPasswordSha256` is the SHA-256 hex digest the edge compares a supplied
+ * password against. It is a digest and never a plaintext, and the compiled
+ * artifact is the only thing that carries it — the control plane stores the same
+ * digest, never a password.
+ */
+export interface CompiledProtection {
+  readonly mode: "none" | "password" | "ip";
+  readonly basicUser?: string | undefined;
+  readonly basicPasswordSha256?: string | undefined;
+  readonly allowedCidrs?: readonly string[] | undefined;
+}
+
+/** Which protection modes exist. `none` is a real choice, not a missing value. */
+export const PROTECTION_MODES = ["none", "password", "ip"] as const;
+export type ProtectionMode = (typeof PROTECTION_MODES)[number];
+
+/** A basic-auth user name. A strict token, never directive syntax. */
+const BASIC_USER = /^[A-Za-z0-9._@-]{1,64}$/;
+/** A SHA-256 digest, lower-case hex. */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/**
+ * Validate one protection posture.
+ *
+ * The same rule the table's check constraint enforces, so a posture the API
+ * accepts is always one the compiler will emit: a `password` posture names both
+ * a user and a digest, an `ip` posture names at least one address, and a `none`
+ * posture names neither. A half-specified posture is refused rather than
+ * compiled into something that silently protects nothing.
+ */
+export function validateProtection(
+  protection: CompiledProtection,
+): { ok: true } | { ok: false; reason: string } {
+  if (!PROTECTION_MODES.includes(protection.mode)) {
+    return { ok: false, reason: "Unknown protection mode." };
+  }
+  switch (protection.mode) {
+    case "none":
+      if (protection.basicUser || protection.basicPasswordSha256) {
+        return { ok: false, reason: "An open posture may not carry credentials." };
+      }
+      if (protection.allowedCidrs && protection.allowedCidrs.length > 0) {
+        return { ok: false, reason: "An open posture may not carry an allow-list." };
+      }
+      return { ok: true };
+    case "password":
+      if (!protection.basicUser || !BASIC_USER.test(protection.basicUser)) {
+        return { ok: false, reason: "A password posture needs a plain basic-auth user." };
+      }
+      if (!protection.basicPasswordSha256 || !SHA256_HEX.test(protection.basicPasswordSha256)) {
+        return { ok: false, reason: "A password posture needs a SHA-256 password digest." };
+      }
+      if (protection.allowedCidrs && protection.allowedCidrs.length > 0) {
+        return { ok: false, reason: "A password posture may not also carry an allow-list." };
+      }
+      return { ok: true };
+    case "ip": {
+      const cidrs = protection.allowedCidrs ?? [];
+      if (cidrs.length === 0) {
+        return { ok: false, reason: "An IP posture needs at least one address." };
+      }
+      // Each address is validated with the same grammar a trusted source uses, so
+      // a value that would be directive syntax never reaches the edge.
+      for (const value of cidrs) {
+        const valid = validateTrustedSource({ kind: "cidr", value });
+        if (!valid.ok) return { ok: false, reason: valid.reason };
+      }
+      if (protection.basicUser || protection.basicPasswordSha256) {
+        return { ok: false, reason: "An IP posture may not also carry credentials." };
+      }
+      return { ok: true };
+    }
+  }
+}
+
+/**
+ * Normalise a compile input's protection posture.
+ *
+ * A validated posture passes through unchanged; anything else — a missing field,
+ * a half-specified posture, an unvalidated address — becomes `none`, so the
+ * compiler never emits a directive from an unvalidated value and never emits a
+ * posture that silently protects nothing. The API refuses a bad posture long
+ * before this, and this is the last line that keeps a bad one out of a directive.
+ */
+function protectionInput(protection: CompiledProtection | undefined): CompiledProtection {
+  if (!protection) return { mode: "none" };
+  return validateProtection(protection).ok ? protection : { mode: "none" };
 }
 
 /** The Coraza operator and target for a deny rule kind. */
@@ -530,6 +635,15 @@ export interface EnvoyRouteFragment {
    * true it must apply the same answer here, before serving the challenge.
    */
   readonly skipChallengeForVerifiedBots: boolean;
+  /**
+   * The deployment-protection posture Envoy enforces for this host.
+   *
+   * Envoy sits in front of every route, so it is the only component that can
+   * require basic auth (or refuse a source address) *before* the request reaches
+   * the origin. `none` leaves the route open. Emitted on every fragment so a
+   * fragment is self-describing, exactly like the challenge flags above.
+   */
+  readonly protection: CompiledProtection;
 }
 
 export interface CompiledEdge {
@@ -563,6 +677,12 @@ export interface CompiledEdge {
    * and how many requests are allowed.
    */
   readonly rateLimits: readonly CompiledRateLimit[];
+  /**
+   * The protection posture this artifact carries, or `{ mode: "none" }` when the
+   * organization set none. Hoisted onto the artifact so a reviewer reads the
+   * posture once rather than per route fragment.
+   */
+  readonly protection: CompiledProtection;
   readonly version: number;
 }
 
@@ -773,9 +893,16 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     .filter((source) => validateTrustedSource(source).ok)
     .map((source) => source.value);
   const envoyRoutes: EnvoyRouteFragment[] = [];
+  // Deployment protection is per route: each host belongs to a project with its
+  // own posture. A posture that does not validate is dropped to `none` here, the
+  // same last line that keeps a bad value out of every other directive; the API
+  // refused it long before it was stored.
+  let protectedAny = false;
   for (const one of allRoutes) {
     if (seen.has(one.host)) continue;
     seen.add(one.host);
+    const protection = protectionInput(one.protection);
+    if (protection.mode !== "none") protectedAny = true;
     envoyRoutes.push({
       host: one.host,
       pathPrefix: one.pathPrefix,
@@ -787,6 +914,22 @@ export function compileEdge(input: CompileInput): CompiledEdge {
       // Only meaningful while the edge is challenging; the flag is still emitted
       // in every mode so a fragment is self-describing.
       skipChallengeForVerifiedBots: attackMode,
+      protection,
+    });
+  }
+
+  // The recorded ladder carries one `protect` step when any route is protected.
+  // The decision itself is per route (Envoy enforces it from the fragment), but
+  // the vocabulary must still name it, so an edge reporting a protection
+  // decision has an accepted stage (`0030` widens the constraint to match).
+  if (protectedAny) {
+    const id = nextId++;
+    ladder.push({
+      id,
+      stage: "protect",
+      action: "challenge",
+      directive:
+        "// Deployment protection is enforced by Envoy per route; see the route fragment's `protection`.",
     });
   }
 
@@ -796,6 +939,7 @@ export function compileEdge(input: CompileInput): CompiledEdge {
     envoyRoutes,
     ladder,
     rateLimits,
+    protection: envoyRoutes[0]?.protection ?? { mode: "none" },
     version: policy?.version ?? 1,
   };
 }
