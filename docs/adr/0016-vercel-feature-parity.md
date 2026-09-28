@@ -84,7 +84,7 @@ Status vocabulary matches `docs/audit/dashboard-inventory.md`:
 | Security / firewall | `security.policy.get/save`; `distribute` returns engine answer | **Wired** (author/save); **Honest n/c** (distribute until an edge is configured) |
 | Security policy events | `security.policy` events recorded as their own lifecycle | **Wired** |
 | Environment variables | — | **Missing** (stated in ADR-0013) |
-| Deployment protection | — | **Missing** |
+| Deployment protection | `security.protection.get/save` per project; compiles onto the Envoy route fragment ahead of the firewall | **Wired** (compile); **Honest n/c** until an edge host applies the fragment |
 | Observability: metrics, traces, error tracking | `providers.health` report only; telemetry contract in `packages/observability` | **Contract-only** — largest surface gap (ADR-0013) |
 | Analytics / Speed Insights | — | **Missing** |
 | Notifications (email/push/SMS) | — | **Missing** |

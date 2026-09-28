@@ -204,6 +204,23 @@ second Back press remains reachable.
   input: it is compiled once and frozen, so a timestamp there would keep
   challenging browsers forever.
 
+- **Deployment protection is per *project*, compiled onto each *route*.** A
+  preview URL is unlisted, not private, so a project can carry a `none` /
+  `password` / `ip` posture (`project_deployment_protection`, migration `0030`)
+  that the edge enforces *before* the firewall. The compile input is
+  `EdgeRoute.protection` rather than a field on the artifact because one artifact
+  covers an organization's whole domain set — one project's preview can be gated
+  while another stays open, so the posture has to travel with the host. The
+  loader caches per project (a project can own several domains), reads the
+  password digest on the service role (it is not in the client SELECT grant), and
+  a password posture with no digest compiles to `none` rather than a route that
+  pretends to be protected. The API and the compiler share one validator
+  (`validateProtection`), so an accepted posture is always one the compiler will
+  emit. A save reports `applied: false` with the engine's reason when no edge
+  actually took it — never a fake success. The Envoy-side application of the
+  fragment (reading `protection` and answering basic-auth / allow-list) still
+  needs a live host, so it is gate 6.
+
 ## Phase status
 
 ADR-0006 numbers phases 0–8 (superseding the earlier 0–6). See the `feat(phase-N)`

@@ -190,7 +190,7 @@ single highest-value feature we can ship, because the alternatives do not.
 - promotion from preview to production
 - environment model (Local / Preview / Production) — the `environments` table
   already exists and is unused
-- deployment protection for preview URLs (the D7 gap in the feature matrix)
+- deployment protection for preview URLs (the D7 gap in the feature matrix) — **shipped**: `security.protection.get/save` per project, compiled onto each Envoy route fragment ahead of the firewall (`0030`, probe 28)
 
 Acceptance: pushing a branch yields a preview URL; promoting it moves production
 traffic; both are reversible.
