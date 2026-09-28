@@ -872,6 +872,65 @@ describe("the hosting route follows the domain lifecycle", () => {
     ).toEqual({ published: false, reason: "the router is not reachable from the runtime." });
   });
 
+  it("re-sets the hosting engine to the remaining hostnames when a domain is removed", async () => {
+    const { store, audit } = makeStore();
+    const { hosting, calls } = recordingHosting();
+    let counter = 0;
+    const router = routerWith(
+      store,
+      enginesWithHosting(
+        hosting,
+        stubResolver({
+          txt: {
+            "_cloud-wai-challenge.keep.example.com": [KNOWN_TOKEN],
+            "_cloud-wai-challenge.gone.example.com": [KNOWN_TOKEN],
+          },
+        }),
+      ),
+      { newId: () => `domain-${(counter += 1)}` },
+    );
+    const first = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A, hostname: "keep.example.com" },
+    });
+    const second = await router.route({
+      procedure: "domains.create",
+      accessToken: TOKEN_ALICE,
+      input: { organizationId: ORG_A, projectId: PROJ_A, hostname: "gone.example.com" },
+    });
+    for (const created of [first, second]) {
+      await router.route({
+        procedure: "domains.verify",
+        accessToken: TOKEN_ALICE,
+        input: {
+          organizationId: ORG_A,
+          domainId: (created.data as { domain: Domain }).domain.id,
+        },
+      });
+    }
+    calls.length = 0;
+
+    const res = await router.route({
+      procedure: "domains.remove",
+      accessToken: TOKEN_ALICE,
+      input: {
+        organizationId: ORG_A,
+        domainId: (second.data as { domain: Domain }).domain.id,
+      },
+    });
+
+    // The defect these tests pin: removal withdrew the firewall route but left
+    // the hosting engine serving the released hostname. The engine is re-set to
+    // the project's remaining verified hostnames, so the released name stops
+    // being served and the surviving one keeps being served.
+    expect(res.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.hostnames).toEqual(["keep.example.com"]);
+    const removal = audit.find((a) => a.event === "domain.removed");
+    expect(removal?.metadata?.hostingRouteWithdrawn).toBe(true);
+  });
+
   it("removes a domain and records the removal", async () => {
     const { store, domains, audit } = makeStore();
     const router = routerWith(store, enginesWith(stubResolver({})));

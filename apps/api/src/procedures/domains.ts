@@ -389,6 +389,45 @@ export async function removeDomain(
     },
   );
 
+  // The hostname the customer released must also stop resolving on the hosting
+  // engine's front door. The engine serves the hostnames it was last told to,
+  // so it is re-set to the project's *remaining* verified hostnames — dropping
+  // a name is a consequence of setting the whole list, not a separate verb
+  // Coolify's proxy would not have anyway. An engine with no `setDomains` (or a
+  // project with no application) has nothing to withdraw.
+  let hostingWithdrawn: boolean | null = null;
+  let hostingWithdrawReason: string | null = null;
+  if (domain.projectId && typeof deps.engines.hosting.setDomains === "function") {
+    const target = await deps.store.getProjectDeploymentTargetForService?.(
+      input.organizationId,
+      domain.projectId,
+    );
+    const resourceId = target?.providerResourceId ?? null;
+    if (resourceId) {
+      const remaining = (await deps.store.listDomains(ctx.principal.userId, input.organizationId))
+        .filter((d) => d.projectId === domain.projectId && d.verified && d.id !== domain.id)
+        .map((d) => d.hostname);
+      const routed = await deps.engines.hosting.setDomains(
+        {
+          organizationId: input.organizationId,
+          idempotencyKey: `withdraw-domains-${input.domainId}`,
+          timeoutMs: ADAPTER_TIMEOUT_MS,
+        },
+        {
+          applicationRef: {
+            organizationId: input.organizationId,
+            provider: (target?.provider ?? "selfhosted") as ProviderRef["provider"],
+            resourceType: "application",
+            resourceId,
+          },
+          hostnames: remaining,
+        },
+      );
+      hostingWithdrawn = routed.ok ? routed.value.published : false;
+      hostingWithdrawReason = routed.ok ? routed.value.reason : routed.reason;
+    }
+  }
+
   await deps.store.recordAuditEvent({
     organizationId: input.organizationId,
     actorId: ctx.principal.userId,
@@ -400,6 +439,12 @@ export async function removeDomain(
       hostname: domain.hostname,
       routeWithdrawn: withdrawn.ok,
       ...(withdrawn.ok ? {} : { routeWithdrawReason: withdrawn.reason }),
+      ...(hostingWithdrawn === null
+        ? {}
+        : {
+            hostingRouteWithdrawn: hostingWithdrawn,
+            ...(hostingWithdrawn ? {} : { hostingRouteWithdrawReason: hostingWithdrawReason }),
+          }),
     },
   });
 

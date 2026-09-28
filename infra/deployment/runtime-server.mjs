@@ -604,7 +604,21 @@ const ROUTES = {
 
   async setDomains(app, body) {
     const domains = Array.isArray(body?.domains) ? body.domains.filter(isHostname) : [];
+    // A hostname the caller dropped must stop being served. The router only
+    // learns a route is gone by being told, so the removals are withdrawn
+    // explicitly before the new set is published.
+    const before = new Set((app.domains ?? []).filter(isHostname));
+    const next = new Set(domains);
+    const removed = [...before].filter((host) => !next.has(host));
     app.domains = domains;
+    if (routerConfigured) {
+      for (const host of removed) {
+        await fetchJson(`${ROUTER_URL}/routes/${encodeURIComponent(host)}`, {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${ROUTER_TOKEN}` },
+        });
+      }
+    }
     const route = await publishAppRoutes(app);
     app.routeError = route.published ? null : route.reason;
     await saveState();
@@ -695,7 +709,10 @@ const server = createServer(async (req, res) => {
   if (!app) return send(res, 404, { message: "Application not found." });
   const action = match[2];
   const sub = match[3];
-  const body = req.method === "POST" || req.method === "PATCH" ? await readBody(req) : {};
+  // Every verb that carries a body is read. `PUT /apps/:id/domains` is the one
+  // the hosting adapter uses, so omitting it would silently drop the hostnames
+  // and the route would never be published.
+  const body = await readBody(req);
 
   if (action === "stream" && req.method === "GET") {
     return ROUTES.stream(app, res);
