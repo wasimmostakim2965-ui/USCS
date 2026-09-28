@@ -562,10 +562,13 @@ describe("the public landing page", () => {
     );
 
     expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
-    expect(screen.getByText(/hidden-origin/)).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/infrastructure/i);
     // A second heading for the "how it is built" band, so the page is more than
     // a hero that would render blank if the copy were removed.
     expect(screen.getByText("Three layers, one contract")).toBeTruthy();
+    // The deploy illustration is explicitly labelled as an illustration, so the
+    // page never presents a scripted "ready" as an engine's real answer.
+    expect(screen.getByText(/A deployment, illustrated\./)).toBeTruthy();
     // A comparison band answers the reader's "why not a deploy button?" without
     // promising an engine this deployment may not hold credentials for.
     expect(screen.getByText("The same jobs, answered differently")).toBeTruthy();
@@ -4573,5 +4576,33 @@ describe("the sidebar (wide-screen default and toggle)", () => {
     await user.click(screen.getByRole("button", { name: "Hide navigation" }));
 
     await waitFor(() => expect(window.localStorage.getItem("cloudwai.sidebar")).toBe("closed"));
+  });
+
+  it("renders and toggles before a workspace is selected", async () => {
+    // The no-workspace state lives at the organizations chooser, which no route
+    // scopes to an organization. Before this, the shell hid the sidebar whenever
+    // there was no active organization, so the toggle flipped state with nothing
+    // on screen and the menu looked broken on a fresh sign-in.
+    const url = await startApi((procedure) => {
+      // An empty list is what the chooser sees for a brand-new account: no
+      // workspace to select, so no organization id is ever committed.
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    const { container } = renderApp(url, "#/orgs");
+
+    // The sidebar exists in this state, carrying the one honest item: the chooser.
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
+    expect(screen.getByRole("link", { name: "Organizations" })).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Hide navigation" }));
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeNull());
+    expect(container.querySelector(".shell--nav-collapsed")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Show navigation" }));
+    await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
   });
 });

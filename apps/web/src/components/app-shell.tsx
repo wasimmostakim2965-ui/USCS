@@ -211,18 +211,44 @@ export function AppShell({
   const activeOrganization = organizations.find((o) => o.id === activeOrganizationId) ?? null;
   const organizationName = activeOrganization?.name ?? "Workspace";
 
-  const nav = useMemo(
-    () =>
-      navForRoute(router.route, {
-        organizationId: activeOrganizationId ?? "",
-        ...(projectName ? { projectName } : {}),
-      }),
-    [router.route, activeOrganizationId, projectName],
-  );
+  // With no workspace selected there is no organization to scope a route to, so
+  // the navigation model cannot answer. The sidebar still renders — a toggle
+  // that opens nothing is the bug this replaces — with the one honest item for
+  // that state: the chooser itself. A route built from an empty organizationId
+  // would be a dead link (`/orgs//projects`), which is why this is a fallback
+  // rather than `navForRoute` with `""`.
+  const nav = useMemo(() => {
+    if (!activeOrganizationId) {
+      return {
+        items: [
+          {
+            id: "organizations",
+            label: "Organizations",
+            icon: "projects" as const,
+            description: "Choose or create a workspace.",
+            route: { name: "organizations" } as Route,
+          },
+        ],
+        activeId: "organizations" as string | null,
+        projectId: null,
+        level: "workspace" as const,
+      };
+    }
+    return navForRoute(router.route, {
+      organizationId: activeOrganizationId,
+      ...(projectName ? { projectName } : {}),
+    });
+  }, [router.route, activeOrganizationId, projectName]);
 
-  const back = backTargetFor(router.route);
+  const back = activeOrganizationId ? backTargetFor(router.route) : null;
   const groupLabel =
-    nav.level === "database" ? "Database" : nav.level === "project" ? "Project" : organizationName;
+    nav.level === "database"
+      ? "Database"
+      : nav.level === "project"
+        ? "Project"
+        : activeOrganizationId
+          ? organizationName
+          : "Cloud Wai";
 
   const commands = useMemo(() => {
     const items: {
@@ -297,14 +323,10 @@ export function AppShell({
     });
   };
 
-  const sidebarVisible = Boolean(activeOrganizationId) && sidebarOpen;
+  const sidebarVisible = sidebarOpen;
 
   return (
-    <div
-      className={`shell${activeOrganizationId ? "" : " shell--no-sidebar"}${
-        activeOrganizationId && !sidebarVisible ? " shell--nav-collapsed" : ""
-      }`}
-    >
+    <div className={`shell${!sidebarVisible ? " shell--nav-collapsed" : ""}`}>
       <header className="topbar">
         <Button
           variant="ghost"

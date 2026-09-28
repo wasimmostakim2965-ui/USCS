@@ -691,3 +691,25 @@ traps worth remembering:
   an availability result. Reuse it anywhere a Domains surface needs a lookup box
   instead of duplicating the markup.
 
+## The landing page rebuild and the no-workspace sidebar (2026-09-28)
+
+- `apps/web/src/pages/landing.tsx` was replaced end to end. It is now a full
+  marketing page (sticky nav, hero with a deploy illustration, an engines strip,
+  a three-layer platform band, a capabilities bento, the Domains band with the
+  shared search, a security band, a comparison, pricing and a columned footer).
+  Two things are deliberate and easy to reintroduce by accident: every section
+  link still scrolls with `scrollIntoView` (a `#anchor` would be parsed as a
+  route), and nothing on the page reports an engine success this deployment did
+  not observe — the terminal hero is a labelled *illustration*, and the page has
+  no uptime badge or fabricated availability.
+- The sidebar was hidden whenever there was no active organization
+  (`sidebarVisible = Boolean(activeOrganizationId) && sidebarOpen`). That was not
+  a cosmetic condition: at `#/orgs` with no workspace committed — a fresh sign-in
+  with no organizations, or the chooser itself — no route's `navForRoute` could
+  answer, so the shell dropped the sidebar and the top-bar toggle flipped state
+  with nothing on screen. The menu therefore looked dead on the one screen a
+  brand-new account sees. The shell now renders the sidebar in every state and
+  supplies a one-item fallback nav (Organizations → `#/orgs`) when no workspace
+  is selected, so the toggle always has something to show and hide.
+  `tests/web/dashboard.e2e.test.tsx` has a regression test for it.
+
