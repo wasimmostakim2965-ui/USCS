@@ -133,7 +133,16 @@ Terraform bootstrap host-এ repository clone করে সেখানে Docke
 
 Runbook এই সীমাগুলো honest ভাবে উল্লেখ করেছে, তাই এটি hidden bug নয়। কিন্তু Vercel-grade deployment control plane-এর জন্য release artifact, health-gated rollout, previous-version rollback এবং at least a documented recovery procedure প্রয়োজন।
 
-### P1 — Terraform validation local sandbox-এ সম্পূর্ণ চালানো যায়নি
+### P1 — Terraform validation local sandbox-এ সম্পূর্ণ চালানো যায়নি — **এখন locally যাচাই করা হয়েছে**
+
+> **আপডেট (2026-09-28, follow-up pass)।** এবার `terraform` (1.9.8) ইনস্টল করে
+> `infra/aws/terraform`-এ **`terraform fmt -check -recursive` (clean)** এবং
+> **`terraform init -backend=false` + `terraform validate`
+> (`Success! The configuration is valid.`)** চালানো হয়েছে, আর
+> `infra/deployment/docker-compose.yml`-এর জন্য **`docker compose config -q`**
+> পাস করেছে। অর্থাৎ configuration coherence আর শুধু CI evidence-এর ওপর নির্ভরশীল
+> নয় — locally পুনরুৎপাদিত। `terraform apply` এবং live container boot এখনও
+> operator-এর AWS account-এ চালাতে হবে; এটা open রয়ে গেছে।
 
 এই audit sandbox-এ `terraform` এবং `docker` CLI ইনস্টল ছিল না। ফলে local `terraform fmt`, `terraform init/validate` এবং `docker compose config` চালিয়ে পুনরায় যাচাই করা যায়নি। Repository CI-তে Terraform job আছে এবং source-level configuration coherent দেখাচ্ছে, কিন্তু এই audit-এর ফল **CI evidence-এর ওপর নির্ভরশীল**। AWS account-এ `terraform apply` বা live container boot এখানে প্রমাণিত হয়নি।
 
@@ -196,6 +205,33 @@ Route model URL-driven এবং database drill-in sidebar replace করে, �
 কিন্তু একই কারণে production claim-এ আরও কঠোর হতে হবে। **আজকের codebase দিয়ে dashboard/API deploy করা সম্ভব; আজকের default infrastructure দিয়ে Vercel-এর মতো arbitrary repository build এবং deploy করানো প্রমাণিত নয়।** সবচেয়ে জরুরি কাজ হলো নতুন UI নয়—একটি throwaway tenant-এর জন্য Coolify/build/runtime path end-to-end সত্যি চালানো, AWS Terraform environment gaps বন্ধ করা, এবং সেই evidence release gates-এ সংরক্ষণ করা।
 
 এই audit অনুযায়ী আমি এখনই বড় frontend rewrite করার পরামর্শ দিচ্ছি না। পরবর্তী engineering milestone হওয়া উচিত **one real deployment path, one real engine, one real rollback, one real backup restore**। এগুলো সফল হলে platform-এর বাকি breadth যুক্ত করা নিরাপদ হবে।
+
+### Follow-up pass (2026-09-28)
+
+এই audit-এর পরের pass-এ নিচের কাজ সম্পন্ন, এবং সব evidence `pnpm verify`
+(915 tests / 54 files, green) ও live host-এ পুনরুৎপাদিত:
+
+- **AWS Terraform environment gaps বন্ধ** — `cloud_wai_secret_encryption_key`
+  (`sensitive`, 43-char validation) ও `public_supabase_url` variable যোগ, এবং
+  `compute.tf`-এর SSM template-এ `CLOUD_WAI_SECRET_ENCRYPTION_KEY`,
+  `PUBLIC_SUPABASE_URL`, `VITE_SUPABASE_URL` inject (`SecureString`)।
+- **Builder service deploy stack-এ** — pinned Nixpacks builder image, opt-in
+  compose profile, `deploy.sh` wiring, এবং দুইটি আসল build bug fix।
+- **CI-gate regression** — four unformatted files (format:check failure) fix।
+- **Terraform + compose locally যাচাই** — `terraform fmt -check -recursive`
+  clean, `terraform validate` success, `docker compose config -q` pass
+  (উপরে P1 আপডেট দ্রষ্টব্য)।
+- **Deploy-script reliability bug (D10)** — pidfile ভুল pid ধরত, তাই `status`
+  একটা চলমান service-কে "down" দেখাত এবং `down`/restart সেটা বন্ধ করতে পারত
+  না; এখন wrapper নিজের pid লেখে ও service `exec` করে, এবং `down` service-এর
+  নিজস্ব command line sweep করে। live host-এ verified।
+- **Test count** — 910/53 থেকে 915/54 (`tests/deployment/deploy-script.test.ts`
+  যোগ হয়েছে)।
+
+অপরিবর্তিত open gate: live external engine validation (Coolify/MinIO/edge/
+runtime) — gate 6–9, অর্থাৎ `terraform apply` ও one real deployment path এখনও
+operator-এর AWS account-এ চালাতে হবে।
+
 
 ## References
 

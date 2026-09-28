@@ -322,19 +322,52 @@ build() {
 # --- 5. Processes ------------------------------------------------------------
 # setsid detaches each process from this shell, so a deploy started over SSH
 # survives the session that started it.
+#
+# A setsid child is *not* the process we want to track. `setsid` forks a new
+# session leader and the parent exits, so `$!` names a process that may already
+# be gone (or, on some hosts, a different one entirely) while the real service
+# runs on. Recording it made `status` report a live service as "down" and left
+# `down`/restart unable to stop it — the pid the shell could signal was not the
+# pid the service held. The wrapper writes *its own* pid — the setsid child,
+# which `exec`s the service so the two are one process — to the pidfile.
 start_process() {
   local name="$1"; shift
   stop_process "$name"
-  setsid nohup "$@" >"$LOG_DIR/$name.log" 2>&1 </dev/null &
-  echo $! >"$RUN_DIR/$name.pid"
+  local pidfile="$RUN_DIR/$name.pid" quoted
+  printf -v quoted ' %q' "$@"
+  setsid nohup bash -c "echo \$\$ >'$pidfile'; exec${quoted}" \
+    >"$LOG_DIR/$name.log" 2>&1 </dev/null &
+  local i=0
+  while [[ ! -s "$pidfile" ]] && (( i < 50 )); do sleep 0.1; i=$((i + 1)); done
 }
 
+# Stop by the recorded pid, and if it survives (or the pidfile is stale), sweep
+# the exact command line so a deploy cannot leave a second copy holding a port.
 stop_process() {
-  local name="$1" pid
-  [[ -f "$RUN_DIR/$name.pid" ]] || return 0
+  local name="$1" pid i=0
+  [[ -f "$RUN_DIR/$name.pid" ]] || { sweep_process "$name"; return 0; }
   pid="$(cat "$RUN_DIR/$name.pid")"
-  kill "$pid" 2>/dev/null
+  if [[ -n "$pid" ]]; then
+    kill "$pid" 2>/dev/null
+    while kill -0 "$pid" 2>/dev/null && (( i < 40 )); do sleep 0.25; i=$((i + 1)); done
+    kill -9 "$pid" 2>/dev/null
+  fi
   rm -f "$RUN_DIR/$name.pid"
+  sweep_process "$name"
+}
+
+# A last resort for a process whose pidfile was lost: match the service's own
+# command line, never a broad keyword, so an unrelated `node` is never killed.
+sweep_process() {
+  local name="$1" pattern
+  case "$name" in
+    api)     pattern="apps/api/dist/main.js" ;;
+    worker)  pattern="apps/worker/dist/main.js" ;;
+    edge)    pattern="infra/deployment/edge-server.mjs" ;;
+    gateway) pattern="infra/deployment/gateway-proxy.mjs" ;;
+    *) return 0 ;;
+  esac
+  pkill -f "$pattern" 2>/dev/null || true
 }
 
 start_all() {
