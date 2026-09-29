@@ -350,14 +350,14 @@ export function AppShell({
           <span className="topbar__tag">control plane</span>
         </a>
 
-        <div className="menu" ref={workspace.ref}>
+        <div className="menu menu--start" ref={workspace.ref}>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setWorkspaceOpen((open) => !open)}
             title="Switch workspace"
           >
-            <span className="truncate" style={{ maxWidth: "200px" }}>
+            <span className="truncate topbar__workspace-name">
               {loadingWorkspaces ? "Loading…" : organizationName}
             </span>
             <Icon name="chevronDown" size={16} />
@@ -422,9 +422,7 @@ export function AppShell({
               /
             </span>
             <span className="row" style={{ gap: "var(--space-2)" }}>
-              <span className="truncate" style={{ maxWidth: "180px", fontWeight: 600 }}>
-                {projectName}
-              </span>
+              <span className="truncate topbar__project-name">{projectName}</span>
             </span>
           </>
         ) : null}
@@ -534,6 +532,18 @@ export function AppShell({
             ))}
           </nav>
         </aside>
+      ) : null}
+
+      {/* On a narrow screen the sidebar is a drawer over the page. Without a
+          backdrop the only way to dismiss it is to follow a link, so a tap
+          anywhere else closes it. Wide screens have no drawer, so no backdrop. */}
+      {compactNav && sidebarOpen ? (
+        <button
+          type="button"
+          className="drawer-scrim"
+          aria-label="Close navigation"
+          onClick={() => setSidebarOpen(false)}
+        />
       ) : null}
 
       <main className="main" id="main">

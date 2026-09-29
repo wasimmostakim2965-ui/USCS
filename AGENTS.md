@@ -133,6 +133,22 @@ second Back press remains reachable.
 
 ## Known gaps (do not paper over these)
 
+- **A second deploy for a project does not necessarily build the source its
+  row names.** The first deploy creates the project's engine application from
+  `gitRepository`/`gitBranch` and stores its handle
+  (`setProjectProviderResource`). Every later deploy for that project resolves
+  that stored application and asks the engine to rebuild it, and the self-hosted
+  runtime rebuilds whatever source the application was created with. So a second
+  `deployments.create` that names a *different* repository still builds the
+  first repository, while its `deployments` row records the repository it was
+  told to use. Seen directly: two deploys of one project, the second naming
+  `octocat/Hello-World`, both cloned `vercel/vercel`. The row's
+  `gitRepository` is a request, not a promise the engine fulfilled — the honest
+  fix is to re-point the engine application at the new source (or make the
+  project-forks-engine-source rule explicit and reject a changed source rather
+  than silently ignoring it), and until then a project's source is fixed at
+  first deploy.
+
 - **Data-engine provisioning still runs on the request path.** The deployment,
   backup and policy writers are durable: `deployments.create`/`rollback`,
   `data.backup` and `security.policy.distribute` write their row, enqueue a job
