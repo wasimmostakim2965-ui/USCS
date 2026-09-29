@@ -275,6 +275,17 @@ Three things are deliberately not done, and none of them is papered over:
 
 Do not describe the build plane as a hard multi-tenant boundary.
 
+- **Nixpacks 1.41 mis-detects a repo whose only directory is `.git`.** The build
+  plan generator picks the sole subdirectory as the app root, so `octocat/
+  Hello-World` (root files `README` + `.git`) is built as `Using subdirectory
+  ".git"` and fails with "unable to generate a build plan". This is nixpacks'
+  own heuristic, not a defect in the builder contract, and it is why a
+  `.git`-only or directory-less static repo does not build here; a repo with a
+  detected language (a `package.json`, `index.html`, etc.) builds normally. A
+  real static-site path would need a `--config` or an explicit build plan.
+  Verified: `heroku/nodejs-getting-started` builds and serves (HTTP 200 on the
+  reported port), `octocat/Hello-World` does not.
+
 ## The self-hosted runtime we ship
 
 `infra/deployment/runtime-server.mjs` (+ `runtime.Dockerfile`, ADR-0020) is the
