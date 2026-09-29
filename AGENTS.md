@@ -798,3 +798,49 @@ defects, both of which read on screen as "not configured" rather than as bugs.
   that only the adapter knows how to address.
 
 
+
+## Deploying a real web app, end to end (2026-09-29)
+
+Verified this session: full `./infra/deployment/deploy.sh deploy`, then a real
+deploy driven through the dashboard, then the deployed container probed.
+
+- **The `gitRepository` field is shared across the whole path.** The control
+  plane (`apps/api`/`apps/worker`/`packages/adapters`) sends `gitRepository`; the
+  runtime stores and revalidates `app.gitRepository`, passes it as the build
+  source's `repository`, and the builder clones `source.repository`. A build that
+  reaches the builder is one the runtime already validated with
+  `isGitRepository`, so the field names differ only across that one
+  runtime→builder hop, by design. Add a new source field to the builder's reader
+  and the runtime's validator together.
+- **A project pins one source: its first application.** `POST /apps` then
+  `deploy` finds-or-creates the runtime app by project id, so a second deploy to
+  the same project reuses the first app's repository. Sending a different repo
+  URL to the deploy modal does not change what is built — deploy a different
+  source as a new project (one project, one application, as Vercel does).
+- **A project that builds but never serves is still `succeeded`.** The runtime
+  runs the image's own start command. `githubtraining/hellogitworld` builds a
+  jar with no main manifest, so its container exits and reads
+  `Restarting (1)`; the deployment row is honestly `succeeded` because the build
+  genuinely succeeded. Use a repo that serves HTTP
+  (`heroku/node-js-getting-started`) to prove a deploy end to end.
+- **App ports are loopback-only by design.** `docker run -p
+  127.0.0.1:<hostPort>:<appPort>`; `RUNTIME_PUBLIC_HOST` only changes the URL
+  *string*, not reachability. The app answers `curl
+  http://127.0.0.1:<hostPort>/` → 200 on the host, and becomes publicly
+  reachable only once a verified domain publishes a router route. So
+  `http://<public-host>:<hostPort>` is refused until the domain last mile is
+  done — do not present it as a live public link.
+
+## Registrar-style domain search on the Domains page (2026-09-29)
+
+- `apps/web/src/components/domain-search.tsx` renders a registrar-shaped search
+  on the Domains page (and the landing page's Domains section). A bare label
+  expands across `.com/.net/.org/.io/.dev`, each marked `Needs a registrar` when
+  no registrar is configured; a full hostname yields itself; a non-name yields
+  an honest "not a hostname" answer. It answers about the *query* and never
+  invents availability or a price. Pass `registrarConfigured` only when a real
+  registrar is wired.
+- **The `DomainSearch` submit path needs Enter or the submit button — the Search
+  label is a static styled div, not the control.** Verified live: typing a bare
+  label and pressing Enter expands the five names.
+
