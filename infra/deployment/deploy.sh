@@ -72,6 +72,44 @@ wait_for_http() {
   return 1
 }
 
+# Which process owns a listening TCP port, read from /proc so it works where
+# `ss`/`lsof` are absent (they are not installed on every host). Parsing the
+# hex socket table is exact: the listen state is 0A, `ss -ltnp` semantics.
+port_holder() {
+  local port="$1" hex inode pid fd
+  printf -v hex '%04X' "$port"
+  inode="$(awk -v h=":$hex" '$2 ~ h"$" && $4 == "0A" {print $10; exit}' \
+    /proc/net/tcp /proc/net/tcp6 2>/dev/null)"
+  [[ -n "$inode" ]] || return 0
+  for fd in /proc/[0-9]*/fd/*; do
+    if [[ "$(readlink "$fd" 2>/dev/null)" == "socket:[$inode]" ]]; then
+      pid="${fd#/proc/}"; printf '%s' "${pid%%/*}"; return 0
+    fi
+  done
+}
+
+# Prove the process that is answering a loopback port is the one we just
+# started, not a stale copy still holding it. Two failures conspired to make the
+# deploy lie: a service that could not bind (EADDRINUSE) dies, while the health
+# probe answers from the *old* process on the same port -- so `wait_for_http`
+# passed and the deploy printed `ok`. When the holder is root-owned, `pkill`
+# cannot signal it either, so it survives every restart. This check reads the
+# truth: the port's owner must be the started pid (or its child).
+assert_port_owner() {
+  local name="$1" port="$2" holder started
+  holder="$(port_holder "$port")"
+  started="$(cat "$RUN_DIR/$name.pid" 2>/dev/null)"
+  if [[ -z "$holder" ]]; then
+    warn "no process is listening on :$port for $name"
+    return 0
+  fi
+  if [[ "$holder" == "$started" || "$holder" == "$(awk '{print $4}' "/proc/$started/stat" 2>/dev/null)" ]]; then
+    ok "$name owns :$port (pid $holder)"
+    return 0
+  fi
+  die "$name did not take :$port -- pid $holder ($(tr -d '\0' <"/proc/$holder/cmdline" 2>/dev/null | head -c 80)) is holding it. Stop that process (it may be root-owned) and redeploy."
+}
+
 # --- 1. Docker ---------------------------------------------------------------
 ensure_docker() {
   if docker info >/dev/null 2>&1; then ok "docker is running"; return; fi
@@ -552,6 +590,11 @@ sweep_process() {
     *) return 0 ;;
   esac
   pkill -f "$pattern" 2>/dev/null || true
+  # A previous deploy run under sudo (or as root) leaves a copy this user cannot
+  # signal, which then holds the port against every later restart. With
+  # passwordless sudo, sweep it too; without it, `assert_port_owner` names the
+  # holder and the deploy stops instead of pretending to have replaced it.
+  sudo -n pkill -f "$pattern" 2>/dev/null || true
 }
 
 start_all() {
@@ -559,7 +602,7 @@ start_all() {
   start_process api node --env-file=.env apps/api/dist/main.js
   wait_for_http "http://127.0.0.1:${API_PORT}/healthz" 30 \
     || { tail -20 "$LOG_DIR/api.log" >&2; die "The API did not become healthy."; }
-  ok "api on 127.0.0.1:${API_PORT}"
+  assert_port_owner api "$API_PORT"
 
   start_process worker node --env-file=.env apps/worker/dist/main.js
   ok "worker draining the orchestration queue"
@@ -567,8 +610,10 @@ start_all() {
   say "starting the public origins"
   EDGE_PORT="$DASHBOARD_PORT" API_UPSTREAM="http://127.0.0.1:${API_PORT}" \
     start_process edge node infra/deployment/edge-server.mjs
+  assert_port_owner edge "$DASHBOARD_PORT"
   GATEWAY_PORT="$GATEWAY_PORT" SUPABASE_UPSTREAM="http://127.0.0.1:${SUPABASE_PORT}" \
     start_process gateway node infra/deployment/gateway-proxy.mjs
+  assert_port_owner gateway "$GATEWAY_PORT"
 
   wait_for_http "http://127.0.0.1:${DASHBOARD_PORT}/healthz" 20 \
     || die "The dashboard origin did not come up."
@@ -664,6 +709,22 @@ cmd_status() {
     set -- $probe
     code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$2")"
     printf '  %-8s %s\n' "$1" "$code"
+  done
+  # An origin can answer from a process this user did not start (a stale,
+  # root-owned copy), which is exactly the lie `status` used to tell. Name the
+  # real owner so "up" is never assumed from a probe alone.
+  printf 'ports\n'
+  for probe in "api ${API_PORT}" "edge ${DASHBOARD_PORT}" "gateway ${GATEWAY_PORT}"; do
+    set -- $probe
+    holder="$(port_holder "$2")"
+    started="$(cat "$RUN_DIR/$1.pid" 2>/dev/null)"
+    if [[ -z "$holder" ]]; then
+      printf '  %-8s :%s unowned\n' "$1" "$2"
+    elif [[ "$holder" == "$started" ]]; then
+      printf '  %-8s :%s pid %s (ours)\n' "$1" "$2" "$holder"
+    else
+      printf '  %-8s :%s pid %s (not the recorded pid %s)\n' "$1" "$2" "$holder" "${started:-none}"
+    fi
   done
 }
 
