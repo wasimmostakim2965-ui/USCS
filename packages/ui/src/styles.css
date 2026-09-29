@@ -1954,6 +1954,39 @@ a.card:hover,
   line-height: 1.5;
 }
 
+.domain-search__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--line);
+}
+
+.domain-search__result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  background: var(--panel);
+}
+
+.domain-search__name {
+  color: var(--ink);
+  font-size: var(--step-0);
+}
+
+.domain-search__status {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
 /* ------------------------------------------------------------------ landing */
 
 /*

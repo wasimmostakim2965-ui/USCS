@@ -298,6 +298,37 @@ describe("the dashboard against a live control plane", () => {
     expect(screen.getByText("Unverified")).toBeTruthy();
   });
 
+  it("offers the registrar-style extension search on the Domains page, honestly", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "domains.list") {
+        return { ok: true, status: 200, data: [] };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    const { default: userEvent } = await import("@testing-library/user-event");
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/domains");
+    await waitFor(() => expect(document.title).toBe("Domains · Cloud Wai"));
+
+    // Before a lookup the box is present and honest: the query is answered about,
+    // the registrar is named as the reason there is no availability result.
+    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
+    await userEvent.type(box, "acme");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    // A bare label is expanded across the usual extensions, like a registrar
+    // search — and each candidate is marked as needing a registrar, never priced
+    // and never called available.
+    expect(await screen.findByText("acme.com")).toBeTruthy();
+    expect(screen.getByText("acme.net")).toBeTruthy();
+    expect(screen.getByText("acme.io")).toBeTruthy();
+    expect(screen.getAllByText("Needs a registrar").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/available/i)).toBeNull();
+  });
+
   it("reports a revoked API key as revoked, not as an error", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {

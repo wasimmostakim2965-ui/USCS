@@ -34,6 +34,7 @@ import {
 import { useApp } from "../react/context.js";
 import { usePagedSection, useSection } from "../react/hooks.js";
 import { newRequestId } from "../ids.js";
+import { DomainSearch } from "../components/domain-search.js";
 import type { Route } from "../routes.js";
 import {
   loadApiKeys,
@@ -2035,6 +2036,18 @@ export function DomainsPage({
         </Button>
       }
     >
+      <Card>
+        <div className="stack" style={{ gap: "var(--space-2)" }}>
+          <strong>Find a domain</strong>
+          <span className="muted">
+            Look up a name the way a registrar search does. This deployment has no registrar
+            configured yet, so the box answers about the query and never invents an availability
+            result.
+          </span>
+          <DomainSearch />
+        </div>
+      </Card>
+
       <Card flush>
         <SectionView<DomainSummary>
           section={section}
