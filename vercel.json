@@ -4,5 +4,6 @@
   "installCommand": "pnpm install --frozen-lockfile --prod=false",
   "buildCommand": "pnpm --filter @cloud-wai/contracts --filter @cloud-wai/ui build && cd apps/web && pnpm exec vite build",
   "outputDirectory": "apps/web/dist/browser",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [{ "source": "/auth/callback", "destination": "/" }]
 }
