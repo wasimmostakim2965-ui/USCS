@@ -848,9 +848,15 @@ deploy driven through the dashboard, then the deployed container probed.
   holder. `status` gained a `ports` block so `up` is never inferred from a probe;
   a holder this user cannot inspect prints as "held by a process this user
   cannot inspect" (its `/proc/<pid>/fd` is unreadable) — a real fact, not "nobody
-  is on it". `sweep_process` also tries `sudo -n pkill` so a passwordless-sudo
-  host can clear a root-owned leftover; without sudo, the deploy stops honestly
-  instead of pretending to have replaced it.
+  is on it". A leftover owned by another user is **not** something the deploy
+  clears itself: it names the holder and the operator removes it.
+- **Do not add `sudo pkill` to the sweep.** It was tried and it killed the live
+  API: `sweep_process`'s pattern (`apps/api/dist/main.js`) matches the *running*
+  deployment, `sudo` bypasses the stubbed `pkill` the test injects, and so a
+  `pnpm verify` run on the host terminated the real service. It is exactly the
+  broad-keyword hazard the sweep was written to avoid, one privilege level up.
+  `tests/deployment/deploy-script.test.ts` now refuses a `pkill` that mentions
+  `sudo` in either order.
 - `tests/deployment/deploy-script.test.ts` pins the call sites and runs the
   extracted `port_holder` for real. **If you start a service by hand, check the
   port owner (`grep -l` on `/proc/*/fd`), not just that the port answers.**

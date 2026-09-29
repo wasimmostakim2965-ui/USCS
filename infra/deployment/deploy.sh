@@ -602,12 +602,11 @@ sweep_process() {
     gateway) pattern="infra/deployment/gateway-proxy.mjs" ;;
     *) return 0 ;;
   esac
+  # Only this user's own processes. A `sudo pkill` here would reach a process
+  # the caller never started -- including, when the test suite runs the real
+  # snippet, the live deployment on the host. A leftover owned by another user
+  # is left for `assert_port_owner` to name and the operator to remove.
   pkill -f "$pattern" 2>/dev/null || true
-  # A previous deploy run under sudo (or as root) leaves a copy this user cannot
-  # signal, which then holds the port against every later restart. With
-  # passwordless sudo, sweep it too; without it, `assert_port_owner` names the
-  # holder and the deploy stops instead of pretending to have replaced it.
-  sudo -n pkill -f "$pattern" 2>/dev/null || true
 }
 
 start_all() {

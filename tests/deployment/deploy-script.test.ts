@@ -232,6 +232,12 @@ describe("the one-command deploy script", () => {
     expect(script).toMatch(/assert_port_owner gateway "\$GATEWAY_PORT"/);
     // An unreadable holder is reported as a real fact, not as "nobody is on it".
     expect(script).toMatch(/printf '\?'/);
+    // The sweep must never escalate to sudo: that reaches a process the caller
+    // did not start, and when the suite runs the real snippet it becomes the
+    // live deployment on the host. (This was tried once; it killed the API.)
+    // Command form only -- a comment may name the hazard without being it.
+    expect(script).not.toMatch(/^\s*sudo\b[^\n]*pkill/m);
+    expect(script).not.toMatch(/^\s*pkill\b[^\n]*\bsudo\b/m);
     // And `status` names each port's owner, so "up" is never inferred from a probe.
     expect(script).toMatch(/printf 'ports\\n'/);
   });
