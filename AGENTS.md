@@ -767,3 +767,34 @@ repeating here because they are invariants rather than gaps:
   the reason, and Database/Security are documented as first-class because they
   are the differentiators.
 
+## A settled deploy must reach the dashboard (2026-09-28)
+
+A real deploy of a public Vite repo through the self-hosted runtime surfaced two
+defects, both of which read on screen as "not configured" rather than as bugs.
+
+- **The deployment list never re-read a row in flight.** A build settles in the
+  worker, off the request path, so the dashboard kept rendering `Deploying` for a
+  row the engine had long since answered `succeeded` about. `DeploymentsPage`
+  now polls `reload()` every 4s *while — and only while —* some row is
+  `pending`/`running`, and stops the moment none is. A list with nothing in
+  flight is never re-fetched. If you add another surface that shows a worker's
+  outcome, it needs the same in-flight poll; a one-shot read is only correct for
+  data that cannot change underneath it.
+
+- **A build log was unaddressable by the deployment handle.** The hosting
+  adapter's ref for a deployment build is the engine's *attempt* id
+  (`deploymentResourceId`), but the runtime had no attempt-addressed log route:
+  `GET /apps/<attemptId>/logs` missed its `state.apps` lookup and answered 404,
+  which the logs drawer rendered as "Deployment logs — not configured" for a
+  build that had actually run. The app-level `logs` is a *tail*, so by the time a
+  customer opened a settled build it held only the running container's output.
+  Now each attempt keeps its own buffer (`attemptLogs[attemptId]`, written by
+  `log()` alongside the app tail and pruned with the attempt), `GET
+  /deployments/:id/logs` serves it, and an attempt id arriving on the
+  `/apps/<id>/logs` path serves the same buffer — so a handle recorded by either
+  write path resolves. `tests/runtime/attempt-logs.test.ts` starts the real
+  server and pins all three cases (attempt route, application path, and a 404 for
+  an id that is neither). Read the runtime's route table before adding a handle
+  that only the adapter knows how to address.
+
+
