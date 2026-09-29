@@ -80,11 +80,14 @@ export { buildMenuMap, PROJECT_PLACEHOLDER } from "./docs/menu-map.js";
 export type { MenuLevelId, MenuMapEntry, MenuMapLevel } from "./docs/menu-map.js";
 export {
   createSessionController,
+  enabledProvidersFromSettings,
+  listEnabledProviders,
   sessionConfigFromEnv,
   unconfiguredSessionController,
   withDemoSession,
 } from "./session.js";
-export type { BrowserSession, SessionConfig, SessionController } from "./session.js";
+export type { BrowserSession, SessionConfig, SessionController, OAuthProvider } from "./session.js";
+export { OAuthProviderIds } from "./session.js";
 export { App } from "./App.js";
 export type { AppProps } from "./App.js";
 

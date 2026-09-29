@@ -19,6 +19,12 @@ export interface IconGeometry {
   readonly dots?: readonly (readonly [cx: number, cy: number, r: number])[];
   /** Outer radius for a stroked circle, drawn as `<circle>`. */
   readonly circles?: readonly (readonly [cx: number, cy: number, r: number])[];
+  /**
+   * Draw the paths filled instead of stroked. Brand marks (GitHub, GitLab,
+   * Google) are single filled silhouettes, not stroke drawings, so they opt in
+   * here; a stroked brand mark would read as a different logo.
+   */
+  readonly fill?: boolean;
 }
 
 const ICON_SET = {
@@ -161,6 +167,28 @@ const ICON_SET = {
     paths: [
       "M5 5.5h6a2 2 0 0 1 2 2v11a2 2 0 0 0-2-2H5z",
       "M19 5.5h-6a2 2 0 0 0-2 2v11a2 2 0 0 1 2-2h6z",
+    ],
+  },
+
+  /* Brand marks. Filled single-path geometry from simple-icons (CC0 1.0), so
+     the sign-in buttons carry the provider's real logo rather than a generic
+     stand-in. `fill: true` switches the shared frame from a stroke to a fill. */
+  github: {
+    fill: true,
+    paths: [
+      "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12",
+    ],
+  },
+  gitlab: {
+    fill: true,
+    paths: [
+      "m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z",
+    ],
+  },
+  google: {
+    fill: true,
+    paths: [
+      "M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z",
     ],
   },
 } satisfies Record<string, IconGeometry>;

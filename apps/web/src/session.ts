@@ -2,6 +2,27 @@ import { createClient, type SupabaseClient, type Session } from "@supabase/supab
 
 export type OAuthProvider = "google" | "github" | "gitlab";
 
+/** Every provider the sign-in form knows how to offer, in display order. */
+export const OAuthProviderIds: readonly OAuthProvider[] = ["github", "gitlab", "google"];
+
+/**
+ * The providers the identity provider reports as enabled.
+ *
+ * Supabase answers `/auth/v1/settings` with an `external` map of
+ * `{ [provider]: boolean }`. We intersect it with the providers the form can
+ * offer, so a provider this deployment does not implement is never shown, and
+ * one that is implemented but disabled is not offered as a dead button. An
+ * unreadable or missing map yields `null` — "could not be asked" — which the
+ * form treats as "no button can be honestly offered" rather than guessing.
+ */
+export function enabledProvidersFromSettings(settings: unknown): readonly OAuthProvider[] | null {
+  if (typeof settings !== "object" || settings === null) return null;
+  const external = (settings as { external?: unknown }).external;
+  if (typeof external !== "object" || external === null) return null;
+  const map = external as Record<string, unknown>;
+  return OAuthProviderIds.filter((id) => map[id] === true);
+}
+
 export interface BrowserSession {
   readonly userId: string;
   readonly email: string | null;
@@ -50,6 +71,29 @@ export function sessionConfigFromEnv(
   const anonKey = env["VITE_SUPABASE_PUBLISHABLE_KEY"] ?? env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !anonKey) return null;
   return { url, anonKey };
+}
+
+/**
+ * Ask the identity provider which OAuth providers it has enabled.
+ *
+ * This is a plain read of `GET /auth/v1/settings` with the anon key — the same
+ * call the Supabase client makes. A network error, a non-2xx, or an unexpected
+ * body all resolve to `null` ("could not be asked"), which the sign-in form
+ * renders as "no button can be offered", never as an assumed provider list.
+ */
+export async function listEnabledProviders(
+  config: SessionConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<readonly OAuthProvider[] | null> {
+  try {
+    const response = await fetchImpl(`${config.url.replace(/\/$/, "")}/auth/v1/settings`, {
+      headers: { apikey: config.anonKey },
+    });
+    if (!response.ok) return null;
+    return enabledProvidersFromSettings(await response.json());
+  } catch {
+    return null;
+  }
 }
 
 export function authCallbackUrl(): string {

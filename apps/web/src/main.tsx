@@ -10,8 +10,10 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
 import {
   createSessionController,
+  listEnabledProviders,
   unconfiguredSessionController,
   withDemoSession,
+  type OAuthProvider,
   type SessionConfig,
 } from "./session.js";
 import "@cloud-wai/ui/styles.css";
@@ -42,6 +44,18 @@ const session = config && demoEnabled ? withDemoSession(baseSession, apiBaseUrl)
 const container = document.getElementById("root");
 if (!container) throw new Error("The #root element is missing from index.html.");
 
+// Read the enabled providers once, before the first render, so the sign-in form
+// never briefly shows a button for a provider that is switched off. A failed
+// read resolves to `null`, which offers no button rather than guessing.
+const oauthProviders: readonly OAuthProvider[] | null = config
+  ? await listEnabledProviders(config)
+  : null;
+
 createRoot(container).render(
-  <App session={session} apiBaseUrl={apiBaseUrl} misconfigured={config === null} />,
+  <App
+    session={session}
+    apiBaseUrl={apiBaseUrl}
+    misconfigured={config === null}
+    oauthProviders={oauthProviders}
+  />,
 );

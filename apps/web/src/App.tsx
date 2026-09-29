@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ToastProvider } from "@cloud-wai/ui/react";
 import { ApiClient, type OrganizationSummary, type SessionController } from "./index.js";
+import type { OAuthProvider } from "./session.js";
 import { AppProvider } from "./react/context.js";
 import {
   useDocumentTitle,
@@ -54,9 +55,21 @@ export interface AppProps {
   readonly apiBaseUrl: string;
   /** True when Supabase is not configured, so the UI can say so. */
   readonly misconfigured?: boolean;
+  /**
+   * The OAuth providers the identity provider actually has enabled, read from
+   * `auth/v1/settings`. `null` means the deployment could not be asked (or the
+   * read failed); an empty list means none are enabled. The sign-in form shows
+   * a button only for a provider it can honestly offer.
+   */
+  readonly oauthProviders?: readonly OAuthProvider[] | null;
 }
 
-export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
+export function App({
+  session,
+  apiBaseUrl,
+  misconfigured = false,
+  oauthProviders = null,
+}: AppProps) {
   const [current, setCurrent] = useState(() => session.current());
   const [workspaceId, setWorkspaceId] = usePersistentState("cloud-wai.workspace", "");
   const router = useRouter();
@@ -206,7 +219,11 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     }
     return (
       <ToastProvider>
-        <LoginPage session={session} misconfigured={misconfigured} />
+        <LoginPage
+          session={session}
+          misconfigured={misconfigured}
+          oauthProviders={oauthProviders}
+        />
       </ToastProvider>
     );
   }

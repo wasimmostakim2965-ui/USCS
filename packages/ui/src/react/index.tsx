@@ -45,15 +45,18 @@ export interface IconProps {
  */
 export function Icon({ name, size = 18, strokeWidth = 1.6, className }: IconProps) {
   const geometry = ICONS[name];
+  // A brand mark is a filled silhouette; a set glyph is a stroke drawing. The
+  // frame is shared, only the paint differs, so both keep one viewBox.
+  const filled = geometry.fill === true;
   return (
     <svg
       className={className}
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
+      fill={filled ? "currentColor" : "none"}
+      stroke={filled ? "none" : "currentColor"}
+      strokeWidth={filled ? 0 : strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
