@@ -939,3 +939,40 @@ deploy driven through the dashboard, then the deployed container probed.
   label is a static styled div, not the control.** Verified live: typing a bare
   label and pressing Enter expands the five names.
 
+## The recipe book (2026-09-29)
+
+- `docs/recipe-book.md` is the "one place" that joins the scattered sources for
+  *how to build a Vercel-class platform*: the open pattern (Nixpacks build plane,
+  artifact host, edge, control plane, data plane), what this repository copied
+  exactly and what it deliberately did not, the nixpacks failure we hit with its
+  exact fix, renting a real server (one VPS / AWS-as-code / split AWS), the
+  domain public step (DNS + TLS with Caddy, ACM, or Cloudflare), the business
+  logic and money, and how to verify every claim. **Every external claim carries
+  a source link; every link in it was HTTP-checked live on 2026-09-29; every
+  internal claim names the file, migration or test that proves it.** Two dead
+  links found during that check were replaced, not left in.
+- It follows the same honesty rule as the rest of the repository: the pieces the
+  incumbent treats as a black box (the security edge) are named as ours, the
+  pieces that still need a live host are named as open, and a not-built feature
+  (card-on-file billing, drafting a registrar purchase) says so with the reason.
+- The in-dashboard Docs surface already covers the whole menu (`apps/web/src/docs/content.ts`,
+  `menu-map.ts`) and is searchable, so the recipe book is the operator/investor
+  companion, not a second copy of the page help. Do not duplicate the menu map
+  here; link to it.
+- **The sign-in form is honest about providers.** `apps/web/src/session.ts`
+  reads the enabled OAuth providers from `auth/v1/settings` before the first
+  render (`enabledProvidersFromSettings` / `listEnabledProviders`), and
+  `pages/login.tsx` renders a button only for an enabled provider. An unreadable
+  or empty list offers no button and says why, instead of showing a control that
+  "does nothing" — which is exactly what a disabled provider used to look like.
+  Each button carries the provider's own brand mark (filled single-path geometry
+  from simple-icons, CC0; the icon set gained a `fill` mode for it).
+  `tests/web/login-providers.test.tsx` pins the mapping, the read and the
+  no-button cases. The provider *credentials* are still absent
+  (`supabase/config.toml`, every `[auth.external.*] enabled = false`), so a real
+  deployment must configure them in the identity provider; the UI no longer
+  pretends otherwise. The configuration is the proof: `supabase/config.toml`
+  declares no `[auth.external.google]`, `[auth.external.github]` or
+  `[auth.external.gitlab]` block at all (the only one it declares, `apple`, is
+  `enabled = false`), so no OAuth provider is switched on until credentials are
+  added.
