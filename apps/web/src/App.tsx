@@ -105,22 +105,49 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
 
   const acknowledgeCreateRequest = useCallback(() => setCreateRequest(0), []);
 
-  // Derive the active workspace from the URL first, then the remembered one.
+  // Derive the active workspace from the URL first, then the remembered one,
+  // then the first workspace the account has. That third fallback is what makes
+  // a fresh sign-in land inside a real workspace instead of on a chooser whose
+  // sidebar carries a single item: with an organization in hand the whole
+  // workspace menu (Projects, Activity, Observability, Billing, API keys, Docs,
+  // Settings) renders, exactly as it does after an explicit selection. With no
+  // organizations the fallback stays null and the chooser is the honest answer.
   const routeOrganizationId = "organizationId" in router.route ? router.route.organizationId : null;
-  const activeOrganizationId = routeOrganizationId ?? (workspaceId || null);
+  const activeOrganizationId =
+    routeOrganizationId ?? (workspaceId || organizations[0]?.id || null);
+  const firstOrganizationId = organizations[0]?.id ?? null;
 
-  // Remember whatever the URL says, so the sidebar is stable on a later visit.
+  // Where "open the dashboard" lands: the account's first workspace front page
+  // when it has one, otherwise the chooser. One answer for the landing CTA and
+  // the sign-in callback, so a click never stops on a one-item sidebar.
+  const dashboardEntry = useCallback(
+    () =>
+      firstOrganizationId
+        ? router.navigate({ name: "projects", organizationId: firstOrganizationId })
+        : router.navigate({ name: "organizations" }),
+    [router, firstOrganizationId],
+  );
+
+  // Remember whatever the URL (or the fallback) settled on, so the sidebar is
+  // stable on a later visit without the URL carrying an organization id.
   useEffect(() => {
-    if (routeOrganizationId && routeOrganizationId !== workspaceId) {
-      setWorkspaceId(routeOrganizationId);
+    if (activeOrganizationId && activeOrganizationId !== workspaceId) {
+      setWorkspaceId(activeOrganizationId);
     }
-  }, [routeOrganizationId, workspaceId, setWorkspaceId]);
+  }, [activeOrganizationId, workspaceId, setWorkspaceId]);
 
   useEffect(() => {
     if (current && router.route.name === "auth_callback") {
-      router.navigate({ name: "organizations" });
+      // The Vercel-shaped landing: a fresh sign-in lands on the workspace front
+      // page, not on a chooser that would otherwise show a one-item sidebar.
+      // That is what makes "open the dashboard" one click instead of two.
+      if (firstOrganizationId) {
+        router.navigate({ name: "projects", organizationId: firstOrganizationId });
+      } else {
+        router.navigate({ name: "organizations" });
+      }
     }
-  }, [current, router]);
+  }, [current, router, firstOrganizationId]);
 
   const projectId = "projectId" in router.route ? router.route.projectId : null;
 
@@ -178,7 +205,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
         <LandingPage
           signedIn={false}
           version={APP_VERSION}
-          onEnterDashboard={() => router.navigate({ name: "organizations" })}
+          onEnterDashboard={dashboardEntry}
         />
       );
     }
@@ -198,7 +225,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
       <LandingPage
         signedIn
         version={APP_VERSION}
-        onEnterDashboard={() => router.navigate({ name: "organizations" })}
+        onEnterDashboard={dashboardEntry}
       />
     );
   }

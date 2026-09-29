@@ -1099,6 +1099,21 @@ export function DeploymentsPage({
   const [promoting, setPromoting] = useState<DeploymentSummary | null>(null);
   const [redeploying, setRedeploying] = useState<DeploymentSummary | null>(null);
 
+  // A deployment in flight settles on its own, in the worker rather than in this
+  // request, so the list has to re-read while one is non-terminal — otherwise a
+  // finished build reads "Deploying" until the customer reloads. Poll while any
+  // row is pending or running, and stop the moment none is: a settled list is
+  // not re-fetched, which is the same "nothing changes, nothing polls" rule the
+  // rest of the dashboard follows.
+  const inFlight =
+    section.state.kind === "ready" &&
+    section.state.items.some((item) => item.status === "pending" || item.status === "running");
+  useEffect(() => {
+    if (!inFlight) return;
+    const timer = window.setInterval(() => reload(), 4000);
+    return () => window.clearInterval(timer);
+  }, [inFlight, reload]);
+
   return (
     <PageShell
       title="Deployments"

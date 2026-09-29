@@ -307,8 +307,33 @@ const cancelledAttempts = new Set();
 function log(app, line) {
   app.logs.push(line);
   if (app.logs.length > 2000) app.logs.splice(0, app.logs.length - 2000);
+  // Also keep the current attempt's own buffer. The app-level log is a tail, so
+  // by the time a customer opens a settled build's logs it may hold only the
+  // running container's output; the attempt buffer is what makes a *build* log
+  // addressable by the deployment handle the control plane recorded.
+  if (app.deployAttemptId) {
+    if (!app.attemptLogs) app.attemptLogs = {};
+    const buffer = (app.attemptLogs[app.deployAttemptId] ??= []);
+    buffer.push(line);
+    if (buffer.length > 2000) buffer.splice(0, buffer.length - 2000);
+  }
   const listeners = logStreams.get(app.id);
   if (listeners) for (const fn of listeners) fn(line);
+}
+
+/**
+ * Resolve a deploy attempt to its application and that attempt's record.
+ *
+ * An attempt id is unique across apps, so this is what lets a caller holding
+ * only the deployment handle (the reference the hosting adapter returns) read
+ * the attempt's state and its build log without also knowing the app id.
+ */
+function findAttempt(attemptId) {
+  for (const app of Object.values(state.apps)) {
+    const attempt = app.attempts?.[attemptId];
+    if (attempt) return { app, attempt };
+  }
+  return null;
 }
 
 /** Poll the build plane until the job finishes; returns the image or an error. */
@@ -454,6 +479,7 @@ async function deploy(app) {
     const ids = Object.keys(app.attempts);
     for (const stale of ids.slice(0, Math.max(0, ids.length - 50))) {
       delete app.attempts[stale];
+      if (app.attemptLogs) delete app.attemptLogs[stale];
       cancelledAttempts.delete(stale);
     }
     await saveState();
@@ -802,21 +828,30 @@ const server = createServer(async (req, res) => {
 
   // A deploy attempt is addressable on its own, so a caller that holds only the
   // attempt handle (the reference the hosting adapter returns) can read its
-  // settled state without also knowing the application id.
-  const attemptMatch = url.pathname.match(/^\/deployments\/([^/]+)(\/cancel)?$/);
+  // settled state and its build log without also knowing the application id.
+  const attemptMatch = url.pathname.match(/^\/deployments\/([^/]+)(\/(cancel|logs))?$/);
   if (attemptMatch) {
     const attemptId = attemptMatch[1];
-    for (const candidate of Object.values(state.apps)) {
-      const attempt = candidate.attempts?.[attemptId];
-      if (!attempt) continue;
-      if (attemptMatch[2] === "/cancel" && req.method === "POST") {
+    const found = findAttempt(attemptId);
+    if (found) {
+      const { app: candidate, attempt } = found;
+      if (attemptMatch[3] === "cancel" && req.method === "POST") {
         candidate.status = "pending";
         candidate.engineReason = "cancelled";
         cancelledAttempts.add(attemptId);
         await saveState();
         return send(res, 200, {});
       }
-      if (attemptMatch[2] === undefined && req.method === "GET") {
+      if (attemptMatch[3] === "logs" && req.method === "GET") {
+        // The build log for this attempt, then the app's own tail for the
+        // container it started. A build failure wrote to the former, which the
+        // app-level log may no longer hold.
+        const from = url.searchParams.get("cursor") ? Number(url.searchParams.get("cursor")) : 0;
+        const all = [...(candidate.attemptLogs?.[attemptId] ?? [])];
+        const slice = all.slice(Number.isFinite(from) ? from : 0);
+        return send(res, 200, { logs: slice, nextCursor: String(all.length) });
+      }
+      if (attemptMatch[3] === undefined && req.method === "GET") {
         return send(res, 200, {
           id: candidate.id,
           attemptId,
@@ -841,7 +876,20 @@ const server = createServer(async (req, res) => {
   );
   if (!match) return send(res, 404, { message: "Not found." });
   const app = state.apps[match[1]];
-  if (!app) return send(res, 404, { message: "Application not found." });
+  if (!app) {
+    // A deployment handle (the attempt id the adapter records for a build log)
+    // reaches the same routes as an application id. Serve its log so a customer
+    // can read *what a build did* — the app-level log is a tail and may already
+    // have moved on to the running container. Anything else stays a 404.
+    const found = match[2] === "logs" && req.method === "GET" ? findAttempt(match[1]) : null;
+    if (found) {
+      const from = url.searchParams.get("cursor") ? Number(url.searchParams.get("cursor")) : 0;
+      const all = [...(found.app.attemptLogs?.[match[1]] ?? [])];
+      const slice = all.slice(Number.isFinite(from) ? from : 0);
+      return send(res, 200, { logs: slice, nextCursor: String(all.length) });
+    }
+    return send(res, 404, { message: "Application not found." });
+  }
   const action = match[2];
   const sub = match[3];
   // Every verb that carries a body is read. `PUT /apps/:id/domains` is the one
