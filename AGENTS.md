@@ -831,6 +831,24 @@ deploy driven through the dashboard, then the deployed container probed.
   `http://<public-host>:<hostPort>` is refused until the domain last mile is
   done — do not present it as a live public link.
 
+## Vercel builds fail on an unbuilt workspace (2026-09-29)
+
+- **Green locally, red on Vercel, and the reason was not Vercel.** `apps/web`
+  imports `@cloud-wai/ui` and `@cloud-wai/contracts`, whose `main`/`exports`
+  point at `dist/` and which have **no Vite alias** back to their source.
+  `pnpm install` links those packages but does not build them, so `vercel.json`'s
+  `buildCommand` — `cd apps/web && vite build` — failed to resolve them in
+  Vercel's build container. A local run passed only because the workspace was
+  already built. The command now builds both packages first:
+  `pnpm --filter @cloud-wai/contracts --filter @cloud-wai/ui build && cd apps/web
+  && vite build`. `tests/deployment/vercel-build.test.ts` pins it, along with
+  `outputDirectory` matching `vite.config.ts`'s `outDir` and the install keeping
+  dev deps (`--prod=false`), because the workspace packages are dev-built here.
+- If a Vercel deployment is needed again, `docs/plans/vercel-roadmap.md` is the
+  architecture map and `vercel.json` is the only project config in the repo; the
+  account-level project settings (root directory, framework) live in Vercel and
+  must agree with it.
+
 ## A deploy must prove it took the port, not that something answers on it (2026-09-29)
 
 - **The false `ok`.** `start_process` starts a service, then `wait_for_http`
