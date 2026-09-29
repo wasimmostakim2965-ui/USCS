@@ -64,6 +64,7 @@ SQL_STEPS=(
   "job defer for polling|supabase/migrations/0028_jobs_defer_for_polling.sql"
   "project reference integrity|supabase/migrations/0029_project_reference_integrity.sql"
   "deployment protection|supabase/migrations/0030_project_deployment_protection.sql"
+  "deployment build handle|supabase/migrations/0031_deployment_build_handle.sql"
   "job queue probe|tests/isolation/rls/11_jobs_probe.sql"
   "job claim/reap probe|tests/isolation/rls/14_jobs_claim_probe.sql"
   "isolation probe|tests/isolation/rls/10_isolation_probe.sql"
@@ -83,6 +84,7 @@ SQL_STEPS=(
   "staged deployment probe|tests/isolation/rls/26_staged_deployment_probe.sql"
   "project reference probe|tests/isolation/rls/27_project_reference_probe.sql"
   "deployment protection probe|tests/isolation/rls/28_deployment_protection_probe.sql"
+  "deployment build handle probe|tests/isolation/rls/29_deployment_build_handle_probe.sql"
 )
 
 run_all() {

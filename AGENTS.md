@@ -436,6 +436,26 @@ logs. It is the piece Coolify otherwise supplies, behind the same
   call this same helper; the cap is a property of the organization's work, not of
   one procedure.
 
+- **A serverless build's log was unaddressable (the Phase C visible-stage gap).**
+  A container engine builds for itself, so a failed build is written to the
+  engine's *deployment* log and `deployments.deployment_resource_id` (0009)
+  addresses it. A serverless deploy is different: the build runs on a separate
+  builder engine (`BuildEngine`, ADR-0018) and only the deploy runs on the
+  runtime, so the failure lives in the *builder's* log — and `runBuildStep`'s
+  `buildRef` was thrown away, so a failed serverless build was a one-line reason
+  with no log to open. Migration `0031` adds `deployments.build_provider_resource_id`
+  and `build_provider`; the executor records the builder's handle through
+  `markDeploymentBuildHandle` (and `runBuildStep`'s `onBuildStarted` hook) the
+  moment the builder accepts the build, before the artifact is polled, so a build
+  that fails, hangs, or outlives the process still has its log addressed by the
+  row. `deploymentsLogs` prefers that handle and reads the log through the shared
+  build engine (source `"build"`). Both columns are engine observations, frozen on
+  INSERT and UPDATE by 0031 exactly as `status` is by 0009.
+  `tests/integration/serverless-build-log.test.ts` pins the executor half and
+  `tests/isolation/deployment-writes.test.ts` the procedure half;
+  `tests/isolation/rls/29_deployment_build_handle_probe.sql` is the database-side
+  proof that a client cannot name a build it did not run.
+
 ## List pagination (append-ordered lists)
 
 `deployments` and `audit_logs` are append-ordered and grow without bound, so

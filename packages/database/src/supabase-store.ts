@@ -257,6 +257,8 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       previewKey: nullableStr(row, "preview_key"),
       providerResourceId: nullableStr(row, "provider_resource_id"),
       deploymentResourceId: nullableStr(row, "deployment_resource_id"),
+      buildProviderResourceId: nullableStr(row, "build_provider_resource_id"),
+      buildProvider: nullableStr(row, "build_provider"),
       isCurrent: bool(row, "is_current"),
       failureReason: nullableStr(row, "failure_reason"),
       createdAt: str(row, "created_at"),
@@ -1356,6 +1358,15 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       }
       if (input.deploymentResourceId != null) {
         patch["deployment_resource_id"] = input.deploymentResourceId;
+      }
+      // The builder handle is set-or-leave for the same reason: a serverless
+      // build that failed wrote it once, and a requeue must not erase the only
+      // address of that build's log.
+      if (input.buildProviderResourceId != null) {
+        patch["build_provider_resource_id"] = input.buildProviderResourceId;
+      }
+      if (input.buildProvider != null) {
+        patch["build_provider"] = input.buildProvider;
       }
       if (input.startedAt !== undefined) patch["started_at"] = input.startedAt;
       if (input.finishedAt !== undefined) patch["finished_at"] = input.finishedAt;

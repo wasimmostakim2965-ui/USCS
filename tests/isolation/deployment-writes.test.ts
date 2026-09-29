@@ -45,14 +45,17 @@ import type {
 import { err, ok } from "@cloud-wai/contracts";
 import {
   fakeHosting,
+  fakeServerless,
   hostingNotConfigured,
   databaseNotConfigured,
   storageNotConfigured,
   securityNotConfigured,
   serverlessNotConfigured,
   domainVerifierNotConfigured,
+  buildNotConfigured,
   InMemoryJobQueue,
   type Engines,
+  type BuildEngine,
   type JobQueue,
 } from "@cloud-wai/adapters";
 import { buildProcedures, buildRouter, type Procedure, type RouterDeps } from "@cloud-wai/api";
@@ -266,6 +269,8 @@ function makeStore(budget?: {
         previewKey: input.previewKey ?? null,
         providerResourceId: input.providerResourceId,
         deploymentResourceId: null,
+        buildProviderResourceId: null,
+        buildProvider: null,
         isCurrent: false,
         failureReason: input.failureReason,
         createdAt: "2026-01-01T00:00:00Z",
@@ -295,6 +300,9 @@ function makeStore(budget?: {
       status: EngineStatus;
       url?: string | null;
       failureReason?: string | null;
+      deploymentResourceId?: string | null;
+      buildProviderResourceId?: string | null;
+      buildProvider?: string | null;
     }) {
       const d = deployments.find(
         (x) => x.id === input.id && x.organizationId === input.organizationId,
@@ -305,6 +313,10 @@ function makeStore(budget?: {
         status: input.status,
         url: input.url ?? d.url,
         failureReason: input.failureReason ?? d.failureReason,
+        // Set-or-leave, as the real store does: a null leaves the recorded handle.
+        deploymentResourceId: input.deploymentResourceId ?? d.deploymentResourceId,
+        buildProviderResourceId: input.buildProviderResourceId ?? d.buildProviderResourceId,
+        buildProvider: input.buildProvider ?? d.buildProvider,
       };
       deployments[deployments.indexOf(d)] = next;
       return next;
@@ -468,6 +480,7 @@ function unconfiguredEngines(): Engines {
     storage: storageNotConfigured("minio", "Set STORAGE_ENDPOINT."),
     securityEdge: securityNotConfigured("envoy", "Set SECURITY_EDGE_URL."),
     domainVerifier: domainVerifierNotConfigured("dns"),
+    build: buildNotConfigured("railpack", "Set BUILD_ENGINE_URL."),
   };
 }
 
@@ -1293,7 +1306,103 @@ describe("deployments.logs through the registered procedures", () => {
     expect(data.lines).toEqual([]);
     expect(data.engineReason).toMatch(/not configured/i);
   });
+
+  it("prefers the builder's own log for a serverless build, where a failure is explained", async () => {
+    // A serverless deploy built on a separate engine. The row carries the
+    // builder's handle, so the build's log — the one that explains a failed
+    // build — is what the customer reads, not the runtime tail of a function
+    // the builder never reached.
+    const { store } = makeStore();
+    const engines: Engines = {
+      ...unconfiguredEngines(),
+      serverless: fakeServerless(),
+      build: fakeBuilder(),
+    };
+    // The function exists before the deploy, exactly as it does after a first
+    // deploy: the create path then skips `ensureTarget` and goes straight to the
+    // build, which is the path under test.
+    const created = await engines.serverless.createFunction(
+      { organizationId: ORG_A, idempotencyKey: "fn", timeoutMs: 100 } as never,
+      { name: "alpha", artifact: { image: "registry.test/alpha:orig" } },
+    );
+    expect(created.ok).toBe(true);
+    const functionRef = created.ok ? created.value.providerRef.resourceId : "";
+    const serverlessTarget = {
+      ...store,
+      async getProjectDeploymentTarget() {
+        return {
+          provider: "lambda",
+          providerResourceId: functionRef,
+          executionModel: "serverless" as const,
+        };
+      },
+    } as DataStoreLike;
+    const router = routerWith(serverlessTarget, engines);
+
+    const deploy = await router.route({
+      procedure: "deployments.create",
+      accessToken: TOKEN_ALICE,
+      input: {
+        projectId: PROJ_A,
+        idempotencyKey: "sl-build-log",
+        gitRepository: "https://github.com/acme/alpha.git",
+      },
+    });
+    expect(deploy.ok).toBe(true);
+    const deployment = (deploy.data as { deployment: Deployment }).deployment;
+    expect(deployment.failureReason).toBeNull();
+    expect(deployment.status).toBe("succeeded");
+    expect(deployment.buildProviderResourceId).toBe("build-1");
+    expect(deployment.buildProvider).toBe("railpack");
+
+    const res = await router.route({
+      procedure: "deployments.logs",
+      accessToken: TOKEN_ALICE,
+      input: { projectId: PROJ_A, deploymentId: deployment.id },
+    });
+
+    expect(res.ok).toBe(true);
+    const data = res.data as {
+      lines: readonly string[];
+      source: string | null;
+      engineReason: string | null;
+    };
+    expect(data.source).toBe("build");
+    expect(data.lines).toEqual(["npm ci", "built registry.test/alpha:abc"]);
+    expect(data.engineReason).toBeNull();
+  });
 });
+
+/**
+ * A working builder for the logs test: it answers an artifact and keeps a build
+ * log the customer can read back by the handle the row recorded.
+ */
+function fakeBuilder(): BuildEngine {
+  return {
+    async build() {
+      return ok("succeeded", {
+        providerRef: {
+          organizationId: ORG_A,
+          provider: "railpack",
+          resourceType: "build",
+          resourceId: "build-1",
+        },
+      } as never);
+    },
+    async getArtifact() {
+      return ok("succeeded", { image: "registry.test/alpha:abc" });
+    },
+    async getBuildLogs() {
+      return ok("succeeded", {
+        lines: ["npm ci", "built registry.test/alpha:abc"],
+        cursor: null,
+      });
+    },
+    async cancelBuild() {
+      return ok("succeeded", undefined);
+    },
+  } as unknown as BuildEngine;
+}
 
 describe("deployments.promote — the production pointer", () => {
   it("makes a succeeded production deployment live and records the previous one", async () => {

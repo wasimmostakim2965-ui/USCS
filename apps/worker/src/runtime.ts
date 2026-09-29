@@ -135,6 +135,25 @@ export function buildWorkerWiring(
         providerResourceId: input.providerResourceId,
         deploymentResourceId: input.deploymentResourceId,
       }),
+    // The builder's handle is written the moment the builder accepts a build, so
+    // a serverless build that fails (or outlives this process) still has its log
+    // addressed by the row. Without it a failed build is a one-line reason with
+    // nowhere to look, which is the visible-stage gap Phase C closes.
+    markDeploymentBuildHandle: (input: {
+      readonly organizationId: string;
+      readonly deploymentId: string;
+      readonly buildProvider: string;
+      readonly buildProviderResourceId: string;
+    }) =>
+      store.updateDeploymentStatus({
+        id: input.deploymentId,
+        organizationId: input.organizationId,
+        // The build is in flight; the status is unchanged, so it is left as the
+        // row's current `pending`/`running` rather than advanced here.
+        status: "running",
+        buildProvider: input.buildProvider,
+        buildProviderResourceId: input.buildProviderResourceId,
+      }),
   };
   const deploymentOutcome = {
     updateDeploymentStatus: (input: Parameters<typeof store.updateDeploymentStatus>[0]) =>

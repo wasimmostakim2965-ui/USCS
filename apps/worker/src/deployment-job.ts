@@ -33,6 +33,15 @@ export interface DeploymentJobOutcomeWriter {
     readonly providerResourceId: string | null;
     /** The engine's deployment handle, persisted so its build log is addressable. */
     readonly deploymentResourceId?: string | null;
+    /**
+     * The builder engine's own handle for this deployment's build, when the build
+     * ran on a separate engine (serverless). Persisted so that build's log stays
+     * addressable after the deploy — a container deploy has none, since the
+     * runtime built for itself.
+     */
+    readonly buildProviderResourceId?: string | null;
+    /** Which builder engine issued `buildProviderResourceId`, or null. */
+    readonly buildProvider?: string | null;
     readonly startedAt: string;
     readonly finishedAt: string | null;
   }): Promise<unknown>;
@@ -157,6 +166,8 @@ export function buildDeploymentApplier(
         failureReason: null,
         providerResourceId: value?.providerResourceId ?? null,
         deploymentResourceId: value?.deploymentResourceId ?? null,
+        buildProviderResourceId: value?.buildProviderResourceId ?? null,
+        buildProvider: value?.buildProvider ?? null,
         startedAt: finished,
         finishedAt: isTerminal(finalStatus) ? finished : null,
       });

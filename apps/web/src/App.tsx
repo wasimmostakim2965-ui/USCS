@@ -113,8 +113,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
   // Settings) renders, exactly as it does after an explicit selection. With no
   // organizations the fallback stays null and the chooser is the honest answer.
   const routeOrganizationId = "organizationId" in router.route ? router.route.organizationId : null;
-  const activeOrganizationId =
-    routeOrganizationId ?? (workspaceId || organizations[0]?.id || null);
+  const activeOrganizationId = routeOrganizationId ?? (workspaceId || organizations[0]?.id || null);
   const firstOrganizationId = organizations[0]?.id ?? null;
 
   // Where "open the dashboard" lands: the account's first workspace front page
@@ -202,11 +201,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     // from signing in rather than a dead end or a blank shell.
     if (router.route.name === "landing") {
       return (
-        <LandingPage
-          signedIn={false}
-          version={APP_VERSION}
-          onEnterDashboard={dashboardEntry}
-        />
+        <LandingPage signedIn={false} version={APP_VERSION} onEnterDashboard={dashboardEntry} />
       );
     }
     return (
@@ -221,13 +216,7 @@ export function App({ session, apiBaseUrl, misconfigured = false }: AppProps) {
     // to the dashboard rather than through the sign-in form again. Under the
     // temporary no-login bypass the session is already signed in, so the CTA
     // opens the dashboard in one click.
-    return (
-      <LandingPage
-        signedIn
-        version={APP_VERSION}
-        onEnterDashboard={dashboardEntry}
-      />
-    );
+    return <LandingPage signedIn version={APP_VERSION} onEnterDashboard={dashboardEntry} />;
   }
 
   const page = (() => {

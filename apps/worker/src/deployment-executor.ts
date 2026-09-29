@@ -128,6 +128,23 @@ export interface DeploymentExecutionWrites {
     readonly deploymentResourceId: string | null;
   }): Promise<unknown>;
   /**
+   * Record the builder's own handle for this deployment's build.
+   *
+   * A serverless deploy builds on a separate engine, so a failed build's log
+   * lives on the builder, not the runtime. Writing the builder handle while the
+   * build runs is what makes that log addressable; without it a failed serverless
+   * build is a one-line reason with no log to open, which is the visible-stage
+   * gap Phase C closes. Optional so a test that pins deploy behaviour need not
+   * model it; an absent port means "no build handle is recorded", never a fake
+   * one.
+   */
+  markDeploymentBuildHandle?(input: {
+    readonly organizationId: OrganizationId;
+    readonly deploymentId: string;
+    readonly buildProvider: string;
+    readonly buildProviderResourceId: string;
+  }): Promise<unknown>;
+  /**
    * The project's environments, read on the service role.
    *
    * The executor needs the environment a job belongs to in order to select which
@@ -212,6 +229,15 @@ export interface DeploymentExecutionResult {
    * the logs procedure reads it from there.
    */
   readonly deploymentResourceId: string | null;
+  /**
+   * The builder engine's own handle for this deployment's build, when the build
+   * ran on a separate engine (serverless). Persisted so the build log stays
+   * addressable after a successful deploy; null when the runtime built for
+   * itself (container) or no build ran.
+   */
+  readonly buildProviderResourceId: string | null;
+  /** Which builder engine issued `buildProviderResourceId`, or null. */
+  readonly buildProvider: string | null;
   readonly reason: string | null;
 }
 
@@ -365,6 +391,8 @@ export async function executeDeployment(
         url: null,
         providerResourceId: null,
         deploymentResourceId: null,
+        buildProviderResourceId: null,
+        buildProvider: null,
         reason: created.reason,
       };
     }
@@ -417,9 +445,30 @@ export async function executeDeployment(
   // This is what stops a serverless deploy from reporting a missing build it can
   // now actually perform (ADR-0018).
   let artifact: ServerlessArtifact | undefined;
+  // The builder's own handle, so the build log stays addressable even after a
+  // successful deploy (the run that produced the artifact is the run whose log a
+  // customer opened).
+  let buildRef: ProviderRef | null = null;
   if (engine.model === "serverless") {
     const built = await runBuildStep(
-      { build: deps.engines.build },
+      {
+        build: deps.engines.build,
+        // Record the builder handle the moment the builder accepts the build, so
+        // a failed or hung build has its log addressed by the row rather than
+        // being a one-line reason with nowhere to look.
+        ...(typeof deps.writes.markDeploymentBuildHandle === "function"
+          ? {
+              onBuildStarted: async (ref: ProviderRef) => {
+                await deps.writes.markDeploymentBuildHandle!({
+                  organizationId: input.organizationId,
+                  deploymentId: input.deploymentId,
+                  buildProvider: ref.provider,
+                  buildProviderResourceId: ref.resourceId,
+                });
+              },
+            }
+          : {}),
+      },
       {
         organizationId: input.organizationId,
         idempotencyKey: `${input.idempotencyKey}:build`,
@@ -436,14 +485,17 @@ export async function executeDeployment(
         url: null,
         providerResourceId: application?.resourceId ?? null,
         deploymentResourceId: null,
+        buildProviderResourceId: null,
+        buildProvider: null,
         reason: built.reason,
       };
     }
     artifact = built.artifact;
+    buildRef = built.buildRef;
   }
 
   const deployed = await engine.deploy(adapterCtx, application, artifact);
-  return confirm(deps, engine, adapterCtx, deployed, application.resourceId, input);
+  return confirm(deps, engine, adapterCtx, deployed, application.resourceId, input, buildRef);
 }
 /**
  * Resume a deploy the engine already accepted but has not finished.
@@ -505,6 +557,10 @@ async function resumeRunningDeployment(
       url: null,
       providerResourceId: stored.providerResourceId,
       deploymentResourceId: handle,
+      // A resume polls a run already in flight; the build handle was written
+      // when the build was accepted, and null here is set-or-leave, so it stays.
+      buildProviderResourceId: null,
+      buildProvider: null,
       reason: state.reason,
     };
   }
@@ -520,6 +576,8 @@ async function resumeRunningDeployment(
     url: state.value.url,
     providerResourceId: stored.providerResourceId,
     deploymentResourceId: handle,
+    buildProviderResourceId: null,
+    buildProvider: null,
     reason: state.value.reason ?? null,
   };
 }
@@ -537,11 +595,15 @@ async function rollback(
       url: null,
       providerResourceId: application?.resourceId ?? null,
       deploymentResourceId: null,
+      buildProviderResourceId: null,
+      buildProvider: null,
       reason:
         "This project has no application on the hosting engine yet, so there is nothing to roll back.",
     };
   }
   const result = await engine.rollback(adapterCtx, { ref: application, commit: input.commit });
+  // A rollback runs no build: it returns to a revision the engine already built,
+  // so there is no builder handle to record.
   return confirm(deps, engine, adapterCtx, result, null, input);
 }
 
@@ -559,13 +621,23 @@ async function confirm(
   action: AdapterResult<{ providerRef: ProviderRef }>,
   providerResourceId: string | null,
   input: ExecuteDeploymentInput,
+  /**
+   * The builder handle for this deploy's build, when it ran on a separate
+   * builder. Null for a container deploy (the runtime built for itself) and for
+   * a rollback (no build runs).
+   */
+  buildRef: ProviderRef | null = null,
 ): Promise<DeploymentExecutionResult> {
+  const buildHandle = buildRef
+    ? { buildProviderResourceId: buildRef.resourceId, buildProvider: buildRef.provider }
+    : { buildProviderResourceId: null, buildProvider: null };
   if (!action.ok) {
     return {
       status: action.status,
       url: null,
       providerResourceId,
       deploymentResourceId: null,
+      ...buildHandle,
       reason: action.reason,
     };
   }
@@ -612,6 +684,7 @@ async function confirm(
     url,
     providerResourceId: resolvedId,
     deploymentResourceId,
+    ...buildHandle,
     reason,
   };
 }

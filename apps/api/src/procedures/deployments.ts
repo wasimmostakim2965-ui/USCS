@@ -724,11 +724,12 @@ export interface DeploymentLogsResult {
   /** The engine's cursor, or null when it has none (Coolify has none). */
   readonly cursor: string | null;
   /**
-   * Which engine log this is. `deployment` is the build/deploy log for the
-   * specific run (where a failed build is explained); `application` is the
-   * running container's output; null when neither was resolvable.
+   * Which engine log this is. `build` is the builder engine's own log for a
+   * serverless build (where a failed build is explained); `deployment` is the
+   * hosting engine's build/deploy log for the specific run; `application` is the
+   * running container's output; null when none was resolvable.
    */
-  readonly source: "deployment" | "application" | null;
+  readonly source: "build" | "deployment" | "application" | null;
   /** The engine's own words when it could not serve logs. */
   readonly engineReason: string | null;
 }
@@ -765,6 +766,47 @@ export async function deploymentsLogs(
     ctx.principal.userId,
     project.id,
   );
+
+  // A serverless deploy built on the builder engine. When the row carries the
+  // builder's handle, its log is the one that explains a failed build — and on a
+  // successful deploy it is the build log the customer opened the row to read.
+  // It is preferred over the runtime's, because the runtime built nothing for a
+  // serverless project.
+  if (deployment?.buildProviderResourceId) {
+    const buildRef: ProviderRef = {
+      organizationId: project.organizationId,
+      // The builder recorded on the row, so a row built by Nixpacks is read back
+      // through the same engine that produced it.
+      provider: (deployment.buildProvider ?? SERVERLESS_PROVIDER) as ProviderRef["provider"],
+      resourceType: "build",
+      resourceId: deployment.buildProviderResourceId,
+    };
+    // The builder's log is read through the shared build engine, not the runtime
+    // port: `getBuildLogs` is the `BuildEngine` operation, and the runtime has no
+    // build to log.
+    const buildLogs = await deps.engines.build.getBuildLogs(
+      {
+        organizationId: project.organizationId,
+        idempotencyKey: `build-logs-${input.deploymentId}`,
+        timeoutMs: ADAPTER_TIMEOUT_MS,
+      },
+      buildRef,
+      input.cursor,
+    );
+    // A build engine with no credentials reports its own reason; fall through to
+    // the runtime log rather than claiming the build log is empty.
+    if (buildLogs.ok) {
+      return {
+        lines: buildLogs.value.lines,
+        cursor: buildLogs.value.cursor,
+        source: "build",
+        engineReason: null,
+      };
+    }
+    // The builder could not be asked. Report its own reason with no lines, so the
+    // customer sees why, and never a fabricated log.
+    return { lines: [], cursor: null, source: "build", engineReason: buildLogs.reason };
+  }
 
   let ref: ProviderRef | null = null;
   let source: "deployment" | "application" | null = null;
@@ -1059,6 +1101,11 @@ export async function requestDeployment(
   let nextStatus: EngineStatus = "pending";
   let url: string | null = null;
   let deploymentResourceId: string | null = null;
+  // The builder's own handle, so a build that fails (or a deploy that succeeds)
+  // still has an addressable build log. A container deploy leaves these null:
+  // the runtime built for itself, so there is no builder log to open.
+  let buildProviderResourceId: string | null = null;
+  let buildProvider: string | null = null;
 
   if (!application) {
     const created = await engine.ensureTarget(adapterCtx, {
@@ -1100,7 +1147,25 @@ export async function requestDeployment(
     let artifact: ServerlessArtifact | undefined;
     if (engine.model === "serverless") {
       const built = await runBuildStep(
-        { build: deps.engines.build },
+        {
+          build: deps.engines.build,
+          // Record the builder handle the instant it accepts the build, so a
+          // failed or hung build is not a one-line reason with nowhere to look.
+          onBuildStarted: async (ref) => {
+            buildProviderResourceId = ref.resourceId;
+            buildProvider = ref.provider;
+            await persistTransition(store, clock, deployment, {
+              organizationId: project.organizationId,
+              status: "running",
+              url: null,
+              failureReason: null,
+              providerResourceId: application?.resourceId ?? null,
+              deploymentResourceId: null,
+              buildProvider,
+              buildProviderResourceId,
+            });
+          },
+        },
         {
           organizationId: project.organizationId,
           idempotencyKey: `${idempotencyKey}:build`,
@@ -1151,6 +1216,8 @@ export async function requestDeployment(
     failureReason: engineReason,
     providerResourceId: application?.resourceId ?? null,
     deploymentResourceId,
+    buildProviderResourceId,
+    buildProvider,
   });
 
   // A production build the engine confirmed is live immediately — the same move
@@ -1396,6 +1463,8 @@ async function persistTransition(
     readonly failureReason: string | null;
     readonly providerResourceId: string | null;
     readonly deploymentResourceId?: string | null;
+    readonly buildProviderResourceId?: string | null;
+    readonly buildProvider?: string | null;
   },
 ): Promise<Deployment> {
   const startedAt = clock().toISOString();
@@ -1408,6 +1477,8 @@ async function persistTransition(
     failureReason: input.failureReason,
     providerResourceId: input.providerResourceId,
     deploymentResourceId: input.deploymentResourceId ?? null,
+    buildProviderResourceId: input.buildProviderResourceId ?? null,
+    buildProvider: input.buildProvider ?? null,
     startedAt,
     finishedAt: terminal ? startedAt : null,
   });

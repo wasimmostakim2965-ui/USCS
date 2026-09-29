@@ -1078,6 +1078,17 @@ export interface DeploymentStatusInput {
    * (a requeue) must not erase the handle, or the build log becomes unaddressable.
    */
   readonly deploymentResourceId?: string | null;
+  /**
+   * The builder engine's own job handle for this deployment's build, and which
+   * builder issued it.
+   *
+   * A serverless deploy builds on a separate engine (`BuildEngine`) and deploys
+   * on the runtime, so a failed build's log lives on the builder, not the
+   * runtime. Recording the handle is what makes that log addressable. Set-or-
+   * leave like the deployment handle: a requeue must not erase it.
+   */
+  readonly buildProviderResourceId?: string | null;
+  readonly buildProvider?: string | null;
   readonly startedAt?: string | null;
   readonly finishedAt?: string | null;
 }
@@ -1814,6 +1825,16 @@ export interface Deployment {
    * application's runtime log is available.
    */
   readonly deploymentResourceId: string | null;
+  /**
+   * The builder engine's own job handle for this deployment's build, or null.
+   *
+   * A serverless deploy builds on a separate engine, so its failed build log is
+   * addressed through this handle rather than the runtime's. Written only from
+   * the builder's answer; never returned to a browser as a provider secret.
+   */
+  readonly buildProviderResourceId: string | null;
+  /** Which builder engine issued `buildProviderResourceId`, or null. */
+  readonly buildProvider: string | null;
   /**
    * Whether this production deployment is the one the project's domains serve.
    *

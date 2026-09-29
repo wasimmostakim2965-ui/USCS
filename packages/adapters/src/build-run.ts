@@ -37,6 +37,16 @@ export interface BuildStepDeps {
   readonly maxPolls?: number | undefined;
   /** Injected so a test does not spend real time. */
   readonly sleep?: ((ms: number) => Promise<void>) | undefined;
+  /**
+   * Called once the builder has accepted the build, with its own handle.
+   *
+   * The build runs on a separate engine from the deploy, so a failed build's log
+   * lives on the builder. This is how that handle is recorded (the worker writes
+   * it onto the deployment row) while the build is still in flight, so the log
+   * stays addressable even if the process dies before the artifact is read.
+   * Optional: a caller that has nowhere to record it simply does not pass one.
+   */
+  readonly onBuildStarted?: ((buildRef: ProviderRef) => Promise<void>) | undefined;
 }
 
 export interface BuildStepInput {
@@ -96,6 +106,9 @@ export async function runBuildStep(
   if (!started.ok) return { ok: false, reason: started.reason };
 
   const buildRef = started.value.providerRef;
+  // Record the builder's handle before polling for the artifact, so a build that
+  // fails, hangs, or outlives this process still has its log addressed by a row.
+  if (deps.onBuildStarted) await deps.onBuildStarted(buildRef);
   const sleep = deps.sleep ?? defaultSleep;
   const interval = deps.pollIntervalMs ?? 2_000;
   const maxPolls = deps.maxPolls ?? 150;
