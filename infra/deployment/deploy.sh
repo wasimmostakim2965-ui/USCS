@@ -75,6 +75,10 @@ wait_for_http() {
 # Which process owns a listening TCP port, read from /proc so it works where
 # `ss`/`lsof` are absent (they are not installed on every host). Parsing the
 # hex socket table is exact: the listen state is 0A, `ss -ltnp` semantics.
+# Prints the pid, `?` when a listener exists that this user may not inspect
+# (a root-owned process: its /proc/<pid>/fd is unreadable), or nothing when the
+# port is free. The distinction matters -- "held by someone I cannot see" is a
+# different fact from "nobody is on it", and only the latter is safe to start on.
 port_holder() {
   local port="$1" hex inode pid fd
   printf -v hex '%04X' "$port"
@@ -86,6 +90,7 @@ port_holder() {
       pid="${fd#/proc/}"; printf '%s' "${pid%%/*}"; return 0
     fi
   done
+  printf '?'
 }
 
 # Prove the process that is answering a loopback port is the one we just
@@ -100,6 +105,14 @@ assert_port_owner() {
   holder="$(port_holder "$port")"
   started="$(cat "$RUN_DIR/$name.pid" 2>/dev/null)"
   if [[ -z "$holder" ]]; then
+    # The service may take a moment to bind after its health answer (a proxy can
+    # answer while its own listener is still coming up); retry briefly.
+    local i=0
+    while [[ -z "$holder" ]] && (( i < 10 )); do
+      sleep 0.3; holder="$(port_holder "$port")"; i=$((i + 1))
+    done
+  fi
+  if [[ -z "$holder" ]]; then
     warn "no process is listening on :$port for $name"
     return 0
   fi
@@ -107,7 +120,7 @@ assert_port_owner() {
     ok "$name owns :$port (pid $holder)"
     return 0
   fi
-  die "$name did not take :$port -- pid $holder ($(tr -d '\0' <"/proc/$holder/cmdline" 2>/dev/null | head -c 80)) is holding it. Stop that process (it may be root-owned) and redeploy."
+  die "$name did not take :$port -- pid $holder is holding it (this user cannot read its command line, which means it is another user's, and pkill cannot signal it). Stop that process and redeploy."
 }
 
 # --- 1. Docker ---------------------------------------------------------------
@@ -719,7 +732,9 @@ cmd_status() {
     holder="$(port_holder "$2")"
     started="$(cat "$RUN_DIR/$1.pid" 2>/dev/null)"
     if [[ -z "$holder" ]]; then
-      printf '  %-8s :%s unowned\n' "$1" "$2"
+      printf '  %-8s :%s free\n' "$1" "$2"
+    elif [[ "$holder" == "?" ]]; then
+      printf '  %-8s :%s held by a process this user cannot inspect\n' "$1" "$2"
     elif [[ "$holder" == "$started" ]]; then
       printf '  %-8s :%s pid %s (ours)\n' "$1" "$2" "$holder"
     else

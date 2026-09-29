@@ -831,6 +831,30 @@ deploy driven through the dashboard, then the deployed container probed.
   `http://<public-host>:<hostPort>` is refused until the domain last mile is
   done — do not present it as a live public link.
 
+## A deploy must prove it took the port, not that something answers on it (2026-09-29)
+
+- **The false `ok`.** `start_process` starts a service, then `wait_for_http`
+  probes its loopback port. If a *stale* copy already holds the port, the new
+  process dies with `EADDRINUSE` while the probe answers from the old one — so
+  the deploy printed `ok api on 127.0.0.1:8787` for a process that was already
+  dead, and `status` printed `api down / dashboard 200` in the same breath.
+  Observed live this session after an earlier deploy ran under `sudo`: the
+  root-owned API/worker/edge/gateway (03:42) survived every restart because
+  `pkill` cannot signal another user's process.
+- **The fix.** `assert_port_owner` (called after each `start_process`) reads the
+  real owner of the listening port from `/proc/net/tcp` (`port_holder`, exact
+  hex parsing — the host has no `ss`/`lsof`) and requires it to be the pid the
+  deploy just recorded (or its child). Otherwise the deploy `die`s naming the
+  holder. `status` gained a `ports` block so `up` is never inferred from a probe;
+  a holder this user cannot inspect prints as "held by a process this user
+  cannot inspect" (its `/proc/<pid>/fd` is unreadable) — a real fact, not "nobody
+  is on it". `sweep_process` also tries `sudo -n pkill` so a passwordless-sudo
+  host can clear a root-owned leftover; without sudo, the deploy stops honestly
+  instead of pretending to have replaced it.
+- `tests/deployment/deploy-script.test.ts` pins the call sites and runs the
+  extracted `port_holder` for real. **If you start a service by hand, check the
+  port owner (`grep -l` on `/proc/*/fd`), not just that the port answers.**
+
 ## Registrar-style domain search on the Domains page (2026-09-29)
 
 - `apps/web/src/components/domain-search.tsx` renders a registrar-shaped search

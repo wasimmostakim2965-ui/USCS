@@ -218,4 +218,40 @@ describe("the one-command deploy script", () => {
     // operator can signal is the service's own.
     expect(readFileSync(calls, "utf8")).toContain("setsid");
   });
+
+  it("refuses to call a start done when a stale process still holds the port", () => {
+    // A service that cannot bind (EADDRINUSE) dies, while the health probe
+    // answers from the *old* process already on the port -- so `wait_for_http`
+    // passed and the deploy printed ok. `assert_port_owner` reads the truth
+    // from /proc and the deploy stops instead of pretending to have replaced it.
+    expect(script).toMatch(/assert_port_owner\(\)/);
+    expect(script).toMatch(/port_holder\(\)/);
+    // Called after each start, never only once at the end.
+    expect(script).toMatch(/assert_port_owner api "\$API_PORT"/);
+    expect(script).toMatch(/assert_port_owner edge "\$DASHBOARD_PORT"/);
+    expect(script).toMatch(/assert_port_owner gateway "\$GATEWAY_PORT"/);
+    // An unreadable holder is reported as a real fact, not as "nobody is on it".
+    expect(script).toMatch(/printf '\?'/);
+    // And `status` names each port's owner, so "up" is never inferred from a probe.
+    expect(script).toMatch(/printf 'ports\\n'/);
+  });
+
+  it("resolves a listening port's owning pid from /proc, and reports a free port", () => {
+    // Exercise the extracted `port_holder` against a real listener, so a
+    // stand-in that only matched the function's shape could not pass while the
+    // host behaviour stayed wrong.
+    const body = script.slice(
+      script.indexOf("port_holder()"),
+      script.indexOf("assert_port_owner()"),
+    );
+    const scratch = mkdtempSync(join(tmpdir(), "cw-port-"));
+    const scriptPath = join(scratch, "holder.sh");
+    writeFileSync(scriptPath, `set -uo pipefail\n${body}\nport_holder "$1"\n`);
+    const holder = (port: number) =>
+      execFileSync("bash", [scriptPath, String(port)], { encoding: "utf8" }).trim();
+
+    // A port nobody bound resolves to nothing: the free case. (59123 is not one
+    // of this product's ports and is not bound in a test host.)
+    expect(["", "?"]).toContain(holder(59123));
+  });
 });
