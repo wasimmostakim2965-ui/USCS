@@ -137,7 +137,7 @@ describe("engine configuration", () => {
       POSTGRES_ENGINE_URL: "http://db.test:8097",
       "POSTGRES_ENGINE_TOKEN__org-a": "db-tok-a",
       "POSTGRES_ENGINE_TOKEN__org-b": "db-tok-b",
-      "POSTGRES_ENGINE_TOKEN__ignored": "   ",
+      POSTGRES_ENGINE_TOKEN__ignored: "   ",
     });
     expect(config.selfHostedDatabaseUrl).toBe("http://db.test:8097");
     expect(config.selfHostedDatabaseTokens).toEqual({ "org-a": "db-tok-a", "org-b": "db-tok-b" });

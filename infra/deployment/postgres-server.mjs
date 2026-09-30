@@ -204,7 +204,19 @@ const containerFor = (id) => `${CONTAINER_PREFIX}-${id}`;
 async function sql(db, statement, { database = db.database } = {}) {
   return run(
     "docker",
-    ["exec", db.container, "psql", "-v", "ON_ERROR_STOP=1", "-U", SUPERUSER, "-d", database, "-c", statement],
+    [
+      "exec",
+      db.container,
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      SUPERUSER,
+      "-d",
+      database,
+      "-c",
+      statement,
+    ],
     { timeoutMs: 60_000 },
   );
 }
@@ -341,7 +353,18 @@ async function restoreDatabase(id, sourcePath) {
   const sqlText = await readFile(resolvedPath, "utf8");
   const restored = await run(
     "docker",
-    ["exec", "-i", db.container, "psql", "-v", "ON_ERROR_STOP=1", "-U", SUPERUSER, "-d", db.database],
+    [
+      "exec",
+      "-i",
+      db.container,
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      SUPERUSER,
+      "-d",
+      db.database,
+    ],
     { timeoutMs: 300_000, stdin: sqlText },
   );
   if (restored.code !== 0) {
@@ -398,7 +421,7 @@ const server = createServer(async (req, res) => {
       if (req.method === "GET") return send(res, 200, publicDatabase(db));
       if (req.method === "DELETE") {
         const out = await destroyDatabase(id);
-        return send(res, out.ok ? 200 : out.code ?? 500, out.ok ? {} : { message: out.reason });
+        return send(res, out.ok ? 200 : (out.code ?? 500), out.ok ? {} : { message: out.reason });
       }
       if (req.method === "PATCH") {
         const password = body?.postgres_password;
@@ -411,7 +434,9 @@ const server = createServer(async (req, res) => {
           { database: DEFAULT_DATABASE },
         );
         if (rotated.code !== 0) {
-          return send(res, 500, { message: `the credential rotation failed: ${rotated.out.trim()}` });
+          return send(res, 500, {
+            message: `the credential rotation failed: ${rotated.out.trim()}`,
+          });
         }
         db.password = password;
         await saveState();

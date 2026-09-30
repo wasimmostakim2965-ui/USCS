@@ -33,3 +33,6 @@ infra/aws/terraform/crash.log
 
 # One-command deploy runtime state (pids + logs).
 .deploy/
+
+# Agent working notes (per-machine, not project source).
+.openhands/

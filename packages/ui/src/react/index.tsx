@@ -326,6 +326,15 @@ export interface TableProps<T> {
   readonly filterLabel?: string;
 }
 
+/** "usedAt" and "api_key" both read as "used at" / "api key" to a screen reader. */
+function humanizeKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim()
+    .toLowerCase();
+}
+
 export function Table<T>({
   caption,
   columns,
@@ -373,7 +382,10 @@ export function Table<T>({
                   scope="col"
                   style={column.align === "right" ? { textAlign: "right" } : undefined}
                 >
-                  {column.header}
+                  {/* A column with no visible title — an actions or meter
+                      column — still needs one for the header cell to mean
+                      anything. The key names it. */}
+                  {column.header || <span className="sr-only">{humanizeKey(column.key)}</span>}
                 </th>
               ))}
             </tr>

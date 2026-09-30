@@ -714,13 +714,6 @@ export function ProjectOverviewPage({
           <Link to={{ name: "deployments", organizationId, projectId }}>Deployments →</Link>
         </div>
       }
-      breadcrumb={
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <Link to={{ name: "projects", organizationId }}>Projects</Link>
-          <span className="breadcrumb__sep">/</span>
-          <span aria-current="page">{projectItem?.name ?? projectId.slice(0, 8)}</span>
-        </nav>
-      }
     >
       {project.section.state.kind === "error" || project.section.state.kind === "degraded" ? (
         <SectionView<ProjectSummary> section={project.section} onRetry={project.reload} />

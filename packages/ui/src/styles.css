@@ -338,8 +338,17 @@ kbd,
    controls. The project name is already the page heading, so it drops out here
    and the workspace label shrinks further. */
 @media (max-width: 480px) {
-  .topbar__mark {
-    font-size: var(--step-0);
+  .topbar {
+    gap: var(--space-1);
+  }
+
+  /* At 360px the bar cannot hold a wordmark, a workspace switcher and three
+     controls without running off the right edge — which it did, clipping the
+     account menu. The wordmark is the one that goes: it is decoration inside
+     the product, while the switcher names where you are and the buttons to its
+     right are the ones that do work. */
+  .topbar__brand {
+    display: none;
   }
 
   .topbar__project-name {
@@ -347,7 +356,12 @@ kbd,
   }
 
   .topbar__workspace-name {
-    max-width: 64px;
+    max-width: 80px;
+  }
+
+  /* ⌘K is a keyboard affordance, and a phone has no keyboard. */
+  .topbar__search .kbd {
+    display: none;
   }
 }
 

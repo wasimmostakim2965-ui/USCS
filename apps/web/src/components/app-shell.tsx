@@ -9,7 +9,7 @@
  * yet rather than rendering a button that does nothing.
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Button, Icon, Modal, TextInput, type Toast } from "@cloud-wai/ui/react";
+import { Button, ErrorBoundary, Icon, Modal, TextInput, type Toast } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable, useMediaQuery } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
@@ -564,7 +564,10 @@ export function AppShell({
             onNavigate={go}
           />
         ) : null}
-        {children}
+        {/* One page's render error must not take the shell with it. The
+            boundary sits inside the chrome and outside the page, so the
+            sidebar and the way back survive a crash. */}
+        <ErrorBoundary key={toPath(router.route)}>{children}</ErrorBoundary>
       </main>
 
       {/* On a narrow screen the sidebar is hidden and reachable only through the

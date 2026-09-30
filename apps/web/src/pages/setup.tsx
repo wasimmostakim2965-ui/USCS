@@ -226,17 +226,6 @@ export function ProjectSetupPage({
           <Link to={{ name: "project", organizationId, projectId }}>Overview →</Link>
         </div>
       }
-      breadcrumb={
-        <nav className="breadcrumb" aria-label="Breadcrumb">
-          <Link to={{ name: "projects", organizationId }}>Projects</Link>
-          <span className="breadcrumb__sep">/</span>
-          <Link to={{ name: "project", organizationId, projectId }}>
-            {projectItem?.name ?? "Project"}
-          </Link>
-          <span className="breadcrumb__sep">/</span>
-          <span aria-current="page">Setup</span>
-        </nav>
-      }
     >
       <div className="setup-progress" role="status">
         <div className="setup-progress__meta">
