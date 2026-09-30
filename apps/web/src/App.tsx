@@ -128,6 +128,15 @@ export function App({
   const routeOrganizationId = "organizationId" in router.route ? router.route.organizationId : null;
   const activeOrganizationId = routeOrganizationId ?? (workspaceId || organizations[0]?.id || null);
   const firstOrganizationId = organizations[0]?.id ?? null;
+  // Vercel rewrites `/auth/callback` to the SPA entrypoint, so a PKCE return can
+  // arrive as `/?code=...#/` and parse as the landing route. Keep that return
+  // distinct from an ordinary visit to `/`, otherwise a successful sign-in
+  // appears to have done nothing.
+  const isOAuthReturn =
+    router.route.name === "auth_callback" ||
+    (typeof window !== "undefined" &&
+      (new URLSearchParams(window.location.search).has("code") ||
+        new URLSearchParams(window.location.search).has("error")));
 
   // Where "open the dashboard" lands: the account's first workspace front page
   // when it has one, otherwise the chooser. One answer for the landing CTA and
@@ -149,7 +158,7 @@ export function App({
   }, [activeOrganizationId, workspaceId, setWorkspaceId]);
 
   useEffect(() => {
-    if (current && router.route.name === "auth_callback") {
+    if (current && isOAuthReturn && workspaces.section.state.kind === "ready") {
       // The Vercel-shaped landing: a fresh sign-in lands on the workspace front
       // page, not on a chooser that would otherwise show a one-item sidebar.
       // That is what makes "open the dashboard" one click instead of two.
@@ -158,8 +167,12 @@ export function App({
       } else {
         router.navigate({ name: "organizations" });
       }
+
+      // Remove the one-time PKCE code/error from the address bar after the
+      // session has been adopted. Keep the hash route that the SPA just chose.
+      window.history.replaceState(null, "", `/${window.location.hash}`);
     }
-  }, [current, router, firstOrganizationId]);
+  }, [current, isOAuthReturn, router, firstOrganizationId, workspaces.section.state.kind]);
 
   const projectId = "projectId" in router.route ? router.route.projectId : null;
 
