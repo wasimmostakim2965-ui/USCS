@@ -134,11 +134,13 @@ describe("navigation has no dead entries", () => {
   });
 
   it("keeps the project menu in Vercel's most-common-workflow-first order", () => {
-    // Overview, Deployments and logs are the daily-use trio; Vercel's own
-    // guidance is that a beginner needs only those three. Domains/Git/Env then
-    // Data and Security follow. If this order changes, it is a deliberate act.
+    // Overview, Deployments and Logs are the daily-use trio; Vercel's own
+    // guidance is that a beginner needs only those three. Analytics follows, then
+    // Domains/Git/Env and finally Data and Security. If this order changes, it is
+    // a deliberate act.
     const ids = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
-    expect(ids.slice(0, 2)).toEqual(["overview", "deployments"]);
+    expect(ids.slice(0, 3)).toEqual(["overview", "deployments", "logs"]);
+    expect(ids).toContain("analytics");
     expect(ids).toContain("database");
     expect(ids).toContain("security");
   });

@@ -362,6 +362,27 @@ export async function loadDeployments(
 }
 
 /**
+ * Load a page of an organization's deployments, newest first, across projects.
+ *
+ * The workspace-level Deployments list. Same keyset semantics as
+ * `loadDeployments`: `before` is the oldest row already loaded, so "Load older"
+ * appends without repeating or skipping.
+ */
+export async function loadOrganizationDeployments(
+  client: ApiClient,
+  organizationId: string,
+  before?: string,
+  limit?: number,
+): Promise<Section<DeploymentSummary>> {
+  const response = await client.call<readonly DeploymentSummary[]>("deployments.listOrganization", {
+    organizationId,
+    ...(before !== undefined ? { before } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+  });
+  return sectionFrom("Deployments", response);
+}
+
+/**
  * Make a succeeded production deployment live.
  *
  * This is Vercel's "Promote" and its "Instant rollback" in one call: the build
@@ -1600,6 +1621,33 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       return {
         title: "Observability",
         sections: [await loadObservability(client, route.organizationId)],
+      };
+
+    case "orgDeployments":
+      return {
+        title: "Deployments",
+        sections: [await loadOrganizationDeployments(client, route.organizationId)],
+      };
+
+    case "members":
+      return {
+        title: "Members",
+        sections: [await loadOrganizationMembers(client, route.organizationId)],
+      };
+
+    case "projectLogs":
+      return {
+        title: "Logs",
+        sections: [await loadDeployments(client, route.projectId)],
+      };
+
+    case "projectAnalytics":
+      return {
+        title: "Analytics",
+        sections: [
+          await loadDeployments(client, route.projectId),
+          await loadObservability(client, route.organizationId),
+        ],
       };
 
     case "billing":

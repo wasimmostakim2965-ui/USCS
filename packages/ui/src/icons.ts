@@ -163,6 +163,19 @@ const ICON_SET = {
   user: {
     paths: ["M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z", "M5 20a7 7 0 0 1 14 0"],
   },
+  /* two people: the members list, distinct from a single `user` profile */
+  members: {
+    paths: [
+      "M9.5 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z",
+      "M3.5 20a6 6 0 0 1 12 0",
+      "M16 5.4a3.5 3.5 0 0 1 0 6.8",
+      "M17.5 14.2a6 6 0 0 1 3 5.8",
+    ],
+  },
+  /* a bar chart: analytics over time */
+  chart: {
+    paths: ["M4 20V4", "M4 20h16", "M8 20v-6", "M12.5 20v-10", "M17 20v-4"],
+  },
   book: {
     paths: [
       "M5 5.5h6a2 2 0 0 1 2 2v11a2 2 0 0 0-2-2H5z",

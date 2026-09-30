@@ -65,6 +65,20 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "projects", organizationId },
     },
     {
+      id: "org-deployments",
+      label: "Deployments",
+      icon: "deployments",
+      description: "Every deployment across this organization's projects, newest first.",
+      route: { name: "orgDeployments", organizationId },
+    },
+    {
+      id: "members",
+      label: "Members",
+      icon: "members",
+      description: "Who can reach this organization, and at what rank.",
+      route: { name: "members", organizationId },
+    },
+    {
       id: "audit",
       label: "Activity",
       icon: "activity",
@@ -133,6 +147,20 @@ export function projectNav(
       icon: "deployments",
       description: "Build and release history.",
       route: { name: "deployments", organizationId, projectId },
+    },
+    {
+      id: "logs",
+      label: "Logs",
+      icon: "logs",
+      description: "Runtime logs for this project's deployments.",
+      route: { name: "projectLogs", organizationId, projectId },
+    },
+    {
+      id: "analytics",
+      label: "Analytics",
+      icon: "chart",
+      description: "Deployment and job activity over time.",
+      route: { name: "projectAnalytics", organizationId, projectId },
     },
     {
       id: "domains",
@@ -263,6 +291,10 @@ export function navForRoute(
   switch (route.name) {
     case "projects":
       return workspace("projects");
+    case "orgDeployments":
+      return workspace("org-deployments");
+    case "members":
+      return workspace("members");
     case "apiKeys":
       return workspace("api-keys");
     case "audit":
@@ -289,6 +321,8 @@ export function navForRoute(
     case "domains":
     case "git":
     case "env":
+    case "projectLogs":
+    case "projectAnalytics":
     case "security":
     case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
@@ -301,7 +335,11 @@ export function navForRoute(
             ? "overview"
             : route.name === "projectSettings"
               ? "settings"
-              : route.name,
+              : route.name === "projectLogs"
+                ? "logs"
+                : route.name === "projectAnalytics"
+                  ? "analytics"
+                  : route.name,
         projectId: route.projectId,
         level: "project",
       };
@@ -377,6 +415,10 @@ export function titleForRoute(route: Route): string {
       return "Git";
     case "env":
       return "Environment";
+    case "projectLogs":
+      return "Logs";
+    case "projectAnalytics":
+      return "Analytics";
     case "projectSettings":
       return "Settings";
     case "apiKeys":
@@ -385,6 +427,10 @@ export function titleForRoute(route: Route): string {
       return "Activity";
     case "observability":
       return "Observability";
+    case "orgDeployments":
+      return "Deployments";
+    case "members":
+      return "Members";
     case "billing":
       return "Billing";
     case "docs":
@@ -405,6 +451,8 @@ export function backTargetFor(route: Route): Route | null {
     case "domains":
     case "git":
     case "env":
+    case "projectLogs":
+    case "projectAnalytics":
     case "security":
     case "projectSettings":
       return {

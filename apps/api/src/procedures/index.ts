@@ -44,6 +44,7 @@ import {
   requestDeployment,
   listAuditEvents,
   listDeployments,
+  listOrganizationDeployments,
   rollbackDeployment,
   redeployDeployment,
   type CancelDeploymentInput,
@@ -52,6 +53,7 @@ import {
   type DeploymentLogsInput,
   type ListAuditEventsInput,
   type ListDeploymentsInput,
+  type ListOrganizationDeploymentsInput,
   type PromoteDeploymentRequest,
   type RedeployDeploymentInput,
   type RollbackDeploymentInput,
@@ -364,6 +366,11 @@ export function buildProcedures(
       name: "deployments.list",
       handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
         listDeployments(ctx, depDeps, inputOf<ListDeploymentsInput>(input)),
+    },
+    {
+      name: "deployments.listOrganization",
+      handler: (ctx: RequestContext, _deps: unknown, input: unknown) =>
+        listOrganizationDeployments(ctx, depDeps, inputOf<ListOrganizationDeploymentsInput>(input)),
     },
     {
       name: "deployments.create",
@@ -756,6 +763,7 @@ export const ROUTE_SHAPES = {
     rootDirectory: "string?",
   },
   "deployments.list": { projectId: "ProjectId" },
+  "deployments.listOrganization": { organizationId: "OrganizationId" },
   "deployments.create": {
     projectId: "ProjectId",
     idempotencyKey: "string?",

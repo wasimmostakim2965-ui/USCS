@@ -133,6 +133,9 @@ function makeStore() {
         ? deployments.filter((d) => d.projectId === projectId)
         : [];
     },
+    async listOrganizationDeployments(userId: UserId, org: OrganizationId) {
+      return isMember(userId, org) ? deployments.filter((d) => d.organizationId === org) : [];
+    },
     async listAuditEvents() {
       return [];
     },

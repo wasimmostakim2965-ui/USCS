@@ -170,6 +170,9 @@ function makeStore() {
         ? deployments.filter((d) => d.projectId === projectId)
         : [];
     },
+    async listOrganizationDeployments(userId, org) {
+      return isMember(userId, org) ? deployments.filter((d) => d.organizationId === org) : [];
+    },
     async listAuditEvents(userId, org) {
       return isMember(userId, org) ? audit.filter((a) => a.organizationId === org) : [];
     },

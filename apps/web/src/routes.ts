@@ -19,6 +19,12 @@ export type Route =
   | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "git"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "env"; readonly organizationId: string; readonly projectId: string }
+  | { readonly name: "projectLogs"; readonly organizationId: string; readonly projectId: string }
+  | {
+      readonly name: "projectAnalytics";
+      readonly organizationId: string;
+      readonly projectId: string;
+    }
   | {
       readonly name: "projectSettings";
       readonly organizationId: string;
@@ -27,6 +33,8 @@ export type Route =
   | { readonly name: "audit"; readonly organizationId: string }
   | { readonly name: "observability"; readonly organizationId: string }
   | { readonly name: "billing"; readonly organizationId: string }
+  | { readonly name: "orgDeployments"; readonly organizationId: string }
+  | { readonly name: "members"; readonly organizationId: string }
   | { readonly name: "settings"; readonly organizationId: string }
   | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "docs"; readonly organizationId: string }
@@ -71,6 +79,10 @@ export function parseRoute(path: string): Route {
     const section = segments[4];
     if (section === "domains" || section === "security" || section === "git" || section === "env")
       return { name: section, organizationId: segments[1]!, projectId: segments[3]! };
+    if (section === "logs")
+      return { name: "projectLogs", organizationId: segments[1]!, projectId: segments[3]! };
+    if (section === "analytics")
+      return { name: "projectAnalytics", organizationId: segments[1]!, projectId: segments[3]! };
     if (section === "settings")
       return { name: "projectSettings", organizationId: segments[1]!, projectId: segments[3]! };
     if (section === "database" || section === "data")
@@ -97,6 +109,10 @@ export function parseRoute(path: string): Route {
     return { name: "audit", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "observability" && segments.length === 3)
     return { name: "observability", organizationId: segments[1]! };
+  if (segments[0] === "orgs" && segments[2] === "deployments" && segments.length === 3)
+    return { name: "orgDeployments", organizationId: segments[1]! };
+  if (segments[0] === "orgs" && segments[2] === "members" && segments.length === 3)
+    return { name: "members", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "billing" && segments.length === 3)
     return { name: "billing", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "docs" && segments.length === 3)
@@ -132,6 +148,10 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/git`;
     case "env":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/env`;
+    case "projectLogs":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/logs`;
+    case "projectAnalytics":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/analytics`;
     case "projectSettings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/settings`;
     case "apiKeys":
@@ -140,6 +160,10 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/audit`;
     case "observability":
       return `/orgs/${encodeURIComponent(route.organizationId)}/observability`;
+    case "orgDeployments":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/deployments`;
+    case "members":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/members`;
     case "billing":
       return `/orgs/${encodeURIComponent(route.organizationId)}/billing`;
     case "docs":

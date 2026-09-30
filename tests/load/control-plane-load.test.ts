@@ -84,6 +84,9 @@ function storeWithOrganizations(count: number): DataStore {
     async listDeployments() {
       return [];
     },
+    async listOrganizationDeployments() {
+      return [];
+    },
     async listAuditEvents() {
       return [];
     },

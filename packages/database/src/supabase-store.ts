@@ -714,6 +714,20 @@ export function createSupabaseControlPlaneStore(options: SupabaseStoreOptions): 
       return found.map(toDeployment);
     },
 
+    async listOrganizationDeployments(
+      userId: UserId,
+      organizationId: OrganizationId,
+      options?: ListPageOptions | undefined,
+    ): Promise<readonly Deployment[]> {
+      const limit = resolveListLimit(options?.limit, DEFAULT_LIST_LIMIT);
+      const cursor = options?.before !== undefined ? `&created_at=lt.${q(options.before)}` : "";
+      const found = await rows("listOrganizationDeployments", {
+        method: "GET",
+        path: `/deployments?select=*,organizations!inner(organization_members!inner(user_id))&organization_id=eq.${q(organizationId)}&organizations.organization_members.user_id=eq.${q(userId)}${cursor}&order=created_at.desc&limit=${limit}`,
+      });
+      return found.map(toDeployment);
+    },
+
     async getDeployment(userId: UserId, deploymentId: DeploymentId): Promise<Deployment | null> {
       const found = await rows("getDeployment", {
         method: "GET",

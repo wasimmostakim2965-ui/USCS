@@ -2369,6 +2369,8 @@ describe("the dashboard renders every state for every route", () => {
       title: "Deployments",
       target: "deployments.list",
     },
+    { hash: "#/orgs/org-1/projects/p-1/logs", title: "Logs", target: "deployments.list" },
+    { hash: "#/orgs/org-1/projects/p-1/analytics", title: "Analytics", target: "deployments.list" },
     { hash: "#/orgs/org-1/projects/p-1/domains", title: "Domains", target: "domains.list" },
     { hash: "#/orgs/org-1/projects/p-1/git", title: "Git", target: "git.links.list" },
     { hash: "#/orgs/org-1/projects/p-1/database", title: "Overview", target: "data.list" },
@@ -2379,6 +2381,12 @@ describe("the dashboard renders every state for every route", () => {
       title: "Observability",
       target: "observability.jobs",
     },
+    {
+      hash: "#/orgs/org-1/deployments",
+      title: "Deployments",
+      target: "deployments.listOrganization",
+    },
+    { hash: "#/orgs/org-1/members", title: "Members", target: "organizations.members.list" },
     { hash: "#/orgs/org-1/billing", title: "Billing", target: "billing.usage" },
     { hash: "#/orgs/org-1/settings/api-keys", title: "API keys", target: "apiKeys.list" },
     { hash: "#/orgs/org-1/settings", title: "Settings", target: "providers.health" },
@@ -4673,7 +4681,10 @@ describe("the in-dashboard documentation", () => {
     await screen.findByText("How this dashboard is organised");
     // The project-level entries carry the :project placeholder and are not links.
     expect(await screen.findByText(/\/orgs\/org-1\/projects\/:project$/)).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Deployments" })).toBeNull();
+    // The workspace level *is* reachable, so it still has a Deployments link —
+    // the project level's Deployments entry is the one that is not a link.
+    const menu = document.querySelector(".docs__menu")!;
+    expect(within(menu as HTMLElement).getByRole("link", { name: "Deployments" })).toBeTruthy();
   });
 
   it("filters both the menu map and the pages from one search box", async () => {

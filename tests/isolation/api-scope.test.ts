@@ -180,6 +180,10 @@ function makeStore() {
       if (!project || !isMember(userId, project.organizationId)) return [];
       return deployments.filter((d) => d.projectId === projectId);
     },
+    async listOrganizationDeployments(userId, organizationId) {
+      if (!isMember(userId, organizationId)) return [];
+      return deployments.filter((d) => d.organizationId === organizationId);
+    },
     async listAuditEvents(userId, organizationId) {
       if (!isMember(userId, organizationId)) return [];
       return audit.filter((a) => a.organizationId === organizationId);

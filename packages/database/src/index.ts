@@ -179,6 +179,19 @@ export interface DataStore {
     options?: ListPageOptions | undefined,
   ): Promise<readonly Deployment[]>;
   /**
+   * A page of an organization's deployments, newest first, across every project.
+   *
+   * This is the workspace-level "Deployments" list: the same append-ordered
+   * table read through `organization_id` rather than `project_id`, so the
+   * caller sees one project's history or all of them with one query shape.
+   * Cursor semantics match `listDeployments` exactly.
+   */
+  listOrganizationDeployments(
+    userId: UserId,
+    organizationId: OrganizationId,
+    options?: ListPageOptions | undefined,
+  ): Promise<readonly Deployment[]>;
+  /**
    * A page of an organization's audit events, newest first.
    *
    * Cursor semantics are identical to `listDeployments`; `before` is a

@@ -304,6 +304,35 @@ export async function listDeployments(
   return deps.store.listDeployments(ctx.principal.userId, input.projectId, pageOf(input));
 }
 
+export interface ListOrganizationDeploymentsInput {
+  readonly organizationId: OrganizationId;
+  /** Keyset cursor, as `deployments.list`. */
+  readonly before?: string | undefined;
+  readonly limit?: number | undefined;
+}
+
+/**
+ * An organization's deployments across every project, newest first.
+ *
+ * The capability is checked on the organization the caller named — not on a
+ * project resolved from a client id — so this is the same authority as reading
+ * the organization's other lists. Rows come back scoped to that organization by
+ * the store's membership re-check, so a member of two organizations cannot read
+ * the other's builds through this path.
+ */
+export async function listOrganizationDeployments(
+  ctx: RequestContext,
+  deps: DeploymentDeps,
+  input: ListOrganizationDeploymentsInput,
+): Promise<readonly Deployment[]> {
+  requireCapability(ctx, input.organizationId, "deployment:read");
+  return deps.store.listOrganizationDeployments(
+    ctx.principal.userId,
+    input.organizationId,
+    pageOf(input),
+  );
+}
+
 export interface ListAuditEventsInput {
   readonly organizationId: OrganizationId;
   /** Keyset cursor, as `deployments.list`. */

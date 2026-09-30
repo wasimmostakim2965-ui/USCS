@@ -39,9 +39,13 @@ import {
   DomainsPage,
   EnvVarsPage,
   GitPage,
+  MembersPage,
   NotFoundPage,
   ObservabilityPage,
+  OrganizationDeploymentsPage,
   OrganizationsPage,
+  ProjectAnalyticsPage,
+  ProjectLogsPage,
   ProjectOverviewPage,
   ProjectSettingsPage,
   ProjectsPage,
@@ -297,6 +301,17 @@ export function App({
         return <GitPage organizationId={route.organizationId} projectId={route.projectId} />;
       case "env":
         return <EnvVarsPage organizationId={route.organizationId} projectId={route.projectId} />;
+      case "projectLogs":
+        return (
+          <ProjectLogsPage organizationId={route.organizationId} projectId={route.projectId} />
+        );
+      case "projectAnalytics":
+        return (
+          <ProjectAnalyticsPage
+            organizationId={route.organizationId}
+            projectId={route.projectId}
+          />
+        );
       case "projectSettings":
         return (
           <ProjectSettingsPage organizationId={route.organizationId} projectId={route.projectId} />
@@ -305,6 +320,10 @@ export function App({
         return <ActivityPage organizationId={route.organizationId} />;
       case "observability":
         return <ObservabilityPage organizationId={route.organizationId} />;
+      case "orgDeployments":
+        return <OrganizationDeploymentsPage organizationId={route.organizationId} />;
+      case "members":
+        return <MembersPage organizationId={route.organizationId} />;
       case "billing":
         return <BillingPage organizationId={route.organizationId} />;
       case "apiKeys":

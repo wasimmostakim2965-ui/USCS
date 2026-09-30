@@ -35,6 +35,7 @@ import { useApp } from "../react/context.js";
 import { usePagedSection, useSection } from "../react/hooks.js";
 import { newRequestId } from "../ids.js";
 import { DomainSearch } from "../components/domain-search.js";
+import { MembersPanel } from "../components/members-panel.js";
 import type { Route } from "../routes.js";
 import {
   loadApiKeys,
@@ -42,6 +43,7 @@ import {
   auditCsv,
   loadBudgets,
   loadDeployments,
+  loadOrganizationDeployments,
   loadDeploymentLogs,
   loadDomains,
   loadEnvVars,
@@ -50,9 +52,6 @@ import {
   deployFromLink,
   loadGitDeploySource,
   loadOrganization,
-  loadOrganizationMembers,
-  updateMemberRole,
-  removeMember,
   loadObservability,
   loadOrganizations,
   loadProject,
@@ -95,7 +94,6 @@ import {
   type ConnectedGitLinkSummary,
   type IssuedApiKey,
   type OrganizationSummary,
-  type OrganizationMemberSummary,
   type ProjectSummary,
   type ProviderHealthRow,
   type SecurityPolicyEventSummary,
@@ -6655,7 +6653,7 @@ function RevokeApiKeyModal({
 /* ------------------------------------------------------------------ settings */
 
 export function SettingsPage({ organizationId }: { readonly organizationId: string }) {
-  const { client, session } = useApp();
+  const { client } = useApp();
   const organization = useSection(
     () => loadOrganization(client, organizationId),
     [client, organizationId],
@@ -6666,34 +6664,6 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
     [client, organizationId],
     "Engine status",
   );
-  const members = useSection(
-    () => loadOrganizationMembers(client, organizationId),
-    [client, organizationId],
-    "Members",
-  );
-
-  const [editing, setEditing] = useState<OrganizationMemberSummary | null>(null);
-  const [removing, setRemoving] = useState<OrganizationMemberSummary | null>(null);
-
-  const currentUserId = session.current()?.userId ?? null;
-  const memberRows = members.section.state.kind === "ready" ? members.section.state.items : [];
-  const myRole = memberRows.find((m) => m.userId === currentUserId)?.role ?? null;
-  const isOwner = myRole === "owner";
-  const canInvite = isOwner || myRole === "admin";
-
-  // The dashboard mirrors the server's rank rules so a control is only offered
-  // where it could succeed. It is a courtesy, not the guard: the procedure and
-  // the policy both re-check, and a refusal is surfaced if they disagree.
-  const canChangeRole = (item: OrganizationMemberSummary) =>
-    canInvite && item.userId !== currentUserId && (isOwner || item.role !== "owner");
-  const canRemove = (item: OrganizationMemberSummary) => {
-    if (item.userId === currentUserId) {
-      // Leaving is always allowed, except when you are the last owner.
-      return item.role === "owner" ? memberRows.filter((m) => m.role === "owner").length > 1 : true;
-    }
-    return canInvite && (isOwner || item.role !== "owner");
-  };
-
   const org =
     organization.section.state.kind === "ready" ? organization.section.state.items[0] : undefined;
 
@@ -6724,101 +6694,7 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
         </Card>
       </SectionShell>
 
-      <SectionShell
-        title="Members"
-        hint="Everyone with access to this organization, and the role that decides what they can do"
-      >
-        <Card flush>
-          <SectionView<OrganizationMemberSummary>
-            section={members.section}
-            rowKey={(item) => item.userId}
-            onRetry={members.reload}
-            emptyMessage="This organization has no members recorded."
-            renderReady={(items) => (
-              <Table
-                items={items}
-                rowKey={(item) => item.userId}
-                filterText={(item) => `${item.displayName ?? ""} ${item.email ?? ""} ${item.role}`}
-                filterLabel="Filter members"
-                columns={[
-                  {
-                    key: "member",
-                    header: "Member",
-                    render: (item) => (
-                      <span>
-                        {item.displayName ?? item.email ?? "Not yet signed in"}
-                        {item.userId === currentUserId ? (
-                          <span className="faint small"> (you)</span>
-                        ) : null}
-                      </span>
-                    ),
-                  },
-                  {
-                    key: "email",
-                    header: "Email",
-                    render: (item) =>
-                      item.email ? (
-                        <span className="mono small">{item.email}</span>
-                      ) : (
-                        <span className="faint">—</span>
-                      ),
-                  },
-                  {
-                    key: "role",
-                    header: "Role",
-                    render: (item) => <StatusBadge label={roleLabel(item.role)} tone="neutral" />,
-                  },
-                  {
-                    key: "since",
-                    header: "Added",
-                    render: (item) => <Timestamp value={item.createdAt} />,
-                  },
-                  {
-                    key: "actions",
-                    header: "",
-                    render: (item) => (
-                      <div className="row">
-                        <Button
-                          size="sm"
-                          disabled={!canChangeRole(item)}
-                          title={
-                            item.userId === currentUserId
-                              ? "You cannot change your own role."
-                              : item.role === "owner" && !isOwner
-                                ? "Only an owner can change an owner's role."
-                                : undefined
-                          }
-                          onClick={() => setEditing(item)}
-                        >
-                          Change role
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          disabled={!canRemove(item)}
-                          title={
-                            item.role === "owner" && !isOwner && item.userId !== currentUserId
-                              ? "Only an owner can remove an owner."
-                              : undefined
-                          }
-                          onClick={() => setRemoving(item)}
-                        >
-                          {item.userId === currentUserId ? "Leave" : "Remove"}
-                        </Button>
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            )}
-          />
-        </Card>
-        <p className="muted small" style={{ marginTop: "var(--space-3)" }}>
-          {canInvite
-            ? "Changing a role and removing a member take effect immediately. A member can always remove themselves, which is how you leave an organization. The last owner cannot be demoted or removed, and nobody can change their own role — promotion needs a second party."
-            : "Your role can see this list but not change it. Changing roles and removing members needs the admin role; leaving the organization is always available to you."}
-        </p>
-      </SectionShell>
+      <MembersPanel organizationId={organizationId} />
 
       <SectionShell
         title="Engine status"
@@ -6872,225 +6748,421 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
         </Card>
       </SectionShell>
 
-      <ChangeMemberRoleModal
-        organizationId={organizationId}
-        member={editing}
-        canGrantOwner={isOwner}
-        onClose={() => setEditing(null)}
-        onChanged={() => {
-          setEditing(null);
-          members.reload();
-        }}
-      />
-      <RemoveMemberModal
-        organizationId={organizationId}
-        member={removing}
-        self={removing !== null && removing.userId === currentUserId}
-        onClose={() => setRemoving(null)}
-        onRemoved={() => {
-          setRemoving(null);
-          members.reload();
-        }}
-      />
+    </PageShell>
+  );
+}
+
+/* --------------------------------------------------- workspace deployments */
+
+/**
+ * The workspace-level Deployments list.
+ *
+ * The same append-ordered table the project's Deployments page reads, but
+ * scoped to the organization and therefore spanning every project. This is the
+ * Vercel team-level "Deployments" view: one list to answer "what shipped
+ * recently" without opening each project. A status is the engine's, never the
+ * request's, and the Live badge is the server's pointer, exactly as at the
+ * project level.
+ */
+export function OrganizationDeploymentsPage({
+  organizationId,
+}: {
+  readonly organizationId: string;
+}) {
+  const { client, router } = useApp();
+  const { section, reload, loadMore, loadingMore, hasMore } = usePagedSection<DeploymentSummary>(
+    (before) => loadOrganizationDeployments(client, organizationId, before, LIST_PAGE_SIZE),
+    [client, organizationId],
+    "Deployments",
+    LIST_PAGE_SIZE,
+  );
+
+  const inFlight =
+    section.state.kind === "ready" &&
+    section.state.items.some((item) => item.status === "pending" || item.status === "running");
+  useEffect(() => {
+    if (!inFlight) return;
+    const timer = window.setInterval(() => reload(), 4000);
+    return () => window.clearInterval(timer);
+  }, [inFlight, reload]);
+
+  return (
+    <PageShell
+      title="Deployments"
+      subtitle="Every deployment across this organization's projects, newest first. A status is the hosting engine's, never the request's; open a project to deploy, promote or roll back one of its builds."
+    >
+      <Card flush>
+        <SectionView<DeploymentSummary>
+          section={section}
+          columns={[
+            ...DeploymentColumns(),
+            {
+              key: "project",
+              header: "Project",
+              render: (item) => (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    router.navigate({
+                      name: "deployments",
+                      organizationId,
+                      projectId: item.projectId,
+                    })
+                  }
+                >
+                  Open
+                </Button>
+              ),
+            },
+          ]}
+          rowKey={(item) => item.id}
+          onRetry={reload}
+          emptyMessage="Nothing has been deployed in this organization yet."
+          filterText={(item) =>
+            `${item.status} ${item.kind} ${item.gitBranch ?? ""} ${item.url ?? ""} ${item.id}`
+          }
+          filterLabel="Filter deployments"
+        />
+      </Card>
+
+      {section.state.kind === "ready" && section.state.items.length > 0 ? (
+        <div className="row" style={{ justifyContent: "center", marginTop: "var(--space-4)" }}>
+          {hasMore ? (
+            <Button onClick={() => loadMore()} busy={loadingMore}>
+              Load older deployments
+            </Button>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>
+              That is the full history for this organization.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </PageShell>
+  );
+}
+
+/* --------------------------------------------------------------- members */
+
+/**
+ * The organization Members page.
+ *
+ * The list itself lives in `MembersPanel` because the organization Settings page
+ * renders the same one; this page is the top-level entry to it, with the same
+ * rank rules and the same honesty about a member the platform has no profile
+ * for. Membership is an organization-level fact, so this page is workspace-level
+ * rather than under a project.
+ */
+export function MembersPage({ organizationId }: { readonly organizationId: string }) {
+  return (
+    <PageShell
+      title="Members"
+      subtitle="Everyone with access to this organization, and the role that decides what they can do. A member can always remove themselves, which is how you leave."
+    >
+      <MembersPanel organizationId={organizationId} />
+    </PageShell>
+  );
+}
+
+/* ---------------------------------------------------------- project logs */
+
+/**
+ * A project's runtime logs.
+ *
+ * A deployment's logs are the engine's own output; this page is the project's
+ * way in without opening a deployment row first. It reads the project's newest
+ * deployment and shows its log through the same loader the Deployments drawer
+ * uses, so the two surfaces cannot disagree about what the engine said. When
+ * the project has no deployments, or the engine is not configured, the page says
+ * so rather than showing an empty console.
+ */
+export function ProjectLogsPage({
+  organizationId,
+  projectId,
+}: {
+  readonly organizationId: string;
+  readonly projectId: string;
+}) {
+  const { client, router } = useApp();
+  const deployments = useSection(
+    () => loadDeployments(client, projectId, undefined, LIST_PAGE_SIZE),
+    [client, projectId],
+    "Deployments",
+  );
+
+  const newest =
+    deployments.section.state.kind === "ready" ? (deployments.section.state.items[0] ?? null) : null;
+
+  return (
+    <PageShell
+      title="Logs"
+      subtitle="Runtime and build logs for this project's deployments. The newest build's log is shown below, and its lines are the hosting engine's own output, never a reconstruction."
+    >
+      <SectionShell
+        title="Deployments"
+        hint="Newest first; the newest build's log is shown below, and Deployments holds the per-build actions"
+      >
+        <Card flush>
+          <SectionView<DeploymentSummary>
+            section={deployments.section}
+            columns={[
+              ...DeploymentColumns(),
+              {
+                key: "open",
+                header: "",
+                render: () => (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      router.navigate({ name: "deployments", organizationId, projectId })
+                    }
+                  >
+                    Open in Deployments
+                  </Button>
+                ),
+              },
+            ]}
+            rowKey={(item) => item.id}
+            onRetry={deployments.reload}
+            emptyMessage="No deployment has been made for this project yet, so there is no log to show. Deploy it and the engine's output appears here."
+          />
+        </Card>
+      </SectionShell>
+
+      {newest ? (
+        <SectionShell title="Engine output" hint="Build and deploy log for the deployment above">
+          <DeploymentLogsPanel projectId={projectId} deployment={newest} />
+        </SectionShell>
+      ) : null}
     </PageShell>
   );
 }
 
 /**
- * Change a member's role.
+ * A deployment's engine log, without the drawer chrome.
  *
- * Only the roles the caller could actually grant are offered: an admin sees
- * admin/member/viewer, an owner additionally sees owner. The server is the
- * authority — this modal narrows the choice, it does not replace the guard.
+ * The same loader the Deployments drawer uses (`loadDeploymentLogs`), so the
+ * page and the drawer read the engine the same way. It never invents a line: a
+ * not-configured engine or an engine with no record of the build is rendered as
+ * a degraded state with the engine's own reason.
  */
-function ChangeMemberRoleModal({
-  organizationId,
-  member,
-  canGrantOwner,
-  onClose,
-  onChanged,
+function DeploymentLogsPanel({
+  projectId,
+  deployment,
 }: {
-  readonly organizationId: string;
-  readonly member: OrganizationMemberSummary | null;
-  readonly canGrantOwner: boolean;
-  readonly onClose: () => void;
-  readonly onChanged: () => void;
+  readonly projectId: string;
+  readonly deployment: DeploymentSummary;
 }) {
   const { client } = useApp();
-  const [role, setRole] = useState<OrganizationMemberSummary["role"]>("member");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // `loadDeploymentLogs` answers with an engine reason rather than throwing, so
+  // the only terminal states are "the engine said why" and "here are the lines".
+  const [state, setState] = useState<
+    | { readonly kind: "loading" }
+    | { readonly kind: "degraded"; readonly reason: string }
+    | { readonly kind: "success"; readonly data: DeploymentLogsSummary }
+  >({ kind: "loading" });
 
-  const roles: readonly OrganizationMemberSummary["role"][] = canGrantOwner
-    ? ["owner", "admin", "member", "viewer"]
-    : ["admin", "member", "viewer"];
-
-  // The picker opens on the member's current role, so a no-op submit is visible.
   useEffect(() => {
-    if (member) {
-      setRole(member.role);
-      setError(null);
-    }
-  }, [member]);
+    let cancelled = false;
+    setState({ kind: "loading" });
+    void (async () => {
+      const logs = await loadDeploymentLogs(client, projectId, deployment.id);
+      if (cancelled) return;
+      if (logs.engineReason && logs.lines.length === 0) {
+        setState({ kind: "degraded", reason: logs.engineReason });
+        return;
+      }
+      setState({ kind: "success", data: logs });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, projectId, deployment.id]);
 
-  const submit = async () => {
-    if (!member) return;
-    setBusy(true);
-    setError(null);
-    const response = await updateMemberRole(client, {
-      organizationId,
-      memberId: member.userId,
-      role,
-    });
-    setBusy(false);
-    if (!response.ok || !response.data) {
-      setError(response.error?.message ?? "The role could not be changed.");
-      return;
-    }
-    onChanged();
-  };
+  if (state.kind === "loading") return <LoadingSkeleton title="Engine output" rows={6} />;
+  if (state.kind === "degraded")
+    return <DegradedState title="Engine output" reason={state.reason} />;
 
   return (
-    <Modal
-      title="Change role"
-      open={member !== null}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button
-            variant="primary"
-            onClick={() => void submit()}
-            busy={busy}
-            disabled={!member || member.role === role}
-          >
-            Save role
-          </Button>
-        </>
-      }
-    >
-      <div className="stack">
-        <p className="small">
-          {member?.displayName ?? member?.email ?? "This member"} is currently{" "}
-          <strong>{member ? roleLabel(member.role) : ""}</strong>. The change takes effect
-          immediately; the new role decides what they can see and do in this organization.
-        </p>
-        <fieldset className="stack" style={{ border: 0, margin: 0, padding: 0 }}>
-          <legend className="small muted">New role</legend>
-          {roles.map((option) => (
-            <label key={option} className="row small" style={{ gap: "var(--space-2)" }}>
-              <input
-                type="radio"
-                name="member-role"
-                checked={role === option}
-                onChange={() => setRole(option)}
-              />
-              <span>{roleLabel(option)}</span>
-            </label>
-          ))}
-        </fieldset>
-        {error ? (
-          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
+    <Card flush>
+      {state.data.lines.length === 0 ? (
+        <EmptyState
+          title="No output yet"
+          message="The engine has produced no log lines for this deployment yet."
+        />
+      ) : (
+        <pre className="log" style={{ margin: 0, padding: "var(--space-3)" }}>
+          {state.data.lines.join("\n")}
+        </pre>
+      )}
+    </Card>
   );
 }
+
+/* ----------------------------------------------------- project analytics */
 
 /**
- * Remove a member, or leave the organization.
+ * A project's analytics.
  *
- * The wording changes when the target is the caller: "Leave" is a normal
- * action, and saying so is the difference between a scary dialog and an honest
- * one. The last owner cannot be removed, and the server says so if it is tried.
+ * Every figure is derived from this organization's own orchestration jobs — the
+ * queue rows the worker and the engines wrote — filtered to this project. That
+ * is deliberate: there is no page-view or request analytics engine in this
+ * deployment, so the page shows the activity it can prove and says what it
+ * cannot, rather than drawing a chart from invented data.
  */
-function RemoveMemberModal({
+export function ProjectAnalyticsPage({
   organizationId,
-  member,
-  self,
-  onClose,
-  onRemoved,
+  projectId,
 }: {
   readonly organizationId: string;
-  readonly member: OrganizationMemberSummary | null;
-  readonly self: boolean;
-  readonly onClose: () => void;
-  readonly onRemoved: () => void;
+  readonly projectId: string;
 }) {
   const { client } = useApp();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const deployments = useSection(
+    () => loadDeployments(client, projectId, undefined, LIST_PAGE_SIZE),
+    [client, projectId],
+    "Deployments",
+  );
+  const observability = useSection(
+    () => loadObservability(client, organizationId),
+    [client, organizationId],
+    "Analytics",
+  );
 
-  useEffect(() => {
-    setError(null);
-  }, [member]);
-
-  const submit = async () => {
-    if (!member) return;
-    setBusy(true);
-    setError(null);
-    const response = await removeMember(client, { organizationId, memberId: member.userId });
-    setBusy(false);
-    if (!response.ok || !response.data?.removed) {
-      setError(response.error?.message ?? "The member could not be removed.");
-      return;
-    }
-    onRemoved();
-  };
+  const report =
+    observability.section.state.kind === "ready"
+      ? (observability.section.state.items[0] ?? null)
+      : null;
 
   return (
-    <Modal
-      title={self ? "Leave organization" : "Remove member"}
-      open={member !== null}
-      onClose={onClose}
-      footer={
-        <>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button variant="danger" onClick={() => void submit()} busy={busy} disabled={!member}>
-            {self ? "Leave" : "Remove"}
-          </Button>
-        </>
-      }
+    <PageShell
+      title="Analytics"
+      subtitle="Deployment outcomes for this project and job activity for its organization. Figures are derived from real rows; request and page-view analytics need an engine this deployment has not configured, so none is drawn."
     >
-      <div className="stack">
-        <p className="small">
-          {self ? (
-            <>
-              You will lose access to this organization and everything in it. This takes effect
-              immediately and cannot be undone — an owner would have to add you back.
-            </>
-          ) : (
-            <>
-              {member?.displayName ?? member?.email ?? "This member"} will lose access to this
-              organization immediately. The membership row is deleted; their other organizations are
-              unaffected.
-            </>
-          )}
-        </p>
-        {error ? (
-          <p className="small" role="alert" style={{ color: "var(--danger-text, #f88)" }}>
-            {error}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
+      <SectionShell
+        title="Deployment outcomes"
+        hint="Over the loaded page of this project's deployments, newest first"
+      >
+        <Card>
+          <SectionView<DeploymentSummary>
+            section={deployments.section}
+            onRetry={deployments.reload}
+            emptyMessage="No deployment has been recorded for this project yet, so there is no outcome to summarise. Deploy it and the figures appear here."
+            renderReady={(items) => (
+              <div className="grid grid--stats">
+                <StatBox
+                  label="Succeeded"
+                  value={String(items.filter((item) => item.status === "succeeded").length)}
+                  note="Engine-reported"
+                />
+                <StatBox
+                  label="Failed"
+                  value={String(items.filter((item) => item.status === "failed").length)}
+                  note="Engine-reported"
+                />
+                <StatBox
+                  label="In flight"
+                  value={String(
+                    items.filter(
+                      (item) => item.status === "pending" || item.status === "running",
+                    ).length,
+                  )}
+                  note="Pending or running"
+                />
+                <StatBox label="Loaded" value={String(items.length)} note="Rows in this page" />
+              </div>
+            )}
+          />
+        </Card>
+      </SectionShell>
 
-/** A membership role, spelled for a reader. */
-function roleLabel(role: OrganizationMemberSummary["role"]): string {
-  switch (role) {
-    case "owner":
-      return "Owner";
-    case "admin":
-      return "Admin";
-    case "member":
-      return "Member";
-    case "viewer":
-      return "Viewer";
-  }
+      <SectionShell
+        title="Job throughput"
+        hint="Jobs created per day across this organization, newest day last"
+      >
+        <Card flush>
+          <SectionView<ObservabilityReportSummary>
+            section={observability.section}
+            onRetry={observability.reload}
+            emptyMessage="No orchestration jobs yet, so there is no activity to chart. Deployments, backups and policy distributions appear here as soon as this organization runs one."
+            renderReady={(items) => {
+              const current = items[0];
+              // A report with no jobs is the honest "nothing to chart" case; an
+              // error or an unconfigured engine was already rendered by
+              // `SectionView`, so reaching here means the read succeeded.
+              if (!current || (current.throughput ?? []).length === 0) {
+                return (
+                  <EmptyState
+                    title="No daily activity"
+                    message="This organization has no jobs in the trailing window, so no bar is drawn."
+                  />
+                );
+              }
+              return (
+                <BarChart
+                  ariaLabel="Jobs created per day"
+                  unit="jobs"
+                  bars={current.throughput.map((entry) => ({
+                    label: entry.day.slice(5),
+                    value: entry.created,
+                    ...(entry.failed > 0 ? { tone: "danger" as const } : {}),
+                  }))}
+                />
+              );
+            }}
+          />
+        </Card>
+      </SectionShell>
+
+      {report ? (
+        <div className="grid">
+          <SectionShell title="Jobs by kind" hint="Most active first">
+            <Card flush>
+              <BarChart
+                ariaLabel="Orchestration jobs by kind"
+                bars={report.byKind.map((entry) => ({
+                  label: entry.kind,
+                  value: entry.total,
+                  ...(entry.failed > 0 ? { tone: "danger" as const } : {}),
+                }))}
+              />
+            </Card>
+          </SectionShell>
+
+          <SectionShell title="Jobs by state" hint="Every job in the queue, grouped by state">
+            <Card flush>
+              <BarChart
+                ariaLabel="Orchestration jobs by state"
+                bars={report.byState.map((entry) => ({
+                  label: entry.state,
+                  value: entry.count,
+                  ...(entry.state === "failed"
+                    ? { tone: "danger" as const }
+                    : entry.state === "succeeded"
+                      ? { tone: "ok" as const }
+                      : {}),
+                }))}
+              />
+            </Card>
+          </SectionShell>
+        </div>
+      ) : null}
+
+      <SectionShell title="What is not drawn" hint="The honest boundary of this page">
+        <Card>
+          <p className="small" style={{ margin: 0 }}>
+            Deployment outcomes and job activity above are derived from this project's deployment
+            rows and this organization's queue rows, so they are real without a metrics engine. Page
+            views, request rates and visitor analytics are <em>not</em> drawn: they need a
+            traffic-analytics engine this deployment has not configured, so no series is invented to
+            fill the space. The activity that is absent is absent, not zero.
+          </p>
+        </Card>
+      </SectionShell>
+    </PageShell>
+  );
 }
 
 /* ------------------------------------------------------------------ not found */
