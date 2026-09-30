@@ -72,7 +72,7 @@ export const DOC_INTRO = {
   title: "How this dashboard is organised",
   body: [
     "Every screen is a state of the URL, so a refresh, a bookmark or a shared link lands exactly where the sender was. Links inside the dashboard follow the same routes the menu uses.",
-    "The sidebar is replaced, not appended to, as you drill in. Workspace → Project → Database is three levels, and the back control steps up one level at a time. A project opens its own eight-entry menu; the project's Database entry opens the nine-entry Database sub-menu.",
+    "The sidebar is replaced, not appended to, as you drill in. Workspace → Project → Database is three levels, and the back control steps up one level at a time. A project opens its own ten-entry menu; the project's Database entry opens the nine-entry Database sub-menu.",
     "Database and Security are this platform's two additions beyond a deploy-only product, so they are first-class menu entries rather than being hidden in settings.",
   ],
   diagram: {
@@ -101,7 +101,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "The workspace's applications: create one, open one, and see each one's production state.",
     body: [
       "Projects is the workspace's front page. It lists every application in this organization with its latest production deployment state, and is where a new project is created.",
-      "Opening a project switches the sidebar from the workspace menu to that project's own menu — Overview, Deployments, Domains, Git, Environment, Database, Security and Settings.",
+      "Opening a project switches the sidebar from the workspace menu to that project's own menu — Overview, Deployments, Logs, Analytics, Domains, Git, Environment, Database, Security and Settings.",
       "A project belongs to exactly one organization, and its URL always carries both, so a link cannot resolve to the wrong tenant.",
     ],
     diagram: {
@@ -457,7 +457,8 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     summary:
       "The Vercel features we do not ship, and why, so the gap is visible rather than hidden.",
     body: [
-      "Analytics, Speed Insights, CDN cache controls, Feature Flags, Integrations, AI Gateway, Sandboxes, Workflows, Support and account-level webhooks are not built here. They are recorded as Missing in the feature matrix rather than shown as disabled buttons.",
+      "Speed Insights, CDN cache controls, Feature Flags, Integrations, AI Gateway, Sandboxes, Workflows, Cron Jobs, Edge Config, Support, account-level webhooks, log drains, notifications, enforced 2FA/SAML SSO and a CLI are not built here. They are recorded as Missing in the feature matrix rather than shown as disabled buttons.",
+      "Two of those deserve a note because their names are close to surfaces that do exist. Web Analytics — page views, visitors, referrers — is not built; the Analytics page shows deployment outcomes and orchestration-job activity from real rows, and says so instead of drawing a traffic chart from invented data. Runtime logs are the engine's own build and container tail (the Logs page and the Deployments drawer); a push drain that streams that output to an external system is not built.",
       "The menu lists only what exists: a section with no page is not rendered, so there are no dead entries. This page is where that decision is made visible.",
       "Our two additions beyond Vercel are Database and Security, both above. They are our differentiators, so they are first-class rather than tucked into settings.",
     ],

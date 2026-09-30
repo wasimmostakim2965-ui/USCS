@@ -9,8 +9,10 @@
  * a refresh, a bookmark or a deep link lands in the same place.
  *
  * There are three levels, and a route belongs to exactly one of them:
- *   * workspace — Projects, API keys, Activity, Settings.
- *   * project   — Overview, Deployments, Domains, Database, Security, Settings.
+ *   * workspace — Projects, Deployments, Members, Activity, Observability,
+ *                 Billing, API keys, Docs, Settings.
+ *   * project   — Overview, Deployments, Logs, Analytics, Domains, Git,
+ *                 Environment, Database, Security, Settings.
  *   * database  — Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles,
  *                 Logs, Settings. This is the third drill-in level, reached from
  *                 the project menu's Database entry.
