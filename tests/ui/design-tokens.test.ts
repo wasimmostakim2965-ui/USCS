@@ -55,6 +55,38 @@ describe("muted text is readable in both themes", () => {
   }
 });
 
+describe("status dots keep the reference's hues", () => {
+  // Measured off the owner's Vercel screenshots: a status is a bare ~11px disc
+  // on the surface, and the disc is markedly lighter than the label beside it.
+  // Drawing the dot in the readable text colour collapses that contrast into a
+  // muddy grey, which is the "flat and lifeless" look to avoid. These lock the
+  // bright disc hues in place.
+  const expected: Readonly<Record<string, string>> = {
+    "dot-ok": "#66c984",
+    "dot-warn": "#ffb224",
+    "dot-danger": "#e5484d",
+  };
+  for (const [name, want] of Object.entries(expected)) {
+    it(`--${name} is the measured reference hue in the light theme`, () => {
+      expect(token("light", name).toLowerCase()).toBe(want);
+    });
+  }
+
+  it("the dot is brighter than the label it sits beside", () => {
+    for (const tone of ["ok", "warn", "danger"] as const) {
+      const dot = luminance(token("light", `dot-${tone}`));
+      const label = luminance(token("light", tone));
+      expect(dot, `--dot-${tone} is not lighter than --${tone}`).toBeGreaterThan(label);
+    }
+  });
+
+  it("the badge draws no tinted pill of its own", () => {
+    const rule = css.match(/^\.badge\s*\{[^}]*\}/m)?.[0] ?? "";
+    expect(rule).toMatch(/background:\s*none/);
+    expect(rule).toMatch(/border:\s*0/);
+  });
+});
+
 describe("nav rows are thumb-sized", () => {
   it(".nav__item carries a 44px minimum height", () => {
     const rule = css.match(/\.nav__item\s*\{[^}]*\}/)?.[0] ?? "";

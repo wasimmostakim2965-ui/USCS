@@ -101,6 +101,14 @@
   --neutral: #8b98ae;
   --neutral-soft: rgba(139, 152, 174, 0.16);
 
+  /* In the dark theme the status colours are already luminous enough to serve as
+     the dot itself, so the dots simply reuse them. */
+  --dot-ok: #3ddc97;
+  --dot-warn: #f2b544;
+  --dot-danger: #ff6b6b;
+  --dot-progress: #4cc2ff;
+  --dot-neutral: #8b98ae;
+
   --btn-bg: var(--panel-2);
   --btn-ink: var(--ink);
   --btn-line: var(--line-strong);
@@ -142,6 +150,17 @@
   --warn-soft: rgba(138, 83, 0, 0.1);
   --danger: #c81e1e;
   --danger-soft: rgba(200, 30, 30, 0.08);
+  /* The dot alone carries the state, and it is a bare mark rather than text, so
+     it is exempt from the 4.5:1 text rule. These are the measured Vercel hues:
+     reading them off the reference showed a small ~11px disc sitting directly on
+     the surface, with no tinted background and no border around it. Keep the
+     dots at those hues — a dot drawn in the darker text colour reads as a muddy
+     grey and loses the signal. */
+  --dot-ok: #66c984;
+  --dot-warn: #ffb224;
+  --dot-danger: #e5484d;
+  --dot-progress: #0070f3;
+  --dot-neutral: #8f8f8f;
   --progress: #3b4bd8;
   --progress-soft: rgba(59, 75, 216, 0.09);
   --neutral: #6b6b6b;
@@ -866,50 +885,61 @@ table.table {
 
 /* --------------------------------------------------------------- badges */
 
+/* A status reads as a small coloured disc and a word, sitting directly on the
+   surface — no tinted pill, no border. The reference does exactly this: the
+   pixels around each dot are the bare surface colour. The disc keeps the bright
+   hue (--dot-*) while the label keeps the readable one (--ok/--warn/--danger),
+   so state is legible without the badge shouting. */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 0.125rem var(--space-3);
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-size: 0.75rem;
-  font-weight: 600;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
   white-space: nowrap;
 }
 
 .badge__dot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--dot-neutral);
   flex: none;
 }
 
 .badge--neutral {
-  background: var(--neutral-soft);
-  color: var(--neutral);
-  border-color: color-mix(in srgb, var(--neutral) 32%, transparent);
+  color: var(--ink-2);
+}
+.badge--neutral .badge__dot {
+  background: var(--dot-neutral);
 }
 .badge--progress {
-  background: var(--progress-soft);
   color: var(--progress);
-  border-color: color-mix(in srgb, var(--progress) 32%, transparent);
+}
+.badge--progress .badge__dot {
+  background: var(--dot-progress);
 }
 .badge--positive {
-  background: var(--ok-soft);
   color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 32%, transparent);
+}
+.badge--positive .badge__dot {
+  background: var(--dot-ok);
 }
 .badge--warning {
-  background: var(--warn-soft);
   color: var(--warn);
-  border-color: color-mix(in srgb, var(--warn) 34%, transparent);
+}
+.badge--warning .badge__dot {
+  background: var(--dot-warn);
 }
 .badge--danger {
-  background: var(--danger-soft);
   color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+}
+.badge--danger .badge__dot {
+  background: var(--dot-danger);
 }
 
 /* --------------------------------------------------------------- buttons */
