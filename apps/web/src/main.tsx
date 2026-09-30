@@ -26,8 +26,7 @@ const supabaseAnonKey =
   (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined);
 
-const apiBaseUrl =
-  (import.meta.env.VITE_CLOUD_WAI_API_URL as string | undefined) ?? "http://127.0.0.1:8787";
+const apiBaseUrl = (import.meta.env.VITE_CLOUD_WAI_API_URL as string | undefined) ?? "/api";
 
 const config: SessionConfig | null =
   supabaseUrl && supabaseAnonKey ? { url: supabaseUrl, anonKey: supabaseAnonKey } : null;
