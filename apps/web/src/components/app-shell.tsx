@@ -13,7 +13,13 @@ import { Button, ErrorBoundary, Icon, Modal, TextInput, type Toast } from "@clou
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable, useMediaQuery } from "../react/hooks.js";
 import { toPath, type Route } from "../routes.js";
-import { backTargetFor, navForRoute, titleForRoute, type NavItem } from "../navigation.js";
+import {
+  backTargetFor,
+  navForRoute,
+  navGroups,
+  titleForRoute,
+  type NavItem,
+} from "../navigation.js";
 
 export interface WorkspaceOption {
   readonly id: string;
@@ -241,14 +247,6 @@ export function AppShell({
   }, [router.route, activeOrganizationId, projectName]);
 
   const back = activeOrganizationId ? backTargetFor(router.route) : null;
-  const groupLabel =
-    nav.level === "database"
-      ? "Database"
-      : nav.level === "project"
-        ? "Project"
-        : activeOrganizationId
-          ? organizationName
-          : "Cloud Wai";
 
   const commands = useMemo(() => {
     const items: {
@@ -328,24 +326,28 @@ export function AppShell({
   return (
     <div className={`shell${!sidebarVisible ? " shell--nav-collapsed" : ""}`}>
       <header className="topbar">
-        {/* The compact bar below already owns navigation on a narrow screen, and
-            it ends in the same menu glyph this button shows. Two menu buttons
-            with one meaning is a choice the user has to make for no reason, and
-            this one made it worse: it flipped a state that only styles the
-            wide-screen sidebar, so on a phone the first tap did nothing at all.
-            Wide screens keep the toggle; narrow ones get their navigation from
-            the bar at the bottom, which is where a thumb already is. */}
-        {compactNav ? null : (
-          <Button
-            variant="ghost"
-            size="sm"
-            ariaLabel={sidebarVisible ? "Hide navigation" : "Show navigation"}
-            title={sidebarVisible ? "Hide navigation" : "Show navigation"}
-            onClick={toggleSidebar}
-          >
-            <Icon name="menu" size={18} />
+        {/* Vercel keeps a back arrow in the top bar, not only in the sidebar, so
+            a drill-in is one tap from anywhere. Here it appears exactly where the
+            sidebar is out of reach — a narrow screen — and the sidebar keeps its
+            own Back on a wide one, so the two never both show. */}
+        {back && compactNav ? (
+          <Button variant="ghost" size="sm" ariaLabel="Back" title="Back" onClick={() => go(back)}>
+            <Icon name="back" size={18} />
           </Button>
-        )}
+        ) : null}
+        {/* The menu lives in the top bar at every width, and on a narrow screen
+            it is the only way to the section list — the drawer opens from here.
+            Wide screens toggle the sidebar in and out of the layout; narrow
+            screens open it over the page. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          ariaLabel={sidebarVisible ? "Hide navigation" : "Show navigation"}
+          title={sidebarVisible ? "Hide navigation" : "Show navigation"}
+          onClick={toggleSidebar}
+        >
+          <Icon name="menu" size={18} />
+        </Button>
 
         <a
           className="topbar__brand"
@@ -530,14 +532,18 @@ export function AppShell({
                 <span className="truncate">Back</span>
               </button>
             ) : null}
-            <div className="nav__group">{groupLabel}</div>
-            {nav.items.map((item) => (
-              <NavLink
-                key={item.id}
-                item={item}
-                active={item.id === nav.activeId}
-                onNavigate={go}
-              />
+            {navGroups(nav.level, nav.items).map((group) => (
+              <div className="nav__section" key={group.label}>
+                <div className="nav__group">{group.label}</div>
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    item={item}
+                    active={item.id === nav.activeId}
+                    onNavigate={go}
+                  />
+                ))}
+              </div>
             ))}
           </nav>
         </aside>
@@ -578,49 +584,6 @@ export function AppShell({
             sidebar and the way back survive a crash. */}
         <ErrorBoundary key={toPath(router.route)}>{children}</ErrorBoundary>
       </main>
-
-      {/* On a narrow screen the sidebar is hidden and reachable only through the
-          menu button, which puts the sections out of thumb reach and hides the
-          current one. This bar surfaces the same nav items the sidebar holds, in
-          the same order, so the two can never disagree about a section. */}
-      {activeOrganizationId && compactNav ? (
-        <nav className="mobilebar" aria-label="Sections (compact)">
-          {back ? (
-            <button type="button" className="mobilebar__item" onClick={() => go(back)} title="Back">
-              <span className="mobilebar__glyph" aria-hidden="true">
-                <Icon name="back" size={20} />
-              </span>
-              <span className="mobilebar__label">Back</span>
-            </button>
-          ) : null}
-          {nav.items.slice(0, back ? 3 : 4).map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`mobilebar__item${item.id === nav.activeId ? " mobilebar__item--active" : ""}`}
-              aria-current={item.id === nav.activeId ? "page" : undefined}
-              title={item.description}
-              onClick={() => go(item.route)}
-            >
-              <span className="mobilebar__glyph" aria-hidden="true">
-                <Icon name={item.icon} size={20} />
-              </span>
-              <span className="mobilebar__label truncate">{item.label}</span>
-            </button>
-          ))}
-          <button
-            type="button"
-            className="mobilebar__item"
-            onClick={() => setSidebarOpen(true)}
-            title="All sections"
-          >
-            <span className="mobilebar__glyph" aria-hidden="true">
-              <Icon name="menu" size={20} />
-            </span>
-            <span className="mobilebar__label">More</span>
-          </button>
-        </nav>
-      ) : null}
 
       <Modal
         title="Command palette"

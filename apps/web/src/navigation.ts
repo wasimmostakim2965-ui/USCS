@@ -49,6 +49,54 @@ export interface NavContext {
   readonly projectName?: string | undefined;
 }
 
+/**
+ * A labelled run of sidebar entries.
+ *
+ * Vercel's sidebar is grouped rather than one flat list — Account, Project,
+ * Observability, Compute, More — and that is what makes a menu of twenty-odd
+ * entries scannable instead of a wall. The groups are declared here, next to the
+ * items they order, so a new section cannot be added to the menu without a
+ * decision about which run it belongs to; an id no group claims still renders,
+ * in a trailing run, so the failure mode is "unsorted", never "invisible".
+ */
+export interface NavGroup {
+  readonly label: string;
+  readonly items: readonly NavItem[];
+}
+
+/**
+ * Which drill-in level a menu is showing: Workspace -> Project -> Database. The
+ * shell reads this to label the back control and to pick the group spec, so the
+ * two can never disagree about where the user is.
+ */
+export type NavLevel = "workspace" | "project" | "database";
+
+/** Which ids belong to which run, in the order they appear. */
+interface GroupSpec {
+  readonly label: string;
+  readonly ids: readonly string[];
+}
+
+const WORKSPACE_GROUPS: readonly GroupSpec[] = [
+  { label: "Workspace", ids: ["projects", "org-deployments", "members", "audit"] },
+  { label: "Observability", ids: ["observability", "billing"] },
+  { label: "Access", ids: ["security", "api-keys"] },
+  { label: "Reference", ids: ["docs", "settings"] },
+];
+
+const PROJECT_GROUPS: readonly GroupSpec[] = [
+  { label: "Project", ids: ["overview", "setup", "deployments"] },
+  { label: "Observability", ids: ["logs", "analytics"] },
+  { label: "Configuration", ids: ["domains", "git", "env", "database"] },
+  { label: "Access", ids: ["security", "settings"] },
+];
+
+const DATABASE_GROUPS: readonly GroupSpec[] = [
+  { label: "Database", ids: ["database-overview", "database-tables", "database-sql"] },
+  { label: "Platform", ids: ["database-auth", "database-storage", "database-api"] },
+  { label: "Administration", ids: ["database-roles", "database-logs", "database-settings"] },
+];
+
 /** Workspace-level sections. A project is opened from Projects. */
 export function workspaceNav(context: NavContext): readonly NavItem[] {
   const organizationId = context.organizationId;
@@ -287,6 +335,42 @@ export function databaseNav(
 }
 
 /**
+ * Group a menu's items into the labelled runs the sidebar renders.
+ *
+ * Groups keep the order the spec declares, and items keep the order the menu
+ * function returned. Any id no group claims is appended in a final unlabelled
+ * run rather than dropped, so a section added to a menu and forgotten here still
+ * appears — the menu can never lose an entry to a bookkeeping mistake.
+ */
+export function groupNavItems(
+  items: readonly NavItem[],
+  specs: readonly GroupSpec[],
+): readonly NavGroup[] {
+  const claimed = new Set(specs.flatMap((spec) => spec.ids));
+  const groups: NavGroup[] = [];
+  for (const spec of specs) {
+    const members = spec.ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter((item): item is NavItem => item !== undefined);
+    if (members.length > 0) groups.push({ label: spec.label, items: members });
+  }
+  const rest = items.filter((item) => !claimed.has(item.id));
+  if (rest.length > 0) groups.push({ label: "More", items: rest });
+  return groups;
+}
+
+const GROUPS_BY_LEVEL: Readonly<Record<NavLevel, readonly GroupSpec[]>> = {
+  workspace: WORKSPACE_GROUPS,
+  project: PROJECT_GROUPS,
+  database: DATABASE_GROUPS,
+};
+
+/** The labelled runs for a menu level. The shell renders one block per group. */
+export function navGroups(level: NavLevel, items: readonly NavItem[]): readonly NavGroup[] {
+  return groupNavItems(items, GROUPS_BY_LEVEL[level]);
+}
+
+/**
  * The items relevant to a route, and which one is active.
  *
  * A project route yields the project menu; every other route yields the
@@ -305,7 +389,7 @@ export function navForRoute(
    * to decide whether to offer a back control, so the two levels cannot
    * disagree about where the user is.
    */
-  readonly level: "workspace" | "project" | "database";
+  readonly level: NavLevel;
 } {
   const workspace = (activeId: string | null) => ({
     items: workspaceNav(context),

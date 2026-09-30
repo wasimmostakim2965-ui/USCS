@@ -5012,25 +5012,60 @@ describe("navigation controls on a narrow screen", () => {
     };
   }
 
-  it("offers one menu control, not two", async () => {
+  it("offers one menu control, in the top bar, not a second bar at the bottom", async () => {
     const restore = stubCompactViewport();
     try {
       const url = await startApi(responder);
       const { container } = renderApp(url, "#/orgs/org-1/projects");
-      await waitFor(() => expect(container.querySelector(".mobilebar")).toBeTruthy());
 
-      // The topbar toggle is gone; the compact bar's "More" is the only one.
-      expect(screen.queryByRole("button", { name: "Show navigation" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Hide navigation" })).toBeNull();
-      expect(container.querySelectorAll(".mobilebar__glyph").length).toBeGreaterThan(0);
+      // Navigation lives in the top bar and nowhere else. A bottom bar repeating
+      // the same sections — and the same menu glyph — is gone.
+      expect(container.querySelector(".mobilebar")).toBeNull();
+      const menu = await screen.findByRole("button", { name: "Show navigation" });
+      expect(screen.queryByRole("button", { name: /^More$/ })).toBeNull();
 
       // And it opens the drawer holding the full section list.
-      const more = screen.getByRole("button", { name: /More/ });
-      await userEvent.setup().click(more);
+      await userEvent.setup().click(menu);
       await waitFor(() => expect(container.querySelector(".sidebar--open")).toBeTruthy());
     } finally {
       restore();
     }
+  });
+
+  it("offers one back control on a narrow screen, in the top bar", async () => {
+    const restore = stubCompactViewport();
+    try {
+      const url = await startApi(responder);
+      const { container } = renderApp(url, "#/orgs/org-1/projects/proj-1/deployments");
+
+      // The drawer is closed, so the sidebar's Back is not reachable; the top bar
+      // must carry it, or a drill-in is a dead end on a phone.
+      const back = await screen.findByRole("button", { name: "Back" });
+      await userEvent.setup().click(back);
+      await waitFor(() => expect(container.querySelector(".sidebar--open")).toBeNull());
+      expect(screen.getAllByRole("button", { name: "Back" }).length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("groups the section list under labels rather than one flat run", async () => {
+    const url = await startApi(responder);
+    const { container } = renderApp(url, "#/orgs/org-1/projects");
+    await waitFor(() => expect(container.querySelector(".nav__section")).toBeTruthy());
+
+    const labels = Array.from(container.querySelectorAll(".nav__group")).map(
+      (node) => node.textContent,
+    );
+    // Vercel's sidebar is grouped; a wall of twenty entries is not a menu.
+    expect(labels).toContain("Workspace");
+    expect(labels).toContain("Observability");
+    expect(labels.length).toBeGreaterThan(1);
+
+    // Every section still renders, under some group. Grouping reorders the menu
+    // but must never lose an entry.
+    const rendered = container.querySelectorAll(".nav__item").length;
+    expect(rendered).toBeGreaterThan(8);
   });
 });
 

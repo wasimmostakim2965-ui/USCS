@@ -382,13 +382,10 @@ kbd,
 @media (max-width: 960px) {
   .shell {
     grid-template-columns: 1fr;
-    /* The compact bar is a real grid row, not an overlay, so the content column
-       never hides its last few rows behind a floating bar. */
-    grid-template-rows: var(--shell-topbar) 1fr auto;
+    grid-template-rows: var(--shell-topbar) 1fr;
     grid-template-areas:
       "topbar"
-      "main"
-      "mobilebar";
+      "main";
   }
   .shell--no-sidebar {
     grid-template-rows: var(--shell-topbar) 1fr;
@@ -396,15 +393,14 @@ kbd,
       "topbar"
       "main";
   }
-  /* A narrow screen with the sidebar closed is the normal state (the drawer is
-     reachable from the compact bar), so the wide-screen collapse rule must not
-     remove the mobilebar row here. */
+  /* A narrow screen with the sidebar closed is the normal state; the drawer is
+     reachable from the menu button in the top bar. The collapsed rule matches
+     the narrow default, so it must not add a row back. */
   .shell--nav-collapsed {
-    grid-template-rows: var(--shell-topbar) 1fr auto;
+    grid-template-rows: var(--shell-topbar) 1fr;
     grid-template-areas:
       "topbar"
-      "main"
-      "mobilebar";
+      "main";
   }
   .sidebar {
     display: none;
@@ -450,6 +446,18 @@ kbd,
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+/* One labelled run. The items keep the same rhythm the flat list had; the group
+   label above them is what makes a menu of twenty-odd entries scannable. */
+.nav__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nav__section:first-of-type .nav__group {
+  margin-top: var(--space-2);
 }
 
 .nav__item {
@@ -1688,62 +1696,6 @@ table.table {
   }
 }
 
-/* ---- compact bar (mobile) ---- */
-
-/* Hidden on a wide screen, where the sidebar is always present. It reads the
-   same nav items as the sidebar, so a section that exists in one exists in
-   both. */
-.mobilebar {
-  display: none;
-}
-
-@media (max-width: 960px) {
-  .mobilebar {
-    grid-area: mobilebar;
-    display: flex;
-    align-items: stretch;
-    /* Installed-app safe area so the bar clears the home indicator. */
-    padding-bottom: env(safe-area-inset-bottom, 0);
-    background: var(--ground-2);
-    border-top: 1px solid var(--line);
-  }
-
-  .mobilebar__item {
-    flex: 1 1 0;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    /* Comfortably above the 44px touch-target floor. */
-    min-height: 52px;
-    padding: var(--space-1) 2px;
-    border: 0;
-    background: transparent;
-    color: var(--ink-2);
-    font: inherit;
-    font-size: 0.6875rem;
-    cursor: pointer;
-  }
-
-  .mobilebar__item:hover {
-    color: var(--ink);
-  }
-
-  .mobilebar__item--active {
-    color: var(--accent);
-  }
-
-  .mobilebar__glyph {
-    display: inline-flex;
-  }
-
-  .mobilebar__label {
-    max-width: 100%;
-  }
-}
-
 /* ---- sidebar ---- */
 
 .nav {
@@ -1886,12 +1838,11 @@ a.card:hover,
     min-width: 0;
     margin: 0;
     grid-template-columns: minmax(0, 1fr) !important;
-    grid-template-areas: "topbar" "main" "mobilebar" !important;
+    grid-template-areas: "topbar" "main" !important;
   }
 
   .topbar,
-  .main,
-  .mobilebar {
+  .main {
     min-width: 0;
     width: 100%;
     grid-column: 1 / -1;

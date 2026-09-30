@@ -62,11 +62,12 @@ export {
   databaseNav,
   databaseSectionTitle,
   navForRoute,
+  navGroups,
   projectNav,
   titleForRoute,
   workspaceNav,
 } from "./navigation.js";
-export type { NavContext, NavItem } from "./navigation.js";
+export type { NavContext, NavGroup, NavItem, NavLevel } from "./navigation.js";
 export { DATABASE_SECTIONS } from "./routes.js";
 export type { DatabaseSection } from "./routes.js";
 export {
