@@ -328,15 +328,24 @@ export function AppShell({
   return (
     <div className={`shell${!sidebarVisible ? " shell--nav-collapsed" : ""}`}>
       <header className="topbar">
-        <Button
-          variant="ghost"
-          size="sm"
-          ariaLabel={sidebarVisible ? "Hide navigation" : "Show navigation"}
-          title={sidebarVisible ? "Hide navigation" : "Show navigation"}
-          onClick={toggleSidebar}
-        >
-          <Icon name="menu" size={18} />
-        </Button>
+        {/* The compact bar below already owns navigation on a narrow screen, and
+            it ends in the same menu glyph this button shows. Two menu buttons
+            with one meaning is a choice the user has to make for no reason, and
+            this one made it worse: it flipped a state that only styles the
+            wide-screen sidebar, so on a phone the first tap did nothing at all.
+            Wide screens keep the toggle; narrow ones get their navigation from
+            the bar at the bottom, which is where a thumb already is. */}
+        {compactNav ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            ariaLabel={sidebarVisible ? "Hide navigation" : "Show navigation"}
+            title={sidebarVisible ? "Hide navigation" : "Show navigation"}
+            onClick={toggleSidebar}
+          >
+            <Icon name="menu" size={18} />
+          </Button>
+        )}
 
         <a
           className="topbar__brand"

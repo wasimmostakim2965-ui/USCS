@@ -4985,3 +4985,93 @@ describe("a stat box before its data has arrived", () => {
     );
   });
 });
+
+describe("navigation controls on a narrow screen", () => {
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  /** jsdom has no matchMedia; pretend the viewport is a phone. */
+  function stubCompactViewport(): () => void {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: /max-width/.test(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    return () => {
+      window.matchMedia = original;
+    };
+  }
+
+  it("offers one menu control, not two", async () => {
+    const restore = stubCompactViewport();
+    try {
+      const url = await startApi(responder);
+      const { container } = renderApp(url, "#/orgs/org-1/projects");
+      await waitFor(() => expect(container.querySelector(".mobilebar")).toBeTruthy());
+
+      // The topbar toggle is gone; the compact bar's "More" is the only one.
+      expect(screen.queryByRole("button", { name: "Show navigation" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Hide navigation" })).toBeNull();
+      expect(container.querySelectorAll(".mobilebar__glyph").length).toBeGreaterThan(0);
+
+      // And it opens the drawer holding the full section list.
+      const more = screen.getByRole("button", { name: /More/ });
+      await userEvent.setup().click(more);
+      await waitFor(() => expect(container.querySelector(".sidebar--open")).toBeTruthy());
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("an empty section offers a way forward, not a dead end", () => {
+  // Vercel's empty states all carry an action and a docs link; a section that
+  // only says "nothing here" makes the user hunt the header for the control
+  // that creates the very thing the message is about.
+  const emptyOrg: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  it("offers the create control on the Domains empty state", async () => {
+    const url = await startApi(emptyOrg);
+    renderApp(url, "#/orgs/org-1/projects/proj-1/domains");
+    expect(await screen.findByText(/No domains registered/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add your first domain" })).toBeTruthy();
+  });
+
+  it("offers the connect control on the Git empty state", async () => {
+    const url = await startApi(emptyOrg);
+    renderApp(url, "#/orgs/org-1/projects/proj-1/git");
+    expect(await screen.findByText(/No repository is connected/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect a repository" })).toBeTruthy();
+  });
+
+  it("offers the create control on the API keys empty state", async () => {
+    const url = await startApi(emptyOrg);
+    renderApp(url, "#/orgs/org-1/settings/api-keys");
+    expect(await screen.findByText(/No API keys yet/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create your first key" })).toBeTruthy();
+  });
+
+  it("the empty-state action actually opens the form", async () => {
+    const url = await startApi(emptyOrg);
+    renderApp(url, "#/orgs/org-1/projects/proj-1/domains");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add your first domain" }));
+    // The same modal the header button opens, so the two cannot diverge.
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  });
+});

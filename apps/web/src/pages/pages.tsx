@@ -2089,6 +2089,11 @@ export function DomainsPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No domains registered. A domain is created unverified and the edge confirms it."
+          emptyActions={
+            <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+              Add your first domain
+            </Button>
+          }
           filterText={(item) => `${item.hostname} ${item.verified ? "verified" : "unverified"}`}
           filterLabel="Filter domains"
         />
@@ -2529,6 +2534,11 @@ export function GitPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No repository is connected. Connect one and every push deploys this project."
+          emptyActions={
+            <Button variant="primary" size="sm" onClick={() => setConnecting(true)}>
+              Connect a repository
+            </Button>
+          }
           filterText={(item) => `${item.repository} ${item.provider} ${item.productionBranch}`}
           filterLabel="Filter repositories"
         />
@@ -3044,6 +3054,11 @@ export function EnvVarsPage({
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No environment variables here yet. Add one and it is injected into the next build."
+          emptyActions={
+            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+              Add your first variable
+            </Button>
+          }
           filterText={(item) => item.key}
           filterLabel="Filter variables"
         />
@@ -5793,6 +5808,11 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
             section={budgets.section}
             onRetry={budgets.reload}
             emptyMessage="No cap is set. Usage is recorded and shown above, but nothing is refused at a limit. Set a hard cap to make the platform stop new deployments or backups once the limit is reached."
+            emptyActions={
+              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                Set a spend cap
+              </Button>
+            }
             renderReady={(items) => (
               <Table
                 items={items}
@@ -6426,6 +6446,11 @@ export function ApiKeysPage({ organizationId }: { readonly organizationId: strin
           rowKey={(item) => item.id}
           onRetry={reload}
           emptyMessage="No API keys yet."
+          emptyActions={
+            <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+              Create your first key
+            </Button>
+          }
         />
       </Card>
 
