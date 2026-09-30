@@ -39,6 +39,7 @@ export interface SessionController {
   current(): BrowserSession | null;
   getAccessToken(): string | null;
   signInWithProvider(provider: OAuthProvider): Promise<void>;
+  initializeOAuthCallback(): Promise<void>;
   applySession(tokens: {
     readonly accessToken: string;
     readonly refreshToken: string;
@@ -108,6 +109,7 @@ export function unconfiguredSessionController(): SessionController {
     async signInWithProvider() {
       throw new Error("Supabase is not configured for this deployment.");
     },
+    async initializeOAuthCallback() {},
     async applySession() {
       throw new Error("Supabase is not configured for this deployment.");
     },
@@ -123,7 +125,9 @@ export function createSessionController(config: SessionConfig): SessionControlle
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+      // The entrypoint performs an explicit exchange so callback failures can
+      // be rendered instead of leaving the user on an endless loading screen.
+      detectSessionInUrl: false,
       flowType: "pkce",
     },
   });
@@ -148,6 +152,13 @@ export function createSessionController(config: SessionConfig): SessionControlle
         options: { redirectTo: authCallbackUrl(), queryParams: { prompt: "select_account" } },
       });
       if (error) throw new Error(error.message);
+    },
+    async initializeOAuthCallback() {
+      const code = new URL(window.location.href).searchParams.get("code");
+      if (!code) return;
+      const { data, error } = await client.auth.exchangeCodeForSession(code);
+      if (error) throw new Error(error.message);
+      emit(toBrowserSession(data.session));
     },
     async applySession(tokens) {
       const { error } = await client.auth.setSession({

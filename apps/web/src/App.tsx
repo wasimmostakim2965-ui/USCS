@@ -62,6 +62,8 @@ export interface AppProps {
    * a button only for a provider it can honestly offer.
    */
   readonly oauthProviders?: readonly OAuthProvider[] | null;
+  /** Explicit PKCE callback failure, if the one-time exchange failed. */
+  readonly oauthError?: string | null;
 }
 
 export function App({
@@ -69,6 +71,7 @@ export function App({
   apiBaseUrl,
   misconfigured = false,
   oauthProviders = null,
+  oauthError = null,
 }: AppProps) {
   const [current, setCurrent] = useState(() => session.current());
   const [workspaceId, setWorkspaceId] = usePersistentState("cloud-wai.workspace", "");
@@ -200,12 +203,17 @@ export function App({
     [client, session, router, current, misconfigured, signOut],
   );
 
-  if (router.route.name === "auth_callback") {
+  if (isOAuthReturn && !current) {
     return (
       <main className="login" aria-live="polite">
         <section className="login__panel">
           <div className="login__mark">Cloud Wai</div>
-          <p className="login__tag">Completing secure sign-in…</p>
+          <p className="login__tag">{oauthError ?? "Completing secure sign-in…"}</p>
+          {oauthError ? (
+            <a className="btn btn--default" href="/">
+              Back to sign in
+            </a>
+          ) : null}
         </section>
       </main>
     );

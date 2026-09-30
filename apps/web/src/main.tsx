@@ -46,6 +46,16 @@ if (!container) throw new Error("The #root element is missing from index.html.")
 const root = container;
 
 async function bootstrap(): Promise<void> {
+  let oauthError: string | null = null;
+  if (config && new URL(window.location.href).searchParams.has("code")) {
+    try {
+      await session.initializeOAuthCallback();
+    } catch (caught) {
+      oauthError =
+        caught instanceof Error ? caught.message : "Secure sign-in could not be completed.";
+    }
+  }
+
   // Read the enabled providers once, before the first render, so the sign-in form
   // never briefly shows a button for a provider that is switched off. A failed
   // read resolves to `null`, which offers no button rather than guessing.
@@ -59,6 +69,7 @@ async function bootstrap(): Promise<void> {
       apiBaseUrl={apiBaseUrl}
       misconfigured={config === null}
       oauthProviders={oauthProviders}
+      oauthError={oauthError}
     />,
   );
 }
