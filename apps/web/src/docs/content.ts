@@ -224,7 +224,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Database is a third drill-in level: Workspace, then Project, then Database. Every sub-page is its own URL, so it can be linked, refreshed and bookmarked.",
       "Overview shows status and connection details; Table Editor, SQL Editor, Authentication, API and Settings hand off to the engine console, because the control plane never opens a tenant database (a recorded design decision, not a gap).",
       "Roles & Extensions includes backup and restore. Restoring is verified through the engine's own artifacts. Storage lists this project's buckets. Logs reads recent database and API logs.",
-      "Provisioning and logs require the database and storage engines to be configured; until then each surface reports not_configured rather than inventing a database.",
+      "Each surface reports the engine that actually answered it. Storage is wired in this deployment, so a bucket is provisioned and confirmed by the storage engine; the Postgres engine is not, so the table, SQL and auth surfaces report not_configured rather than inventing a database.",
     ],
     diagram: {
       caption: "Workspace → Project → Database is a third level; each sub-page is deep-linkable.",
