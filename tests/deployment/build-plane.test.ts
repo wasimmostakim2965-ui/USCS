@@ -102,17 +102,19 @@ describe("builder compose service", () => {
     expect(compose).toMatch(/builder:[\s\S]*?profiles:\s*\["build"\]/);
   });
 
-  it("gives the docker socket to exactly the two privileged services, only on loopback", () => {
+  it("gives the docker socket to exactly the three privileged services, only on loopback", () => {
     // A bind mount names the socket twice (`src:dst`), so count mount *lines*,
-    // not occurrences. Exactly two services run untrusted work and need the
-    // daemon: the build plane (turns source into an image) and the runtime
-    // (runs that image). Each is its own image, so neither can read the API's
-    // or worker's environment. Adding a third mount is a change to this
-    // boundary and must update this test deliberately.
+    // not occurrences. Exactly three services run untrusted work and need the
+    // daemon: the build plane (turns source into an image), the runtime (runs
+    // that image), and the database engine (runs a tenant's Postgres). Each is
+    // its own image, so none can read the API's or worker's environment. Adding
+    // a fourth mount is a change to this boundary and must update this test
+    // deliberately.
     const socketMounts = compose.match(/^\s*-\s*\/var\/run\/docker\.sock:/gm) ?? [];
-    expect(socketMounts.length).toBe(2);
+    expect(socketMounts.length).toBe(3);
     expect(compose).toMatch(/builder:[\s\S]*?\/var\/run\/docker\.sock:/);
     expect(compose).toMatch(/runtime:[\s\S]*?\/var\/run\/docker\.sock:/);
+    expect(compose).toMatch(/postgres-engine:[\s\S]*?\/var\/run\/docker\.sock:/);
     expect(compose).toMatch(/ports:\s*\n\s*-\s*"127\.0\.0\.1:8090:8090"/);
     // The runtime shares the host network so the app ports it publishes on
     // 127.0.0.1 are reachable by the router on the same loopback. It therefore
@@ -120,5 +122,10 @@ describe("builder compose service", () => {
     // the same "not on a public interface" guarantee by another mechanism.
     expect(compose).toMatch(/runtime:[\s\S]*?network_mode:\s*host/);
     expect(compose).toMatch(/runtime:[\s\S]*?RUNTIME_HOST:\s*"127\.0\.0\.1"/);
+    // The database engine shares the host network for the same reason: the
+    // database ports it publishes on 127.0.0.1 must be reachable, and it binds
+    // loopback itself.
+    expect(compose).toMatch(/postgres-engine:[\s\S]*?network_mode:\s*host/);
+    expect(compose).toMatch(/postgres-engine:[\s\S]*?POSTGRES_ENGINE_HOST:\s*"127\.0\.0\.1"/);
   });
 });

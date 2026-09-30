@@ -28,6 +28,7 @@ GATEWAY_PORT="${GATEWAY_PORT:-12001}"
 API_PORT="${API_PORT:-8787}"
 SUPABASE_PORT="${SUPABASE_PORT:-54321}"
 RUNTIME_PORT="${RUNTIME_PORT:-8095}"
+POSTGRES_ENGINE_PORT="${POSTGRES_ENGINE_PORT:-8097}"
 ROUTER_ADMIN_PORT="${ROUTER_ADMIN_PORT:-8096}"
 RUN_DIR="$ROOT/.deploy"
 LOG_DIR="$RUN_DIR/logs"
@@ -416,6 +417,75 @@ ensure_runtime() {
   return 0
 }
 
+ensure_database_engine() {
+  # The self-hosted database engine: this deployment's own Postgres control
+  # plane. It is the database counterpart of the runtime — a host that owns its
+  # container engine owns its databases, and without this engine the Database
+  # section honestly reports `not_configured`. It needs the Docker socket for the
+  # same reason the runtime does, so it runs as a container too.
+  #
+  # Its credential is per organization (POSTGRES_ENGINE_TOKEN__<orgId>), reached
+  # at POSTGRES_ENGINE_URL. It is a *separate* process from the runtime: a host
+  # may run one and not the other, and the two hold different state.
+  local token
+  token="$(grep '^POSTGRES_ENGINE_TOKEN=' .env | cut -d= -f2- || true)"
+  if [[ -z "$token" ]]; then
+    token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+    if grep -q '^POSTGRES_ENGINE_TOKEN=' .env; then
+      sed -i "s|^POSTGRES_ENGINE_TOKEN=.*|POSTGRES_ENGINE_TOKEN=${token}|" .env
+    else
+      printf 'POSTGRES_ENGINE_TOKEN=%s\n' "$token" >>.env
+    fi
+    ok "generated POSTGRES_ENGINE_TOKEN"
+  fi
+
+  say "starting the self-hosted database engine"
+  local db_url="http://127.0.0.1:${POSTGRES_ENGINE_PORT}"
+  if ! docker compose -f infra/deployment/docker-compose.yml --profile runtime up -d --build postgres-engine \
+      >>"$LOG_DIR/postgres-engine.log" 2>&1; then
+    warn "the database engine did not start; the Database section stays not_configured"
+    return
+  fi
+  if ! wait_for_http "${db_url}/healthz" 60; then
+    warn "the database engine did not become healthy; the Database section stays not_configured until it does"
+    return
+  fi
+  ok "database engine on ${db_url}"
+  if grep -q '^POSTGRES_ENGINE_URL=' .env; then
+    sed -i "s|^POSTGRES_ENGINE_URL=.*|POSTGRES_ENGINE_URL=${db_url}|" .env
+  else
+    printf 'POSTGRES_ENGINE_URL=%s\n' "$db_url" >>.env
+  fi
+  # The public host a provisioned database reports in its connection details.
+  # The engine's own default is 127.0.0.1, which only the host can reach; behind
+  # a public host prefer an explicit override, then the host's own public URL.
+  if ! grep -q '^POSTGRES_ENGINE_PUBLIC_HOST=' .env; then
+    local public_host="${CLOUD_WAI_PUBLIC_HOST:-}"
+    if [[ -z "$public_host" && -n "${PUBLIC_SUPABASE_URL:-}" ]]; then
+      public_host="${PUBLIC_SUPABASE_URL#*://}"
+      public_host="${public_host%%/*}"
+      public_host="${public_host%%:*}"
+    fi
+    [[ -z "$public_host" ]] && public_host="127.0.0.1"
+    printf 'POSTGRES_ENGINE_PUBLIC_HOST=%s\n' "$public_host" >>.env
+    ok "database connection details will use ${public_host}"
+  fi
+  # Wire the database engine to every organization already in the control plane,
+  # the same way the runtime is wired.
+  local orgs org wired=0
+  orgs="$(docker exec -i "$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)" \
+    psql -U postgres -d postgres -tAc "select id from organizations" </dev/null 2>/dev/null | tr -d ' ' || true)"
+  for org in $orgs; do
+    [[ -n "$org" ]] || continue
+    if ! grep -q "^POSTGRES_ENGINE_TOKEN__${org}=" .env; then
+      printf 'POSTGRES_ENGINE_TOKEN__%s=%s\n' "$org" "$token" >>.env
+      wired=$((wired + 1))
+    fi
+  done
+  [[ "$wired" -gt 0 ]] && ok "wired the database engine to $wired organization(s)"
+  return 0
+}
+
 ensure_router() {
   # The router — this deployment's own front door (ADR-0021). It maps a verified
   # hostname to a deployed app's loopback port and terminates TLS, so a domain
@@ -563,7 +633,7 @@ export_env_authoritative() {
 # unauthenticated. Generate here so every service's interpolation sees the token.
 ensure_infra_tokens() {
   local name token
-  for name in BUILDER_TOKEN RUNTIME_TOKEN ROUTER_TOKEN; do
+  for name in BUILDER_TOKEN RUNTIME_TOKEN ROUTER_TOKEN POSTGRES_ENGINE_TOKEN; do
     token="$(grep "^${name}=" .env | cut -d= -f2- || true)"
     if [[ -z "$token" ]]; then
       token="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
@@ -807,6 +877,7 @@ cmd_deploy() {
   apply_migrations
   ensure_builder
   ensure_runtime
+  ensure_database_engine
   ensure_router
   build
   start_all

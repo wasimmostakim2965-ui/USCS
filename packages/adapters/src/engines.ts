@@ -26,6 +26,7 @@ import {
   createEnvoySecurityEdge,
   createLambdaServerless,
   createPostgresDatabase,
+  createSelfHostedDatabase,
   createMinioStorage,
   createRailpackBuildEngine,
   type BuildEngine,
@@ -57,6 +58,16 @@ export interface EngineConfig {
   readonly selfHostedUrl?: string | undefined;
   /** Per-organization runtime tokens, keyed by organization id. */
   readonly selfHostedTokens?: Readonly<Record<string, string>> | undefined;
+  /**
+   * Base URL of this deployment's own database engine, or absent.
+   *
+   * A host that owns its runtime owns its databases too. When set with a token
+   * it supersedes Coolify for the database engine, so a runtime-only host can
+   * provision a real Postgres rather than reporting `not_configured`.
+   */
+  readonly selfHostedDatabaseUrl?: string | undefined;
+  /** Per-organization database-engine tokens, keyed by organization id. */
+  readonly selfHostedDatabaseTokens?: Readonly<Record<string, string>> | undefined;
   /** Per-organization Coolify tokens, keyed by organization id. */
   readonly coolifyTokens?: Readonly<Record<string, string>> | undefined;
   /**
@@ -181,6 +192,15 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     if (match && value && value.trim() !== "") selfHostedTokens[match[1]!] = value;
   }
 
+  // The deployment's own database engine, likewise: a URL plus one token per
+  // organization. It is separate from the runtime's because a host may run one
+  // and not the other, and the two are different processes.
+  const selfHostedDatabaseTokens: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const match = key.match(/^POSTGRES_ENGINE_TOKEN__(.+)$/);
+    if (match && value && value.trim() !== "") selfHostedDatabaseTokens[match[1]!] = value;
+  }
+
   // Project/server/environment are per organization too. They are what makes a
   // token usable: Coolify rejects a create without them.
   const infra: Record<
@@ -284,6 +304,8 @@ export function engineConfigFromEnv(env: Record<string, string | undefined>): En
     coolifyInfra: infra,
     selfHostedUrl: env.RUNTIME_URL,
     selfHostedTokens,
+    selfHostedDatabaseUrl: env.POSTGRES_ENGINE_URL,
+    selfHostedDatabaseTokens,
     storageEndpoint: env.STORAGE_ENDPOINT,
     storageCredentials: credentials,
     serverlessCredentials,
@@ -385,16 +407,30 @@ export function buildEngines(config: EngineConfig): Engines {
           "Set AWS_ACCESS_KEY_ID__<organizationId>, AWS_SECRET_ACCESS_KEY__<organizationId> and AWS_REGION__<organizationId>.",
         );
 
-  // Tenant databases are provisioned by Coolify, so they share its credentials:
-  // there is no separate database engine to configure. The self-hosted runtime
-  // runs containers, not databases, so a runtime-only host honestly leaves this
-  // engine not_configured rather than faking a database it cannot provision.
-  const database: DatabaseAdapter = anyCredential
-    ? createPostgresDatabase({ credentials })
-    : databaseNotConfigured(
-        "postgres",
-        "Set COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
-      );
+  // Tenant databases are provisioned by Coolify when a host rents Coolify, or by
+  // this deployment's own database engine when it owns one. The self-hosted
+  // database engine is a separate process from the runtime (a host can run
+  // containers and not databases, or the reverse), so it is configured with its
+  // own URL and tokens; absent both, the honest `not_configured` engine is wired.
+  const databaseUrl = config.selfHostedDatabaseUrl?.trim();
+  const databaseTokens = config.selfHostedDatabaseTokens ?? {};
+  const anyDatabaseEngine = Boolean(databaseUrl) && Object.keys(databaseTokens).length > 0;
+  const database: DatabaseAdapter = anyDatabaseEngine
+    ? createSelfHostedDatabase({
+        credentials: (organizationId: OrganizationId) => {
+          if (!databaseUrl) return null;
+          const token = databaseTokens[organizationId];
+          if (!token) return null;
+          return { baseUrl: databaseUrl, token };
+        },
+      })
+    : anyCredential
+      ? createPostgresDatabase({ credentials })
+      : databaseNotConfigured(
+          "postgres",
+          "Set POSTGRES_ENGINE_URL and at least one POSTGRES_ENGINE_TOKEN__<organizationId> for the " +
+            "self-hosted database engine, or COOLIFY_URL and at least one COOLIFY_TOKEN__<organizationId>.",
+        );
 
   const endpoint = config.storageEndpoint?.trim();
   const storageKeys = config.storageCredentials ?? {};

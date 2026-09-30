@@ -176,6 +176,56 @@ services:
       retries: 3
       start_period: 15s
 
+  # The database engine — this deployment's own Postgres control plane.
+  #
+  # The runtime is the container engine for *hosting*; this is the container
+  # engine for *databases*. It provisions a Postgres container per tenant
+  # database, backs it up with `pg_dump`, restores with `psql`, and reports the
+  # container's own log. Without it a host that owns its runtime has no database
+  # engine, so the Database section honestly reports `not_configured`.
+  #
+  # Loopback-only and given the Docker socket for the same reason the runtime is:
+  # it starts the databases it manages. It is a process boundary, not a machine
+  # boundary — a database for tenant A shares the daemon with tenant B.
+  postgres-engine:
+    build:
+      context: ../..
+      dockerfile: infra/deployment/postgres.Dockerfile
+    profiles: ["runtime"]
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      POSTGRES_ENGINE_PORT: "8097"
+      POSTGRES_ENGINE_HOST: "127.0.0.1"
+      POSTGRES_ENGINE_DATA_DIR: /data
+      # The public host a provisioned database reports, so the connection detail
+      # a tenant reads is one that resolves from where they are.
+      POSTGRES_ENGINE_PUBLIC_HOST: ${POSTGRES_ENGINE_PUBLIC_HOST:-127.0.0.1}
+      POSTGRES_ENGINE_DB_PORT: ${POSTGRES_ENGINE_DB_PORT:-5432}
+      POSTGRES_ENGINE_PORT_BASE: ${POSTGRES_ENGINE_PORT_BASE:-18500}
+      POSTGRES_ENGINE_PORT_RANGE: ${POSTGRES_ENGINE_PORT_RANGE:-400}
+      POSTGRES_ENGINE_IMAGE: ${POSTGRES_ENGINE_IMAGE:-public.ecr.aws/supabase/postgres:17.6.1.171}
+    # Host networking, so the database ports this engine publishes on 127.0.0.1
+    # are reachable by whatever connects to a tenant database, and the engine's
+    # own loopback API is reachable by the API/worker on the same loopback.
+    network_mode: host
+    volumes:
+      # The daemon socket is what lets a provision become a running Postgres.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Which database is live, its port, and the backups it wrote.
+      - postgres-engine-state:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8097/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
   # The router — this deployment's own front door (ADR-0021).
   #
   # The runtime binds each app to a loopback port; the router is what turns a
@@ -251,6 +301,10 @@ volumes:
   # restart loses the mapping and a redeploy would hand a new port to apps that
   # are still running on the old one.
   runtime-state:
+  # The database engine's index: which database container serves each id, its
+  # port, and the backups it wrote. Its own volume so the engine and the runtime
+  # cannot lose each other's state on a restart.
+  postgres-engine-state:
   # The build plane's job index. Its own volume so a builder restart keeps the
   # jobs a caller may still be polling.
   builder-state:

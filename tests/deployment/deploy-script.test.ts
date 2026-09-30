@@ -202,6 +202,33 @@ describe("the one-command deploy script", () => {
     expect(script).toMatch(/RUNTIME_PUBLIC_HOST/);
   });
 
+  it("wires the self-hosted database engine, so the Database section is real", () => {
+    // A host that owns its runtime owns its databases too. Without this step the
+    // Database section honestly reports `not_configured` on every host, which is
+    // what it did before the engine existed.
+    expect(script).toMatch(/ensure_database_engine\(\)/);
+    expect(script).toMatch(/POSTGRES_ENGINE_TOKEN/);
+    expect(script).toMatch(/POSTGRES_ENGINE_URL/);
+    expect(script).toMatch(/POSTGRES_ENGINE_TOKEN__\$\{org\}/);
+    // It is reached from `cmd_deploy`, after the runtime it pairs with.
+    expect(script).toMatch(/^\s*ensure_database_engine$/m);
+    const callRuntime = script.indexOf("\n  ensure_runtime\n");
+    const callDatabase = script.indexOf("\n  ensure_database_engine\n");
+    expect(callRuntime).toBeGreaterThan(-1);
+    expect(callDatabase).toBeGreaterThan(callRuntime);
+  });
+
+  it("generates the database engine token with the other shared service tokens", () => {
+    // Compose interpolates `${POSTGRES_ENGINE_TOKEN:-}` against the shell, so a
+    // token written to .env after compose runs is invisible to it — the same
+    // trap the router token hit. It must be generated up front with the rest.
+    const body = script.slice(
+      script.indexOf("ensure_infra_tokens()"),
+      script.indexOf("# --- 5. Processes"),
+    );
+    expect(body).toMatch(/for name in[^\n]*POSTGRES_ENGINE_TOKEN/);
+  });
+
   it("starts each service through the wrapper, and the wrapper execs it", () => {
     const scratch = mkdtempSync(join(tmpdir(), "cw-deploy-"));
     mkdirSync(join(scratch, "bin"), { recursive: true });

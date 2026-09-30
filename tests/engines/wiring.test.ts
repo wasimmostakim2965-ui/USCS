@@ -110,6 +110,52 @@ describe("engine configuration", () => {
     expect(coolifyReport.find((r) => r.engine === "selfhosted")?.configured).toBe(false);
   });
 
+  it("wires the self-hosted database engine when its url and token are present", () => {
+    // A host that owns its runtime owns its databases too. The database engine
+    // has its own URL and tokens — it is a separate process from the runtime —
+    // so a runtime-only host with no database engine still reports Postgres
+    // unconfigured, and one with a database engine reports it ready.
+    const runtimeOnly = buildEngines({
+      selfHostedUrl: "http://runtime.test:8095",
+      selfHostedTokens: { "org-a": "tok-a" },
+    });
+    expect(engineReport(runtimeOnly).find((r) => r.engine === "postgres")?.configured).toBe(false);
+
+    const withDatabase = buildEngines({
+      selfHostedUrl: "http://runtime.test:8095",
+      selfHostedTokens: { "org-a": "tok-a" },
+      selfHostedDatabaseUrl: "http://db.test:8097",
+      selfHostedDatabaseTokens: { "org-a": "db-tok-a" },
+    });
+    const report = engineReport(withDatabase);
+    expect(report.find((r) => r.engine === "postgres")?.configured).toBe(true);
+    expect(withDatabase.database.__engine).toBe("postgres");
+  });
+
+  it("reads the self-hosted database engine keys from the environment", () => {
+    const config = engineConfigFromEnv({
+      POSTGRES_ENGINE_URL: "http://db.test:8097",
+      "POSTGRES_ENGINE_TOKEN__org-a": "db-tok-a",
+      "POSTGRES_ENGINE_TOKEN__org-b": "db-tok-b",
+      "POSTGRES_ENGINE_TOKEN__ignored": "   ",
+    });
+    expect(config.selfHostedDatabaseUrl).toBe("http://db.test:8097");
+    expect(config.selfHostedDatabaseTokens).toEqual({ "org-a": "db-tok-a", "org-b": "db-tok-b" });
+  });
+
+  it("leaves the database engine unconfigured when only a Coolify URL is set", () => {
+    // Coolify provisions databases too, but only when the host rents Coolify.
+    // A Coolify token alone does not make the *self-hosted* engine ready.
+    const engines = buildEngines({
+      coolifyUrl: "https://coolify.test",
+      coolifyTokens: { "org-a": "tok-a" },
+    });
+    const report = engineReport(engines);
+    expect(report.find((r) => r.engine === "postgres")?.configured).toBe(true);
+    // It is the Coolify adapter that answers, not the self-hosted one.
+    expect(engines.database.__engine).not.toBe("postgres");
+  });
+
   it("wires fakes only when explicitly requested", () => {
     const engines = buildEngines({ useFakes: true });
     expect(engines.hosting.__notConfigured).toBeUndefined();

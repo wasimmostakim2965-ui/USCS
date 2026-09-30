@@ -354,6 +354,7 @@ export * from "./http.js";
 export * from "./aws-signature.js";
 export * from "./coolify.js";
 export * from "./selfhosted.js";
+export * from "./selfhosted-db.js";
 export * from "./serverless.js";
 export * from "./postgres.js";
 export * from "./minio.js";
