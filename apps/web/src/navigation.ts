@@ -37,6 +37,8 @@ import type { IconName } from "@cloud-wai/ui";
 import {
   DATABASE_SECTIONS,
   parseRoute,
+  subSectionTitle,
+  subSections,
   toPath,
   WORKSPACE_SECTIONS,
   PROJECT_SECTIONS,
@@ -53,6 +55,16 @@ export interface NavItem {
   readonly icon: IconName;
   readonly description: string;
   readonly route: Route;
+  /**
+   * Whether the reference draws this entry with a sub-menu of its own.
+   *
+   * A section with sub-items (Firewall, CDN, Storage, …) opens a *replaced*
+   * sidebar when you enter it — the same drill-in the project and database
+   * levels use — and its row carries a chevron. The sub-items themselves come
+   * from `sectionSubNav`, so the chevron, the sub-menu and the page's own tabs
+   * read one list and cannot disagree. Absent for the plain sections.
+   */
+  readonly hasSubMenu?: boolean | undefined;
 }
 
 export interface NavContext {
@@ -77,11 +89,12 @@ export interface NavGroup {
 }
 
 /**
- * Which drill-in level a menu is showing: Workspace -> Project -> Database. The
- * shell reads this to label the back control and to pick the group spec, so the
- * two can never disagree about where the user is.
+ * Which drill-in level a menu is showing: Workspace -> Project -> Database, and
+ * a section's own sub-menu (Workspace -> Section). The shell reads this to
+ * label the back control and to pick the group spec, so the two can never
+ * disagree about where the user is.
  */
-export type NavLevel = "workspace" | "project" | "database";
+export type NavLevel = "workspace" | "project" | "database" | "sub";
 
 /** Which ids belong to which run, in the order they appear. */
 interface GroupSpec {
@@ -276,13 +289,17 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       // The three above have a bespoke entry so Observability can sit between
       // them in the reference's order; everything else is generated.
       (section) => section !== "logs" && section !== "analytics" && section !== "speed-insights",
-    ).map((section) => ({
-      id: section,
-      label: WORKSPACE_SECTION_LABELS[section],
-      icon: WORKSPACE_SECTION_ICONS[section],
-      description: WORKSPACE_SECTION_DESCRIPTIONS[section],
-      route: { name: "workspaceSection", organizationId, section } satisfies Route,
-    })),
+    ).map((section) => {
+      const hasSubMenu = subSections(section).length > 0;
+      return {
+        id: section,
+        label: WORKSPACE_SECTION_LABELS[section],
+        icon: WORKSPACE_SECTION_ICONS[section],
+        description: WORKSPACE_SECTION_DESCRIPTIONS[section],
+        route: { name: "workspaceSection", organizationId, section } satisfies Route,
+        ...(hasSubMenu ? { hasSubMenu: true } : {}),
+      };
+    }),
     {
       id: "settings",
       label: "Settings",
@@ -334,13 +351,17 @@ export function projectNav(
       description: "Deployment and job activity over time.",
       route: { name: "projectAnalytics", organizationId, projectId },
     },
-    ...PROJECT_SECTIONS.map((section) => ({
-      id: section,
-      label: PROJECT_SECTION_LABELS[section],
-      icon: PROJECT_SECTION_ICONS[section],
-      description: PROJECT_SECTION_DESCRIPTIONS[section],
-      route: { name: "projectSection", organizationId, projectId, section } satisfies Route,
-    })),
+    ...PROJECT_SECTIONS.map((section) => {
+      const hasSubMenu = subSections(section).length > 0;
+      return {
+        id: section,
+        label: PROJECT_SECTION_LABELS[section],
+        icon: PROJECT_SECTION_ICONS[section],
+        description: PROJECT_SECTION_DESCRIPTIONS[section],
+        route: { name: "projectSection", organizationId, projectId, section } satisfies Route,
+        ...(hasSubMenu ? { hasSubMenu: true } : {}),
+      };
+    }),
     // Domains, Environment Variables and Database have pages of their own
     // rather than the generic section page, so they carry their own routes and
     // sit here, after the shared sections and before Settings.
@@ -428,6 +449,76 @@ export function databaseNav(
 }
 
 /**
+ * The sub-menu of a section the reference drills into, as sidebar rows.
+ *
+ * Empty when the section is a single page. Like `databaseNav`, this *replaces*
+ * the sidebar rather than appending to it, and each row is the same
+ * `workspaceSection`/`projectSection` route the page's own tabs link to, so the
+ * sub-menu and the tabs read one list (`SECTION_SUBS`) and cannot disagree.
+ */
+function sectionSubNav(
+  section: string,
+  description: string,
+  makeRoute: (sub: string) => Route,
+): readonly NavItem[] {
+  return subSections(section).map((sub) => ({
+    id: `${section}-${sub}`,
+    label: subSectionTitle(sub),
+    icon: SUB_SECTION_ICONS[sub] ?? "overview",
+    description,
+    route: makeRoute(sub),
+  }));
+}
+
+export function workspaceSubNav(
+  organizationId: string,
+  section: WorkspaceSection,
+): readonly NavItem[] {
+  return sectionSubNav(section, WORKSPACE_SECTION_DESCRIPTIONS[section], (sub) => ({
+    name: "workspaceSection",
+    organizationId,
+    section,
+    sub,
+  }));
+}
+
+export function projectSubNav(
+  organizationId: string,
+  projectId: string,
+  section: ProjectSection,
+): readonly NavItem[] {
+  return sectionSubNav(section, PROJECT_SECTION_DESCRIPTIONS[section], (sub) => ({
+    name: "projectSection",
+    organizationId,
+    projectId,
+    section,
+    sub,
+  }));
+}
+
+/**
+ * The glyph each sub-item carries.
+ *
+ * The reference gives every sub-item its own glyph — Overview, Traffic, Rules
+ * and Audit Log each draw a different icon — so a sub-menu is not four copies of
+ * the section's glyph. Keyed by the sub-item id, which is shared across
+ * sections, so `overview` reads the same under Firewall and under CDN.
+ */
+const SUB_SECTION_ICONS: Readonly<Record<string, IconName>> = {
+  overview: "overview",
+  traffic: "activity",
+  rules: "shield",
+  "audit-log": "logs",
+  caches: "pulse",
+  entities: "table",
+  "sdk-keys": "key",
+  buckets: "storage",
+  "api-keys": "key",
+  models: "sql",
+  playground: "workflow",
+};
+
+/**
  * Group a menu's items into the runs the sidebar renders.
  *
  * A flat run keeps the order the menu function returned. Any id a labelled spec
@@ -461,6 +552,7 @@ const GROUPS_BY_LEVEL: Readonly<Record<NavLevel, readonly GroupSpec[]>> = {
   workspace: FLAT,
   project: FLAT,
   database: DATABASE_GROUPS,
+  sub: FLAT,
 };
 
 /** The runs for a menu level. The shell renders one block per run. */
@@ -481,6 +573,11 @@ export function navForRoute(
 ): {
   readonly items: readonly NavItem[];
   readonly activeId: string | null;
+  /**
+   * The sub-item the route is showing, when it is a sub-item URL; null
+   * otherwise. The sidebar highlights the matching sub-item row.
+   */
+  readonly activeSubId: string | null;
   readonly projectId: string | null;
   /**
    * Which drill-in level is showing. The shell uses this to label the group and
@@ -489,16 +586,22 @@ export function navForRoute(
    */
   readonly level: NavLevel;
 } {
-  const workspace = (activeId: string | null) => ({
+  const workspace = (activeId: string | null, activeSubId: string | null = null) => ({
     items: workspaceNav(context),
     activeId,
+    activeSubId,
     projectId: null,
     level: "workspace" as const,
   });
 
-  const project = (projectId: string, activeId: string | null) => ({
+  const project = (
+    projectId: string,
+    activeId: string | null,
+    activeSubId: string | null = null,
+  ) => ({
     items: projectNav({ ...context, projectId }),
     activeId,
+    activeSubId,
     projectId,
     level: "project" as const,
   });
@@ -513,7 +616,7 @@ export function navForRoute(
     case "settings":
       return workspace("settings");
     case "workspaceSection":
-      return workspace(route.section);
+      return workspace(route.section, route.sub ?? null);
     case "security": {
       // Security is one route with two homes. Opened from a project it renders
       // the same organization-wide policy with the project menu around it;
@@ -542,7 +645,7 @@ export function navForRoute(
       return workspace(null);
     case "projectSection":
       if (!route.projectId) return workspace(null);
-      return project(route.projectId, route.section);
+      return project(route.projectId, route.section, route.sub ?? null);
     case "project":
     case "deployments":
     case "domains":
@@ -575,6 +678,7 @@ export function navForRoute(
       return {
         items: databaseNav({ ...context, projectId: route.projectId }),
         activeId: `database-${section}`,
+        activeSubId: null,
         projectId: route.projectId,
         level: "database",
       };
@@ -665,12 +769,18 @@ export function titleForRoute(route: Route): string {
     case "settings":
       return "Settings";
     case "workspaceSection":
-      return WORKSPACE_SECTION_LABELS[route.section];
+      return withSub(WORKSPACE_SECTION_LABELS[route.section], route.sub);
     case "projectSection":
-      return PROJECT_SECTION_LABELS[route.section];
+      return withSub(PROJECT_SECTION_LABELS[route.section], route.sub);
     case "not_found":
       return "Not found";
   }
+}
+
+function withSub(sectionLabel: string, sub: string | undefined): string {
+  // A section's sub-item is its own page, so the title names both: a deep link
+  // to `.../firewall/rules` titles itself "Firewall · Rules".
+  return sub ? `${sectionLabel} · ${subSectionTitle(sub)}` : sectionLabel;
 }
 
 /** Where "back" goes from a project section. */
@@ -678,13 +788,26 @@ export function backTargetFor(route: Route): Route | null {
   switch (route.name) {
     case "project":
       return { name: "projects", organizationId: route.organizationId };
+    case "projectSection":
+      // A project sub-section page belongs to the project, so Back steps out of
+      // the section to the project menu, not to the section's landing page.
+      // The sub-menu is a level of its own; Back is the one control that leaves
+      // it, which is what the reference's Back does.
+      return {
+        name: "project",
+        organizationId: route.organizationId,
+        projectId: route.projectId,
+      };
+    case "workspaceSection":
+      // The workspace-level equivalent. Back returns to the workspace's front
+      // page (Projects), the level the section list lives at.
+      return { name: "projects", organizationId: route.organizationId };
     case "deployments":
     case "domains":
     case "git":
     case "env":
     case "projectLogs":
     case "projectAnalytics":
-    case "projectSection":
     case "setup":
     case "projectSettings":
       return {

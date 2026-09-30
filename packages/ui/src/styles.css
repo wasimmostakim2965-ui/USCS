@@ -551,6 +551,25 @@ kbd,
   color: var(--accent);
 }
 
+/* A section row's trailing chevron, marking a section the reference drills
+   into. Pushed to the right of the row; the row is the flex parent so the label
+   keeps its full width and the glyph sits in a fixed gutter. */
+.nav__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  flex: none;
+  color: var(--ink-3);
+}
+
+.nav__item:hover .nav__chevron,
+.nav__item--active .nav__chevron {
+  color: var(--ink-2);
+}
+
 /* The drill-in back control. It is a button, so it needs the font and cursor
    the anchor-based items get from the browser for free. */
 .nav__back {

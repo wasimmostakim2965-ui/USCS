@@ -26,6 +26,7 @@ import {
   StatBox,
   StatusBadge,
   Table,
+  Tabs,
   TextArea,
   TextInput,
   presentDeploymentStatus,
@@ -37,6 +38,7 @@ import { newRequestId } from "../ids.js";
 import { DomainSearch } from "../components/domain-search.js";
 import { MembersPanel } from "../components/members-panel.js";
 import type { Route } from "../routes.js";
+import { subSections, subSectionTitle } from "../routes.js";
 import {
   loadApiKeys,
   loadAudit,
@@ -3434,6 +3436,15 @@ interface ProtectionLevel {
 }
 
 /**
+ * The Firewall page's tabs, read from the same list the sidebar accordion
+ * draws. `SECTION_SUBS.firewall` is the source, so adding a tab is a one-line
+ * change there and both surfaces follow.
+ */
+const FIREWALL_TABS: readonly { readonly id: string; readonly label: string }[] = subSections(
+  "firewall",
+).map((id) => ({ id, label: subSectionTitle(id) }));
+
+/**
  * Security.
  *
  * This page reports what the deployment can actually do. The protection levels
@@ -3442,8 +3453,35 @@ interface ProtectionLevel {
  * distribution. Until an edge is wired, the honest answer is "not configured",
  * and nothing here claims a policy is active that the edge never confirmed.
  */
-export function SecurityPage({ organizationId }: { readonly organizationId: string }) {
+export function SecurityPage({
+  organizationId,
+  title = "Security",
+  sub,
+  onSelectTab,
+}: {
+  readonly organizationId: string;
+  /** The page heading. The Firewall menu entry passes "Firewall". */
+  readonly title?: string;
+  /**
+   * The reference's sub-item this page is showing, when it was opened from a
+   * sub-item URL. Overview (or absent) shows the whole page; the others narrow
+   * it to the block the reference puts under that tab.
+   */
+  readonly sub?: string | undefined;
+  /** Follows a tab press: the shell rewrites the URL to the sub-item's route. */
+  readonly onSelectTab?: ((sub: string) => void) | undefined;
+}) {
   const { client } = useApp();
+  const activeTab = sub ?? "overview";
+  // Overview is the whole page: it carries Policy, Protection level, the engine
+  // status and Incidents, because those are what a first look needs. The other
+  // tabs narrow to one concern. This is the reference's grouping — Overview is
+  // the summary, and each other tab is a single subject — not an invented one.
+  const showTab = (tab: string): boolean => {
+    if (title !== "Firewall") return true;
+    if (activeTab === "overview") return tab === "overview" || tab === "traffic";
+    return tab === activeTab;
+  };
   const health = useSection(
     () => loadProviderHealth(client, organizationId),
     [client, organizationId],
@@ -3572,8 +3610,12 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
 
   return (
     <PageShell
-      title="Security"
-      subtitle="Choose a protection level. Cloud Wai compiles it to an edge policy; the edge applies and confirms it. The policy is organization-wide, not per project."
+      title={title}
+      subtitle={
+        title === "Firewall"
+          ? "The traffic this organization's edge saw, the rules it enforced, and the record of every change. Compiled from the security engine; the policy is organization-wide, not per project."
+          : "Choose a protection level. Cloud Wai compiles it to an edge policy; the edge applies and confirms it. The policy is organization-wide, not per project."
+      }
       actions={
         <Button variant="primary" onClick={() => setSaving(true)}>
           {current ? "Edit policy" : "Save policy"}
@@ -3610,514 +3652,545 @@ export function SecurityPage({ organizationId }: { readonly organizationId: stri
         )}
       </div>
 
-      <SectionShell
-        title="Policy"
-        hint="Saved as a draft; the edge is what makes it active"
-        actions={
-          current ? (
-            <Button size="sm" onClick={() => setDistributing(true)}>
-              Distribute to edge
-            </Button>
-          ) : undefined
-        }
-      >
-        <Card flush>
-          <SectionView<SecurityPolicySummary>
-            section={policy.section}
-            onRetry={policy.reload}
-            emptyMessage="No policy saved yet. Saving writes a draft; the edge activates it."
-            columns={[
-              { key: "name", header: "Name", render: (item) => item.name },
-              {
-                key: "riskLevel",
-                header: "Risk",
-                render: (item) => <span className="mono small">{item.riskLevel}</span>,
-              },
-              {
-                key: "action",
-                header: "Action",
-                render: (item) => <span className="mono small">{item.action}</span>,
-              },
-              {
-                key: "state",
-                header: "State",
-                render: (item) => <PolicyStateBadge state={item.state} />,
-              },
-              {
-                key: "protection",
-                header: "Protection",
-                render: (item) => <ProtectionBadge policy={item} />,
-              },
-              {
-                key: "version",
-                header: "Version",
-                render: (item) => <span className="mono small">{item.version}</span>,
-              },
-              {
-                key: "updatedAt",
-                header: "Updated",
-                render: (item) => <Timestamp value={item.updatedAt} />,
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+      {/* The reference's Firewall page carries a sub-menu — Overview, Traffic,
+          Rules, Audit Log — and each sub-item is a real block on this page
+          rather than a separate screen. The tabs are the same list the sidebar
+          accordion renders, so the two cannot disagree. */}
+      {title === "Firewall" ? (
+        <Tabs tabs={FIREWALL_TABS} active={activeTab} onChange={(id) => onSelectTab?.(id)} />
+      ) : null}
 
-      <SectionShell title="Protection level" hint="Selecting a level does not apply it yet">
-        <div className="grid">
-          {levels.map((level) => (
-            <Card key={level.id} title={level.name}>
-              <p className="muted small">{level.summary}</p>
-              <ul className="small" style={{ margin: "var(--space-3) 0 0", paddingLeft: "1.1rem" }}>
-                {level.enables.map((entry) => (
-                  <li key={entry}>{entry}</li>
-                ))}
-              </ul>
-              <div style={{ marginTop: "var(--space-4)" }}>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setPrefill(level);
-                    setSaving(true);
-                  }}
-                  title="Opens the policy form with this level's risk and action; saving writes a draft."
+      {showTab("overview") ? (
+        <SectionShell
+          title="Policy"
+          hint="Saved as a draft; the edge is what makes it active"
+          actions={
+            current ? (
+              <Button size="sm" onClick={() => setDistributing(true)}>
+                Distribute to edge
+              </Button>
+            ) : undefined
+          }
+        >
+          <Card flush>
+            <SectionView<SecurityPolicySummary>
+              section={policy.section}
+              onRetry={policy.reload}
+              emptyMessage="No policy saved yet. Saving writes a draft; the edge activates it."
+              columns={[
+                { key: "name", header: "Name", render: (item) => item.name },
+                {
+                  key: "riskLevel",
+                  header: "Risk",
+                  render: (item) => <span className="mono small">{item.riskLevel}</span>,
+                },
+                {
+                  key: "action",
+                  header: "Action",
+                  render: (item) => <span className="mono small">{item.action}</span>,
+                },
+                {
+                  key: "state",
+                  header: "State",
+                  render: (item) => <PolicyStateBadge state={item.state} />,
+                },
+                {
+                  key: "protection",
+                  header: "Protection",
+                  render: (item) => <ProtectionBadge policy={item} />,
+                },
+                {
+                  key: "version",
+                  header: "Version",
+                  render: (item) => <span className="mono small">{item.version}</span>,
+                },
+                {
+                  key: "updatedAt",
+                  header: "Updated",
+                  render: (item) => <Timestamp value={item.updatedAt} />,
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
+
+      {showTab("overview") ? (
+        <SectionShell title="Protection level" hint="Selecting a level does not apply it yet">
+          <div className="grid">
+            {levels.map((level) => (
+              <Card key={level.id} title={level.name}>
+                <p className="muted small">{level.summary}</p>
+                <ul
+                  className="small"
+                  style={{ margin: "var(--space-3) 0 0", paddingLeft: "1.1rem" }}
                 >
-                  Use this level
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </SectionShell>
-
-      <SectionShell
-        title="Deny list"
-        hint="Your own rules, compiled alongside the managed set. A rule is validated before it is stored, so a hostile value never becomes edge syntax."
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setAddingRule(true)}>
-            Add rule
-          </Button>
-        }
-      >
-        <Card flush>
-          <SectionView<SecurityRuleSummary>
-            section={rules.section}
-            onRetry={rules.reload}
-            emptyMessage="No rules yet. Add an IP, CIDR, ASN or user-agent to block it at the edge."
-            columns={[
-              {
-                key: "kind",
-                header: "Kind",
-                render: (item) => <span className="mono small">{item.kind}</span>,
-              },
-              {
-                key: "value",
-                header: "Value",
-                render: (item) => (
-                  <span
-                    className="mono small truncate"
-                    style={{ display: "inline-block", maxWidth: 360 }}
+                  {level.enables.map((entry) => (
+                    <li key={entry}>{entry}</li>
+                  ))}
+                </ul>
+                <div style={{ marginTop: "var(--space-4)" }}>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setPrefill(level);
+                      setSaving(true);
+                    }}
+                    title="Opens the policy form with this level's risk and action; saving writes a draft."
                   >
-                    {item.value}
-                  </span>
-                ),
-              },
-              {
-                key: "note",
-                header: "Note",
-                render: (item) => <span className="small">{item.note ?? "—"}</span>,
-              },
-              {
-                key: "createdAt",
-                header: "Added",
-                render: (item) => <Timestamp value={item.createdAt} />,
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (item) => (
-                  <Button size="sm" onClick={() => setRemovingRule(item)}>
-                    Remove
+                    Use this level
                   </Button>
-                ),
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Trusted sources"
-        hint="Your own webhook senders and CI runners, allowed before the deny list and before any challenge — so enabling attack mode never locks out your integrations. Address literals only; a hostname would have to be resolved and could be forged."
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setAddingTrusted(true)}>
-            Trust an address
-          </Button>
-        }
-      >
-        <Card flush>
-          <SectionView<TrustedSourceSummary>
-            section={trusted.section}
-            onRetry={trusted.reload}
-            emptyMessage="No trusted addresses yet. Add one so a known sender keeps working while attack mode is on."
-            columns={[
-              {
-                key: "kind",
-                header: "Kind",
-                render: (item) => <span className="mono small">{item.kind}</span>,
-              },
-              {
-                key: "value",
-                header: "Address",
-                render: (item) => (
-                  <span
-                    className="mono small truncate"
-                    style={{ display: "inline-block", maxWidth: 360 }}
-                  >
-                    {item.value}
-                  </span>
-                ),
-              },
-              {
-                key: "note",
-                header: "Note",
-                render: (item) => <span className="small">{item.note ?? "—"}</span>,
-              },
-              {
-                key: "createdAt",
-                header: "Added",
-                render: (item) => <Timestamp value={item.createdAt} />,
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (item) => (
-                  <Button size="sm" onClick={() => setRemovingTrusted(item)}>
-                    Remove
-                  </Button>
-                ),
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+      {showTab("rules") ? (
+        <SectionShell
+          title="Deny list"
+          hint="Your own rules, compiled alongside the managed set. A rule is validated before it is stored, so a hostile value never becomes edge syntax."
+          actions={
+            <Button size="sm" variant="primary" onClick={() => setAddingRule(true)}>
+              Add rule
+            </Button>
+          }
+        >
+          <Card flush>
+            <SectionView<SecurityRuleSummary>
+              section={rules.section}
+              onRetry={rules.reload}
+              emptyMessage="No rules yet. Add an IP, CIDR, ASN or user-agent to block it at the edge."
+              columns={[
+                {
+                  key: "kind",
+                  header: "Kind",
+                  render: (item) => <span className="mono small">{item.kind}</span>,
+                },
+                {
+                  key: "value",
+                  header: "Value",
+                  render: (item) => (
+                    <span
+                      className="mono small truncate"
+                      style={{ display: "inline-block", maxWidth: 360 }}
+                    >
+                      {item.value}
+                    </span>
+                  ),
+                },
+                {
+                  key: "note",
+                  header: "Note",
+                  render: (item) => <span className="small">{item.note ?? "—"}</span>,
+                },
+                {
+                  key: "createdAt",
+                  header: "Added",
+                  render: (item) => <Timestamp value={item.createdAt} />,
+                },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (item) => (
+                    <Button size="sm" onClick={() => setRemovingRule(item)}>
+                      Remove
+                    </Button>
+                  ),
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Rate limits"
-        hint="Throttle the disproportionate, not the hostile. A limit a normal visitor never reaches keeps a human served while a scraper walking a catalogue is made uneconomic. Compiled after the allow steps, so a verified crawler or a trusted address is never counted. An engine that has no rate primitive reports not_configured rather than a fake pass."
-        actions={
-          <Button size="sm" variant="primary" onClick={() => setAddingRateLimit(true)}>
-            Add a limit
-          </Button>
-        }
-      >
-        <Card flush>
-          <SectionView<RateLimitSummary>
-            section={rateLimits.section}
-            onRetry={rateLimits.reload}
-            emptyMessage="No rate limits yet. Add one to cap a burst from a single address, a header value, or the route as a whole."
-            columns={[
-              {
-                key: "key",
-                header: "Counted by",
-                render: (item) => (
-                  <span className="mono small">
-                    {item.key === "header" ? `header ${item.headerName ?? ""}` : item.key}
-                  </span>
-                ),
-              },
-              {
-                key: "limit",
-                header: "Allowance",
-                render: (item) => (
-                  <span className="small">
-                    {item.limit.toLocaleString()} / {formatWindow(item.windowSeconds)}
-                  </span>
-                ),
-              },
-              {
-                key: "note",
-                header: "Note",
-                render: (item) => <span className="small">{item.note ?? "—"}</span>,
-              },
-              {
-                key: "createdAt",
-                header: "Added",
-                render: (item) => <Timestamp value={item.createdAt} />,
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (item) => (
-                  <Button size="sm" onClick={() => setRemovingRateLimit(item)}>
-                    Remove
-                  </Button>
-                ),
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+      {showTab("rules") ? (
+        <SectionShell
+          title="Trusted sources"
+          hint="Your own webhook senders and CI runners, allowed before the deny list and before any challenge — so enabling attack mode never locks out your integrations. Address literals only; a hostname would have to be resolved and could be forged."
+          actions={
+            <Button size="sm" variant="primary" onClick={() => setAddingTrusted(true)}>
+              Trust an address
+            </Button>
+          }
+        >
+          <Card flush>
+            <SectionView<TrustedSourceSummary>
+              section={trusted.section}
+              onRetry={trusted.reload}
+              emptyMessage="No trusted addresses yet. Add one so a known sender keeps working while attack mode is on."
+              columns={[
+                {
+                  key: "kind",
+                  header: "Kind",
+                  render: (item) => <span className="mono small">{item.kind}</span>,
+                },
+                {
+                  key: "value",
+                  header: "Address",
+                  render: (item) => (
+                    <span
+                      className="mono small truncate"
+                      style={{ display: "inline-block", maxWidth: 360 }}
+                    >
+                      {item.value}
+                    </span>
+                  ),
+                },
+                {
+                  key: "note",
+                  header: "Note",
+                  render: (item) => <span className="small">{item.note ?? "—"}</span>,
+                },
+                {
+                  key: "createdAt",
+                  header: "Added",
+                  render: (item) => <Timestamp value={item.createdAt} />,
+                },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (item) => (
+                    <Button size="sm" onClick={() => setRemovingTrusted(item)}>
+                      Remove
+                    </Button>
+                  ),
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Verified bots"
-        hint="Crawlers whose identity is confirmed by reverse DNS. They keep working even while attack mode challenges browsers."
-      >
-        <Card flush>
-          <SectionView<VerifiedBotSummary>
-            section={bots.section}
-            onRetry={bots.reload}
-            emptyMessage="No verified bots reported."
-            columns={[
-              {
-                key: "name",
-                header: "Crawler",
-                render: (item) => <span className="small">{item.name}</span>,
-              },
-              {
-                key: "userAgent",
-                header: "User-Agent",
-                render: (item) => (
-                  <span
-                    className="mono small truncate"
-                    style={{ display: "inline-block", maxWidth: 280 }}
-                  >
-                    {item.userAgent}
-                  </span>
-                ),
-              },
-              {
-                key: "confirmSuffix",
-                header: "Verified by",
-                render: (item) => <span className="mono small">{item.confirmSuffix}</span>,
-              },
-            ]}
-            rowKey={(item) => item.name}
-          />
-        </Card>
-      </SectionShell>
+      {showTab("rules") ? (
+        <SectionShell
+          title="Rate limits"
+          hint="Throttle the disproportionate, not the hostile. A limit a normal visitor never reaches keeps a human served while a scraper walking a catalogue is made uneconomic. Compiled after the allow steps, so a verified crawler or a trusted address is never counted. An engine that has no rate primitive reports not_configured rather than a fake pass."
+          actions={
+            <Button size="sm" variant="primary" onClick={() => setAddingRateLimit(true)}>
+              Add a limit
+            </Button>
+          }
+        >
+          <Card flush>
+            <SectionView<RateLimitSummary>
+              section={rateLimits.section}
+              onRetry={rateLimits.reload}
+              emptyMessage="No rate limits yet. Add one to cap a burst from a single address, a header value, or the route as a whole."
+              columns={[
+                {
+                  key: "key",
+                  header: "Counted by",
+                  render: (item) => (
+                    <span className="mono small">
+                      {item.key === "header" ? `header ${item.headerName ?? ""}` : item.key}
+                    </span>
+                  ),
+                },
+                {
+                  key: "limit",
+                  header: "Allowance",
+                  render: (item) => (
+                    <span className="small">
+                      {item.limit.toLocaleString()} / {formatWindow(item.windowSeconds)}
+                    </span>
+                  ),
+                },
+                {
+                  key: "note",
+                  header: "Note",
+                  render: (item) => <span className="small">{item.note ?? "—"}</span>,
+                },
+                {
+                  key: "createdAt",
+                  header: "Added",
+                  render: (item) => <Timestamp value={item.createdAt} />,
+                },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (item) => (
+                    <Button size="sm" onClick={() => setRemovingRateLimit(item)}>
+                      Remove
+                    </Button>
+                  ),
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell title="Engine status" hint="Read from the adapters, not assumed">
-        <Card flush>
-          <SectionView<ProviderHealthRow>
-            section={health.section}
-            onRetry={health.reload}
-            emptyMessage="No engines reported."
-            renderReady={(items) => (
-              <Table
-                items={items}
-                rowKey={(item) => item.provider}
-                columns={[
-                  {
-                    key: "provider",
-                    header: "Engine",
-                    render: (item) => <span>{engineLabel(item.provider)}</span>,
-                  },
-                  {
-                    key: "state",
-                    header: "State",
-                    render: (item) =>
-                      item.state === "ready" ? (
-                        <StatusBadge label="Configured" tone="positive" />
-                      ) : (
-                        <StatusBadge label="Not configured" tone="neutral" />
-                      ),
-                  },
-                  {
-                    key: "detail",
-                    header: "Detail",
-                    render: (item) => <span className="small">{item.detail}</span>,
-                  },
-                ]}
-              />
-            )}
-          />
-        </Card>
-      </SectionShell>
+      {showTab("rules") ? (
+        <SectionShell
+          title="Verified bots"
+          hint="Crawlers whose identity is confirmed by reverse DNS. They keep working even while attack mode challenges browsers."
+        >
+          <Card flush>
+            <SectionView<VerifiedBotSummary>
+              section={bots.section}
+              onRetry={bots.reload}
+              emptyMessage="No verified bots reported."
+              columns={[
+                {
+                  key: "name",
+                  header: "Crawler",
+                  render: (item) => <span className="small">{item.name}</span>,
+                },
+                {
+                  key: "userAgent",
+                  header: "User-Agent",
+                  render: (item) => (
+                    <span
+                      className="mono small truncate"
+                      style={{ display: "inline-block", maxWidth: 280 }}
+                    >
+                      {item.userAgent}
+                    </span>
+                  ),
+                },
+                {
+                  key: "confirmSuffix",
+                  header: "Verified by",
+                  render: (item) => <span className="mono small">{item.confirmSuffix}</span>,
+                },
+              ]}
+              rowKey={(item) => item.name}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Incidents"
-        hint="Grouped security signals that need a human: a policy the edge refused, and later an origin leak or a rule-volume spike. An incident is triaged, then closed with a resolution — it never disappears without one."
-        actions={
-          <Button size="sm" onClick={() => incidents.reload()}>
-            Refresh
-          </Button>
-        }
-      >
-        <Card flush>
-          <SectionView<SecurityIncidentSummary>
-            section={incidents.section}
-            onRetry={incidents.reload}
-            emptyMessage="No security incidents. When the edge rejects a distribution, or a detector raises a signal, it appears here to triage."
-            columns={[
-              {
-                key: "severity",
-                header: "Severity",
-                render: (item) => <IncidentSeverityBadge severity={item.severity} />,
-              },
-              {
-                key: "summary",
-                header: "Signal",
-                render: (item) => (
-                  <span className="small" style={{ display: "inline-block", maxWidth: 360 }}>
-                    {item.summary}
-                  </span>
-                ),
-              },
-              {
-                key: "kind",
-                header: "Kind",
-                render: (item) => <span className="mono small">{item.kind}</span>,
-              },
-              {
-                key: "state",
-                header: "State",
-                render: (item) => <IncidentStateBadge state={item.state} />,
-              },
-              {
-                key: "openedAt",
-                header: "Opened",
-                render: (item) => <Timestamp value={item.openedAt} />,
-              },
-              {
-                key: "resolution",
-                header: "Resolution",
-                render: (item) => <span className="small">{item.resolution ?? "—"}</span>,
-              },
-              {
-                key: "actions",
-                header: "",
-                render: (item) =>
-                  item.state === "open" || item.state === "triaged" ? (
-                    <div className="row-gap">
-                      {item.state === "open" ? (
+      {showTab("traffic") ? (
+        <SectionShell title="Engine status" hint="Read from the adapters, not assumed">
+          <Card flush>
+            <SectionView<ProviderHealthRow>
+              section={health.section}
+              onRetry={health.reload}
+              emptyMessage="No engines reported."
+              renderReady={(items) => (
+                <Table
+                  items={items}
+                  rowKey={(item) => item.provider}
+                  columns={[
+                    {
+                      key: "provider",
+                      header: "Engine",
+                      render: (item) => <span>{engineLabel(item.provider)}</span>,
+                    },
+                    {
+                      key: "state",
+                      header: "State",
+                      render: (item) =>
+                        item.state === "ready" ? (
+                          <StatusBadge label="Configured" tone="positive" />
+                        ) : (
+                          <StatusBadge label="Not configured" tone="neutral" />
+                        ),
+                    },
+                    {
+                      key: "detail",
+                      header: "Detail",
+                      render: (item) => <span className="small">{item.detail}</span>,
+                    },
+                  ]}
+                />
+              )}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
+
+      {showTab("overview") ? (
+        <SectionShell
+          title="Incidents"
+          hint="Grouped security signals that need a human: a policy the edge refused, and later an origin leak or a rule-volume spike. An incident is triaged, then closed with a resolution — it never disappears without one."
+          actions={
+            <Button size="sm" onClick={() => incidents.reload()}>
+              Refresh
+            </Button>
+          }
+        >
+          <Card flush>
+            <SectionView<SecurityIncidentSummary>
+              section={incidents.section}
+              onRetry={incidents.reload}
+              emptyMessage="No security incidents. When the edge rejects a distribution, or a detector raises a signal, it appears here to triage."
+              columns={[
+                {
+                  key: "severity",
+                  header: "Severity",
+                  render: (item) => <IncidentSeverityBadge severity={item.severity} />,
+                },
+                {
+                  key: "summary",
+                  header: "Signal",
+                  render: (item) => (
+                    <span className="small" style={{ display: "inline-block", maxWidth: 360 }}>
+                      {item.summary}
+                    </span>
+                  ),
+                },
+                {
+                  key: "kind",
+                  header: "Kind",
+                  render: (item) => <span className="mono small">{item.kind}</span>,
+                },
+                {
+                  key: "state",
+                  header: "State",
+                  render: (item) => <IncidentStateBadge state={item.state} />,
+                },
+                {
+                  key: "openedAt",
+                  header: "Opened",
+                  render: (item) => <Timestamp value={item.openedAt} />,
+                },
+                {
+                  key: "resolution",
+                  header: "Resolution",
+                  render: (item) => <span className="small">{item.resolution ?? "—"}</span>,
+                },
+                {
+                  key: "actions",
+                  header: "",
+                  render: (item) =>
+                    item.state === "open" || item.state === "triaged" ? (
+                      <div className="row-gap">
+                        {item.state === "open" ? (
+                          <Button
+                            size="sm"
+                            onClick={() => setIncidentAction({ incident: item, mode: "triage" })}
+                          >
+                            Triage
+                          </Button>
+                        ) : null}
                         <Button
                           size="sm"
-                          onClick={() => setIncidentAction({ incident: item, mode: "triage" })}
+                          variant="primary"
+                          onClick={() => setIncidentAction({ incident: item, mode: "close" })}
                         >
-                          Triage
+                          Close
                         </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        onClick={() => setIncidentAction({ incident: item, mode: "close" })}
-                      >
-                        Close
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="small muted">Closed</span>
+                      </div>
+                    ) : (
+                      <span className="small muted">Closed</span>
+                    ),
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
+
+      {showTab("traffic") ? (
+        <SectionShell
+          title="Edge decisions"
+          hint="What the edge did with recent requests: allowed, logged, challenged or blocked, and at which stage. Written by the edge, read-only here."
+          actions={
+            <Button size="sm" onClick={() => edgeEvents.reload()}>
+              Refresh
+            </Button>
+          }
+        >
+          <Card flush>
+            <SectionView<SecurityEventSummary>
+              section={edgeEvents.section}
+              onRetry={edgeEvents.reload}
+              emptyMessage="No edge decisions recorded yet. Once the edge is enforcing, each request's outcome appears here."
+              columns={[
+                {
+                  key: "action",
+                  header: "Decision",
+                  render: (item) => <EdgeActionBadge action={item.action} />,
+                },
+                {
+                  key: "stage",
+                  header: "Stage",
+                  render: (item) => <span className="mono small">{item.stage}</span>,
+                },
+                {
+                  key: "request",
+                  header: "Request",
+                  render: (item) => (
+                    <span
+                      className="mono small truncate"
+                      style={{ display: "inline-block", maxWidth: 300 }}
+                    >
+                      {item.method ?? "—"} {item.path ?? ""}
+                    </span>
                   ),
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+                },
+                {
+                  key: "host",
+                  header: "Host",
+                  render: (item) => <span className="mono small">{item.host}</span>,
+                },
+                {
+                  key: "clientIp",
+                  header: "Client",
+                  render: (item) => <span className="mono small">{item.clientIp ?? "—"}</span>,
+                },
+                {
+                  key: "observedAt",
+                  header: "When",
+                  render: (item) => <Timestamp value={item.observedAt} />,
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
-      <SectionShell
-        title="Edge decisions"
-        hint="What the edge did with recent requests: allowed, logged, challenged or blocked, and at which stage. Written by the edge, read-only here."
-        actions={
-          <Button size="sm" onClick={() => edgeEvents.reload()}>
-            Refresh
-          </Button>
-        }
-      >
-        <Card flush>
-          <SectionView<SecurityEventSummary>
-            section={edgeEvents.section}
-            onRetry={edgeEvents.reload}
-            emptyMessage="No edge decisions recorded yet. Once the edge is enforcing, each request's outcome appears here."
-            columns={[
-              {
-                key: "action",
-                header: "Decision",
-                render: (item) => <EdgeActionBadge action={item.action} />,
-              },
-              {
-                key: "stage",
-                header: "Stage",
-                render: (item) => <span className="mono small">{item.stage}</span>,
-              },
-              {
-                key: "request",
-                header: "Request",
-                render: (item) => (
-                  <span
-                    className="mono small truncate"
-                    style={{ display: "inline-block", maxWidth: 300 }}
-                  >
-                    {item.method ?? "—"} {item.path ?? ""}
-                  </span>
-                ),
-              },
-              {
-                key: "host",
-                header: "Host",
-                render: (item) => <span className="mono small">{item.host}</span>,
-              },
-              {
-                key: "clientIp",
-                header: "Client",
-                render: (item) => <span className="mono small">{item.clientIp ?? "—"}</span>,
-              },
-              {
-                key: "observedAt",
-                header: "When",
-                render: (item) => <Timestamp value={item.observedAt} />,
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
-
-      <SectionShell
-        title="Policy history"
-        hint="Every transition the server recorded, including refusals"
-      >
-        <Card flush>
-          <SectionView<SecurityPolicyEventSummary>
-            section={events.section}
-            onRetry={events.reload}
-            emptyMessage="No policy transitions recorded yet."
-            columns={[
-              {
-                key: "toState",
-                header: "State",
-                render: (item) => <PolicyStateBadge state={item.toState} />,
-              },
-              {
-                key: "from",
-                header: "From",
-                render: (item) => <span className="mono small">{item.fromState ?? "—"}</span>,
-              },
-              {
-                key: "version",
-                header: "Version",
-                render: (item) => <span className="mono small">{item.version}</span>,
-              },
-              {
-                key: "detail",
-                header: "Detail",
-                render: (item) => <span className="small">{item.detail ?? "—"}</span>,
-              },
-              {
-                key: "createdAt",
-                header: "When",
-                render: (item) => <Timestamp value={item.createdAt} />,
-              },
-            ]}
-            rowKey={(item) => item.id}
-          />
-        </Card>
-      </SectionShell>
+      {showTab("audit-log") ? (
+        <SectionShell
+          title="Policy history"
+          hint="Every transition the server recorded, including refusals"
+        >
+          <Card flush>
+            <SectionView<SecurityPolicyEventSummary>
+              section={events.section}
+              onRetry={events.reload}
+              emptyMessage="No policy transitions recorded yet."
+              columns={[
+                {
+                  key: "toState",
+                  header: "State",
+                  render: (item) => <PolicyStateBadge state={item.toState} />,
+                },
+                {
+                  key: "from",
+                  header: "From",
+                  render: (item) => <span className="mono small">{item.fromState ?? "—"}</span>,
+                },
+                {
+                  key: "version",
+                  header: "Version",
+                  render: (item) => <span className="mono small">{item.version}</span>,
+                },
+                {
+                  key: "detail",
+                  header: "Detail",
+                  render: (item) => <span className="small">{item.detail ?? "—"}</span>,
+                },
+                {
+                  key: "createdAt",
+                  header: "When",
+                  render: (item) => <Timestamp value={item.createdAt} />,
+                },
+              ]}
+              rowKey={(item) => item.id}
+            />
+          </Card>
+        </SectionShell>
+      ) : null}
 
       <SavePolicyModal
         // Remount on each open so the form starts from the chosen level or the

@@ -55,11 +55,16 @@ export type Route =
    * One route carries all of them rather than twenty near-identical routes, and
    * the page names itself from the section, so the menu and the URL cannot
    * disagree about which section is open.
+   *
+   * `sub` is the section's sub-item when the reference draws one (Firewall's
+   * Rules, CDN's Caches, …). It is optional: a section without sub-items has
+   * none, and the URL is one segment shorter.
    */
   | {
       readonly name: "workspaceSection";
       readonly organizationId: string;
       readonly section: WorkspaceSection;
+      readonly sub?: string | undefined;
     }
   /** The same idea one level down: a project section with a generic page. */
   | {
@@ -67,6 +72,7 @@ export type Route =
       readonly organizationId: string;
       readonly projectId: string;
       readonly section: ProjectSection;
+      readonly sub?: string | undefined;
     }
   | { readonly name: "not_found"; readonly path: string };
 
@@ -145,6 +151,67 @@ export function isProjectSection(value: string): value is ProjectSection {
   return (PROJECT_SECTIONS as readonly string[]).includes(value);
 }
 
+/**
+ * The sections the reference draws as a sub-menu, and the sub-items it lists
+ * under each one.
+ *
+ * Read off the screenshots, not remembered: opening Firewall in the reference
+ * replaces the sidebar with Overview / Traffic / Rules / Audit Log, and the
+ * same happens under CDN, Storage, Flags and AI Gateway. A section absent from
+ * this map is a single page with no sub-items, which is what the reference shows
+ * for the rest — including the sections the reference *does* split but this
+ * deployment renders as one page (Observability is a job roll-up, Settings has
+ * its own screen), which is why they are deliberately not listed here.
+ *
+ * The list is data, not markup, so the sidebar, the page heading and the
+ * deep-linkable URL all read the same array and cannot disagree about which
+ * sub-items a section has.
+ */
+export const SECTION_SUBS: Readonly<Record<string, readonly string[]>> = {
+  firewall: ["overview", "traffic", "rules", "audit-log"],
+  cdn: ["overview", "caches"],
+  flags: ["overview", "entities", "sdk-keys"],
+  storage: ["overview", "buckets"],
+  "ai-gateway": ["overview", "api-keys", "models", "playground"],
+};
+
+/** The sub-items a section has, or an empty list when it is a single page. */
+export function subSections(section: string): readonly string[] {
+  return SECTION_SUBS[section] ?? [];
+}
+
+/** True when `sub` is one of `section`'s declared sub-items. */
+export function isSubSection(section: string, sub: string): boolean {
+  return subSections(section).includes(sub);
+}
+
+/**
+ * A human label for each sub-item the reference draws, across every section.
+ *
+ * One map, not one per section: the same sub-item ("overview", "models") is
+ * labelled the same wherever it appears, so a deep link to
+ * `.../ai-gateway/models` and one to `.../flags/entities` title themselves from
+ * one source. The sidebar, the page tabs and the page title all read this.
+ */
+const SUB_SECTION_LABELS: Readonly<Record<string, string>> = {
+  overview: "Overview",
+  traffic: "Traffic",
+  rules: "Rules",
+  "audit-log": "Audit Log",
+  caches: "Caches",
+  entities: "Entities",
+  "sdk-keys": "SDK Keys",
+  buckets: "Buckets",
+  "api-keys": "API Keys",
+  models: "Model List",
+  playground: "Playground",
+};
+
+/** The label for a sub-item id, so a URL never renders a raw slug as a title. */
+export function subSectionTitle(sub: string): string {
+  return SUB_SECTION_LABELS[sub] ?? sub;
+}
+
 export function parseRoute(path: string): Route {
   const clean = path.replace(/\/+$/, "") || "/";
   if (clean === "/") return { name: "landing" };
@@ -218,9 +285,24 @@ export function parseRoute(path: string): Route {
   if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3)
     return { name: "settings", organizationId: segments[1]! };
   // A workspace section with a generic page. Registered after every bespoke
-  // workspace route above, so a named page always wins over the catch-all.
+  // workspace route above, so a named page always wins over the catch-all. A
+  // section the reference draws with sub-items takes one more segment, which is
+  // validated against that section's own list so a made-up sub-item is a 404
+  // rather than a page that claims a section does not exist.
   if (segments[0] === "orgs" && segments.length === 3 && isWorkspaceSection(segments[2]!))
     return { name: "workspaceSection", organizationId: segments[1]!, section: segments[2]! };
+  if (
+    segments[0] === "orgs" &&
+    segments.length === 4 &&
+    isWorkspaceSection(segments[2]!) &&
+    isSubSection(segments[2]!, segments[3]!)
+  )
+    return {
+      name: "workspaceSection",
+      organizationId: segments[1]!,
+      section: segments[2]!,
+      sub: segments[3]!,
+    };
   // The same one level down, after every bespoke project route.
   if (
     segments[0] === "orgs" &&
@@ -233,6 +315,20 @@ export function parseRoute(path: string): Route {
       organizationId: segments[1]!,
       projectId: segments[3]!,
       section: segments[4]!,
+    };
+  if (
+    segments[0] === "orgs" &&
+    segments[2] === "projects" &&
+    segments.length === 6 &&
+    isProjectSection(segments[4]!) &&
+    isSubSection(segments[4]!, segments[5]!)
+  )
+    return {
+      name: "projectSection",
+      organizationId: segments[1]!,
+      projectId: segments[3]!,
+      section: segments[4]!,
+      sub: segments[5]!,
     };
   return { name: "not_found", path: clean };
 }
@@ -292,9 +388,9 @@ export function toPath(route: Route): string {
     case "settings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/settings`;
     case "workspaceSection":
-      return `/orgs/${encodeURIComponent(route.organizationId)}/${encodeURIComponent(route.section)}`;
+      return `/orgs/${encodeURIComponent(route.organizationId)}/${encodeURIComponent(route.section)}${route.sub ? `/${encodeURIComponent(route.sub)}` : ""}`;
     case "projectSection":
-      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/${encodeURIComponent(route.section)}`;
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/${encodeURIComponent(route.section)}${route.sub ? `/${encodeURIComponent(route.sub)}` : ""}`;
     case "not_found":
       return route.path;
   }

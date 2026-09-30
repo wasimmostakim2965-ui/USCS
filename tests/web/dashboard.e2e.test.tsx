@@ -2756,8 +2756,18 @@ describe("the command palette", () => {
     await user.keyboard("{Control>}k{/Control}");
 
     const input = await screen.findByPlaceholderText(/Jump to a section/);
-    // The workspace and its sections are offered, not a hardcoded menu.
-    expect(screen.getByRole("button", { name: /Firewall/ })).toBeTruthy();
+    // The workspace and its sections are offered, not a hardcoded menu. Scoped
+    // to the palette: a section with sub-items is drilled into on its own page,
+    // but Find still reaches every section and sub-item by name.
+    const palette = screen.getByRole("dialog");
+    const paletteItems = within(palette)
+      .getAllByRole("button")
+      .map((button) => button.textContent ?? "");
+    // The section itself, and each of its sub-items by name.
+    expect(paletteItems.some((text) => text.startsWith("Firewall") && !text.includes("·"))).toBe(
+      true,
+    );
+    expect(paletteItems.some((text) => text.startsWith("Firewall · Rules"))).toBe(true);
 
     // Typing filters, then Enter opens the highlighted command.
     await user.type(input, "Firewall");
@@ -4849,6 +4859,168 @@ describe("the workspace Security entry", () => {
     const nav = document.querySelector(".sidebar")!;
     expect((nav as HTMLElement).querySelectorAll(".nav__item--active").length).toBe(0);
     expect(await screen.findByText("Edge configured.")).toBeTruthy();
+  });
+});
+
+describe("the Firewall sub-menu", () => {
+  // The reference's Firewall entry is not a single page: opening it shows
+  // Overview / Traffic / Rules / Audit Log, and each is a deep-linkable view.
+  // The real security engine backs it here, so the page is the Security page
+  // under the reference's own heading, with the reference's sub-menu as tabs.
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    if (procedure === "providers.health") {
+      return {
+        ok: true,
+        status: 200,
+        data: [{ provider: "envoy", state: "ready", detail: "Configured." }],
+      };
+    }
+    if (procedure === "security.policy.get") {
+      return { ok: true, status: 200, data: { policy: null, events: [] } };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  it("opens the Firewall page from the menu, with the reference's heading", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/firewall");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
+    // The real engine's banner is still here: Firewall is the security page,
+    // not an empty shell that only shares the name.
+    expect(await screen.findByText("Edge configured.")).toBeTruthy();
+  });
+
+  it("lists the reference's four sub-items, as tabs and as a replaced sidebar", async () => {
+    const url = await startApi(responder);
+    const { container } = renderApp(url, "#/orgs/org-1/firewall");
+
+    const tabs = await screen.findByRole("tablist");
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Overview", "Traffic", "Rules", "Audit Log"]);
+
+    // Entering the section replaces the section list with the same four
+    // sub-items, so the two surfaces cannot disagree about which exist.
+    const sidebar = container.querySelector(".sidebar")!;
+    const subitems = Array.from(sidebar.querySelectorAll(".nav__section--sub .nav__item")).map(
+      (node) => node.textContent,
+    );
+    expect(subitems).toEqual(["Overview", "Traffic", "Rules", "Audit Log"]);
+    // The section list is gone: this is a replaced sidebar, not an appended one.
+    expect(within(sidebar as HTMLElement).queryByRole("link", { name: /Analytics/ })).toBeNull();
+  });
+
+  it("keeps each sub-item a deep link that titles the page and highlights the row", async () => {
+    const url = await startApi(responder);
+    const { container } = renderApp(url, "#/orgs/org-1/firewall/rules");
+
+    await waitFor(() => expect(document.title).toBe("Firewall · Rules · Cloud Wai"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
+
+    // The active sub-item is marked in the sidebar, and its tab is selected.
+    const activeSub = container.querySelector(
+      ".nav__section--sub .nav__item--active",
+    ) as HTMLElement;
+    expect(activeSub.textContent).toBe("Rules");
+    const selected = await screen.findByRole("tab", { selected: true });
+    expect(selected.textContent).toBe("Rules");
+  });
+
+  it("routes a tab press to the sub-item's own URL, so it survives a reload", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/firewall");
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("tab", { name: "Audit Log" }));
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/firewall/audit-log"));
+  });
+
+  it("does not show a sub-menu on a section the reference draws as one page", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/integrations");
+
+    // Integrations has no sub-items in the reference, so no tablist renders.
+    await screen.findByRole("heading", { level: 1, name: "Integrations" });
+    expect(screen.queryByRole("tablist")).toBeNull();
+  });
+
+  it("steps back out of the section to the workspace front page", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/firewall");
+
+    await screen.findByRole("heading", { level: 1, name: "Firewall" });
+    // Back leaves the section's sub-menu level, which is the one control that
+    // does: the sub-items themselves only move between sub-pages.
+    const sidebar = document.querySelector(".sidebar")!;
+    await userEvent
+      .setup()
+      .click(within(sidebar as HTMLElement).getByRole("button", { name: /Back/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/projects"));
+  });
+
+  it("signposts a section you drill into, and only those", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects");
+
+    const sidebar = document.querySelector(".sidebar")!;
+    const firewall = within(sidebar as HTMLElement).getByRole("link", { name: "Firewall" });
+    expect(firewall.querySelector(".nav__chevron")).toBeTruthy();
+    // A single-page section carries no chevron: it is a plain destination.
+    const integrations = within(sidebar as HTMLElement).getByRole("link", {
+      name: "Integrations",
+    });
+    expect(integrations.querySelector(".nav__chevron")).toBeNull();
+  });
+
+  it("drills a project section in too, and steps back to the project", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/firewall");
+
+    await screen.findByRole("heading", { level: 1, name: "Firewall" });
+    const sidebar = document.querySelector(".sidebar")!;
+    const subitems = Array.from(sidebar.querySelectorAll(".nav__section--sub .nav__item")).map(
+      (node) => node.textContent,
+    );
+    expect(subitems).toEqual(["Overview", "Traffic", "Rules", "Audit Log"]);
+    // The project's own sections are gone, so the sub-menu replaced them.
+    expect(within(sidebar as HTMLElement).queryByRole("link", { name: "Deployments" })).toBeNull();
+
+    // Back from a project section returns to the project, not the workspace.
+    await userEvent
+      .setup()
+      .click(within(sidebar as HTMLElement).getByRole("button", { name: /Back/ }));
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/projects/p-1"));
+  });
+
+  it("drills every section the reference draws with a sub-menu", async () => {
+    const url = await startApi(responder);
+    // Each of the four other sections the reference splits, with its own
+    // sub-items read from the same list its page renders as tabs. Firewall is
+    // covered above.
+    const expected: Record<string, string[]> = {
+      cdn: ["Overview", "Caches"],
+      storage: ["Overview", "Buckets"],
+      flags: ["Overview", "Entities", "SDK Keys"],
+      "ai-gateway": ["Overview", "API Keys", "Model List", "Playground"],
+    };
+    for (const [section, subs] of Object.entries(expected)) {
+      const view = renderApp(url, `#/orgs/org-1/${section}`);
+      const sidebar = view.container.querySelector(".sidebar")!;
+      await waitFor(() =>
+        expect(
+          Array.from(sidebar.querySelectorAll(".nav__section--sub .nav__item")).map(
+            (node) => node.textContent,
+          ),
+        ).toEqual(subs),
+      );
+      view.unmount();
+    }
   });
 });
 

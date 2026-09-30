@@ -3,52 +3,39 @@
  *
  * A section the sidebar lists but this deployment cannot yet act on is not a
  * blank page and not a fabricated one. It states what the section is for, names
- * the engine that would back it, and shows the columns its list will be read by
- * — so the shape of the section is legible before the data exists, and the page
- * is honest that the data does not exist. That is the difference between
- * "empty" and "broken", which the rest of this app is careful about too.
+ * the engine that would back it, and offers the same first action the reference
+ * offers ("Create Repository", "Connect Database", …) — disabled, because the
+ * engine behind it is not wired, rather than a button that pretends to work.
+ *
+ * When the reference draws the section with a sub-menu (Firewall, CDN, Storage,
+ * Flags, AI Gateway) the sub-items render as tabs, each a deep-linkable URL.
  */
-import {
-  Button,
-  EmptyState,
-  PageShell,
-  SectionShell,
-  Table,
-  type Column,
-} from "@cloud-wai/ui/react";
+import { Button, EmptyState, PageShell, SectionShell, Tabs } from "@cloud-wai/ui/react";
+import { subSections, subSectionTitle } from "../routes.js";
 import type { SectionSpec } from "../sections.js";
-
-/** One row of the placeholder list: the column names, with no invented values. */
-type PlaceholderRow = { readonly id: string; readonly column: string };
 
 export function SectionPage({
   spec,
+  section,
   scope,
+  sub,
+  onSelectTab,
   onAction,
 }: {
   readonly spec: SectionSpec;
+  /** The section key, which is how its sub-items are looked up. */
+  readonly section: string;
   /** What the section is scoped to, for the subtitle: a project, or the org. */
   readonly scope: string;
+  /** The reference's sub-item being shown, when the section has sub-items. */
+  readonly sub?: string | undefined;
+  /** Follows a tab press; the shell rewrites the URL to that sub-item. */
+  readonly onSelectTab?: ((sub: string) => void) | undefined;
   /** Runs the primary action. Omitted when the action is not wired yet. */
   readonly onAction?: () => void;
 }) {
-  const rows: readonly PlaceholderRow[] = spec.columns.map((column) => ({
-    id: column,
-    column,
-  }));
-
-  const columns: readonly Column<PlaceholderRow>[] = [
-    {
-      key: "column",
-      header: "Column",
-      render: (row) => row.column,
-    },
-    {
-      key: "value",
-      header: "Value",
-      render: () => <span className="text-dim">—</span>,
-    },
-  ];
+  const tabs = subSections(section).map((id) => ({ id, label: subSectionTitle(id) }));
+  const active = sub ?? tabs[0]?.id ?? "overview";
 
   return (
     <PageShell
@@ -62,16 +49,21 @@ export function SectionPage({
         ) : null
       }
     >
+      {tabs.length > 0 ? (
+        <Tabs tabs={tabs} active={active} onChange={(id) => onSelectTab?.(id)} />
+      ) : null}
+
       <SectionShell title={spec.title} hint={`Backed by the ${spec.engine}.`}>
         <EmptyState
-          title={`${spec.title} is not configured`}
-          message={`This deployment has no ${spec.engine} wired in, so there is nothing to list yet. The columns below are the shape this section will read by once it is.`}
-        />
-        <Table
-          columns={columns}
-          items={rows}
-          rowKey={(row) => row.id}
-          caption={`Columns this section is read by`}
+          title={spec.empty.title}
+          message={spec.empty.message}
+          actions={
+            spec.empty.action && onAction ? (
+              <Button variant="primary" onClick={onAction}>
+                {spec.empty.action}
+              </Button>
+            ) : undefined
+          }
         />
       </SectionShell>
     </PageShell>

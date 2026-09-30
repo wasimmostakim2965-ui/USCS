@@ -159,6 +159,32 @@ export function App({
     [router, firstOrganizationId],
   );
 
+  // Follows a section sub-tab: rewrite the URL to the sub-item's route, so the
+  // tab, the sidebar's sub-menu and the address bar stay one answer. A section
+  // route keeps its scope (workspace vs project) from the current URL.
+  const navigateSub = useCallback(
+    (sub: string) => {
+      const route = router.route;
+      if (route.name === "workspaceSection") {
+        router.navigate({
+          name: "workspaceSection",
+          organizationId: route.organizationId,
+          section: route.section,
+          sub,
+        });
+      } else if (route.name === "projectSection") {
+        router.navigate({
+          name: "projectSection",
+          organizationId: route.organizationId,
+          projectId: route.projectId,
+          section: route.section,
+          sub,
+        });
+      }
+    },
+    [router],
+  );
+
   // Remember whatever the URL (or the fallback) settled on, so the sidebar is
   // stable on a later visit without the URL carrying an organization id.
   useEffect(() => {
@@ -337,17 +363,46 @@ export function App({
       case "settings":
         return <SettingsPage organizationId={route.organizationId} />;
       case "workspaceSection":
+        // Firewall is the reference's name for the section this deployment
+        // backs with the real security engine, so it renders that page — with
+        // the reference's own heading and sub-menu — rather than an empty shell.
+        if (route.section === "firewall") {
+          return (
+            <SecurityPage
+              organizationId={route.organizationId}
+              title="Firewall"
+              sub={route.sub}
+              onSelectTab={navigateSub}
+            />
+          );
+        }
         return (
           <SectionPage
             spec={WORKSPACE_SECTIONS_SPEC[route.section]!}
+            section={route.section}
             scope="Applies to every project in this organization."
+            {...(route.sub ? { sub: route.sub } : {})}
+            onSelectTab={navigateSub}
           />
         );
       case "projectSection":
+        if (route.section === "firewall") {
+          return (
+            <SecurityPage
+              organizationId={route.organizationId}
+              title="Firewall"
+              sub={route.sub}
+              onSelectTab={navigateSub}
+            />
+          );
+        }
         return (
           <SectionPage
             spec={PROJECT_SECTIONS_SPEC[route.section]!}
+            section={route.section}
             scope="Applies to this project."
+            {...(route.sub ? { sub: route.sub } : {})}
+            onSelectTab={navigateSub}
           />
         );
       case "not_found":

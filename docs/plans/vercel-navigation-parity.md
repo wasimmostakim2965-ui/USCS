@@ -170,6 +170,34 @@ placement never implies a per-project policy the schema cannot hold. When a
 project-scoped policy lands, the page gains a project selector and the entry
 becomes genuinely per-project — the route does not change.
 
+## How a section with sub-items is navigated (drill-in, not accordion)
+
+Vercel does not expand a section's sub-items inline under the section row. It
+*replaces* the sidebar: opening Firewall shows a Back control and the section's
+own sub-items (Overview / Traffic / Rules / Audit Log) in place of the section
+list, exactly as the Database level replaces the project menu. Confirmed against
+the owner's screenshots: `Screenshot_20260930-114246` (Firewall) shows `< Firewall`
+then the four sub-items and no section list; `...114343` (Flags), `...114407`
+(AI Gateway), `...114416` (Sandboxes), `...114449` (Usage), `...114501`
+(Settings) and `...114351` (Agent) all do the same. In the *unentered* project
+sidebar (`...114304`, `...114334`, …) those same sections carry a trailing `>`
+chevron — the signpost that a click drills in.
+
+Cloud Wai follows that shape for the five sections the reference splits —
+**Firewall, CDN, Storage, Flags, AI Gateway** — and for **Database**, which was
+already a drill-in level:
+
+- The sidebar level is `sub`: a flat list of the section's sub-items, with the
+  Back control above them. `backTargetFor` sends Back to the section list's own
+  level (Projects at workspace level, the project at project level).
+- The section row carries a trailing chevron (`item.hasSubMenu`), drawn only for
+  a section that has sub-items. A single-page section is a plain destination.
+- The sub-items are `SECTION_SUBS[section]`, the same list the page renders as
+  tabs, so the sidebar and the page cannot disagree.
+- The command palette still offers every section *and* every sub-item, so Find
+  reaches "Rules" even while the sidebar is showing something else. The palette
+  reads the undrilled `baseNav`, never the replaced sidebar.
+
 ## The in-dashboard documentation surface
 
 The owner's instruction is that a user can open the menu and read the whole

@@ -12,12 +12,20 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Button, ErrorBoundary, Icon, Modal, TextInput, type Toast } from "@cloud-wai/ui/react";
 import { useApp } from "../react/context.js";
 import { useCommandShortcut, useDismissable, useMediaQuery } from "../react/hooks.js";
-import { toPath, type Route } from "../routes.js";
+import {
+  subSections,
+  toPath,
+  type ProjectSection,
+  type Route,
+  type WorkspaceSection,
+} from "../routes.js";
 import {
   backTargetFor,
   navForRoute,
   navGroups,
+  projectSubNav,
   titleForRoute,
+  workspaceSubNav,
   type NavItem,
 } from "../navigation.js";
 
@@ -56,14 +64,36 @@ function writeSidebarPreference(open: boolean): void {
   }
 }
 
+/**
+ * The sidebar's navigation model: which rows to draw, which is active, and
+ * which level is showing.
+ *
+ * `level` is what the shell hands `navGroups`; the sub-menu level is flat, like
+ * the workspace and project menus.
+ */
+interface NavModel {
+  readonly items: readonly NavItem[];
+  readonly activeId: string | null;
+  readonly activeSubId: string | null;
+  readonly projectId: string | null;
+  readonly level: "workspace" | "project" | "database" | "sub";
+}
+
 function NavLink({
   item,
   active,
   onNavigate,
+  chevron = false,
 }: {
   readonly item: NavItem;
   readonly active: boolean;
   readonly onNavigate: (route: Route) => void;
+  /**
+   * Draw a chevron, marking a section the reference drills into. Purely a
+   * signpost: the row is still a link, because the section's landing page is a
+   * real page, and the drill-in happens when that page is opened.
+   */
+  readonly chevron?: boolean;
 }) {
   return (
     <a
@@ -83,6 +113,11 @@ function NavLink({
         <Icon name={item.icon} size={18} />
       </span>
       <span className="truncate">{item.label}</span>
+      {chevron ? (
+        <span className="nav__chevron" aria-hidden="true">
+          <Icon name="chevronRight" size={16} />
+        </span>
+      ) : null}
     </a>
   );
 }
@@ -207,7 +242,6 @@ export function AppShell({
   // On a narrow screen the sidebar is an off-canvas drawer, so the toggle starts
   // closed. The preference is remembered once the user chooses one.
   const [sidebarOpen, setSidebarOpen] = useState(() => readSidebarPreference() ?? !compactNav);
-
   const profile = useDismissable(profileOpen, () => setProfileOpen(false));
   const workspace = useDismissable(workspaceOpen, () => setWorkspaceOpen(false));
 
@@ -226,7 +260,12 @@ export function AppShell({
   // that state: the chooser itself. A route built from an empty organizationId
   // would be a dead link (`/orgs//projects`), which is why this is a fallback
   // rather than `navForRoute` with `""`.
-  const nav = useMemo(() => {
+  const back = activeOrganizationId ? backTargetFor(router.route) : null;
+
+  // The full section list for the route, before any drill-in. The command
+  // palette reads this, so Find always offers every section — and every
+  // sub-item — no matter which level the sidebar happens to be showing.
+  const baseNav = useMemo<NavModel>(() => {
     if (!activeOrganizationId) {
       return {
         items: [
@@ -239,6 +278,7 @@ export function AppShell({
           },
         ],
         activeId: "organizations" as string | null,
+        activeSubId: null as string | null,
         projectId: null,
         level: "workspace" as const,
       };
@@ -249,7 +289,29 @@ export function AppShell({
     });
   }, [router.route, activeOrganizationId, projectName]);
 
-  const back = activeOrganizationId ? backTargetFor(router.route) : null;
+  // When the route is inside a section the reference draws with a sub-menu, the
+  // sidebar *is* that sub-menu: the section list is replaced, exactly as it is
+  // when a project's Database entry is opened. The section's landing page is the
+  // sub-menu's Overview row, so the drill-in happens there too.
+  const nav = useMemo<NavModel>(() => {
+    if (activeOrganizationId) {
+      const section = baseNav.activeId;
+      if (section && subSections(section).length > 0) {
+        const subNav =
+          baseNav.level === "project" && baseNav.projectId
+            ? projectSubNav(activeOrganizationId, baseNav.projectId, section as ProjectSection)
+            : workspaceSubNav(activeOrganizationId, section as WorkspaceSection);
+        return {
+          items: subNav,
+          activeId: `${section}-${baseNav.activeSubId ?? "overview"}`,
+          activeSubId: null,
+          projectId: baseNav.projectId,
+          level: "sub",
+        };
+      }
+    }
+    return baseNav;
+  }, [baseNav, activeOrganizationId]);
 
   const commands = useMemo(() => {
     const items: {
@@ -259,8 +321,25 @@ export function AppShell({
       readonly route: Route;
       readonly action?: "create-organization";
     }[] = [];
-    for (const item of nav.items) {
+    for (const item of baseNav.items) {
       items.push({ label: item.label, hint: item.description, route: item.route });
+      // A section the reference draws with a sub-menu offers each of its
+      // sub-items by name too, so Find can reach "Rules" directly rather than
+      // stopping at "Firewall". The hint carries the section name, so the
+      // sub-item is findable by either word.
+      if (item.hasSubMenu && activeOrganizationId) {
+        const subNav =
+          baseNav.level === "project" && baseNav.projectId
+            ? projectSubNav(activeOrganizationId, baseNav.projectId, item.id as ProjectSection)
+            : workspaceSubNav(activeOrganizationId, item.id as WorkspaceSection);
+        for (const sub of subNav) {
+          items.push({
+            label: `${item.label} · ${sub.label}`,
+            hint: item.description,
+            route: sub.route,
+          });
+        }
+      }
     }
     for (const organization of organizations) {
       items.push({
@@ -279,7 +358,7 @@ export function AppShell({
       },
     );
     return items;
-  }, [nav.items, organizations]);
+  }, [baseNav, organizations, activeOrganizationId]);
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -569,10 +648,12 @@ export function AppShell({
                 <span className="truncate">Back</span>
               </button>
             ) : null}
-            {navGroups(nav.level, nav.items).map((group, index) => (
-              <div className="nav__section" key={`${group.label}-${index}`}>
-                {group.label ? <div className="nav__group">{group.label}</div> : null}
-                {group.items.map((item) => (
+            {nav.level === "sub" ? (
+              // The section's own sub-menu replaces the section list, the same
+              // way the Database level does. The rows are the deep-linkable
+              // routes the page renders as tabs, so the two read one list.
+              <div className="nav__section nav__section--sub">
+                {nav.items.map((item) => (
                   <NavLink
                     key={item.id}
                     item={item}
@@ -581,7 +662,22 @@ export function AppShell({
                   />
                 ))}
               </div>
-            ))}
+            ) : (
+              navGroups(nav.level, nav.items).map((group, index) => (
+                <div className="nav__section" key={`${group.label}-${index}`}>
+                  {group.label ? <div className="nav__group">{group.label}</div> : null}
+                  {group.items.map((item) => (
+                    <NavLink
+                      key={item.id}
+                      item={item}
+                      active={item.id === nav.activeId}
+                      onNavigate={go}
+                      chevron={item.hasSubMenu ?? false}
+                    />
+                  ))}
+                </div>
+              ))
+            )}
           </nav>
         </aside>
       ) : null}
