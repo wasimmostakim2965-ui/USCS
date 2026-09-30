@@ -387,6 +387,27 @@ describe("MinIO storage adapter", () => {
     expect(call.auth).toMatch(/Signature=[0-9a-f]{64}/);
   });
 
+  it("signs the endpoint's own path prefix (S3 served under a sub-path)", async () => {
+    // Supabase's storage-api serves S3 at `/storage/v1/s3`, so the endpoint
+    // carries a path. The signature is verified against the whole request path,
+    // so the canonical URI and the request URL must both include the prefix.
+    // Signing only `/<bucket>` — the pre-fix behaviour — makes every call fail
+    // with SignatureDoesNotMatch even though the credentials are correct.
+    const prefixed = createMinioStorage({
+      credentials: () => ({
+        endpoint: `${baseUrl}/storage/v1/s3`,
+        accessKey: "key-org-a",
+        secretKey: "secret-value",
+      }),
+      now: () => new Date("2026-01-01T00:00:00.000Z"),
+    });
+    const result = await prefixed.createBucket(ctx(ORG_A, "bucket"), { name: "uploads" });
+    expect(result.ok).toBe(true);
+
+    const call = seen.at(-1)!;
+    expect(call.path).toBe(`/storage/v1/s3/${bucketNameFor(ORG_A, "uploads")}`);
+  });
+
   it("refuses to delete another organization's bucket", async () => {
     const foreign: ProviderRef = {
       organizationId: ORG_B,

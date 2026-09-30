@@ -85,17 +85,27 @@ export function signRequest(input: {
 }): SignedRequest {
   const region = input.credentials.region ?? "us-east-1";
   const service = "s3";
-  const host = new URL(input.endpoint).host;
+  const endpointUrl = new URL(input.endpoint);
+  const host = endpointUrl.host;
   const payload = input.payload ?? "";
   const payloadHash = sha256Hex(payload);
 
   const amzDate = input.now.toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
 
-  const canonicalUri = input.path
+  const encodedPath = input.path
     .split("/")
     .map((segment) => uriEncode(segment, false))
     .join("/");
+
+  // The service verifies the signature against the whole request path, including
+  // any path the endpoint itself carries (Supabase's storage-api serves S3 at
+  // `/storage/v1/s3`). Signing only the bucket path — `/bucket` — leaves the
+  // prefix out of the canonical request, and every call fails with
+  // SignatureDoesNotMatch. The endpoint path is part of the endpoint, not the
+  // object path, so it is added here rather than at the call sites.
+  const endpointPath = endpointUrl.pathname.replace(/\/+$/, "");
+  const canonicalUri = `${endpointPath}${encodedPath}`;
 
   const canonicalHeaders =
     `host:${host}\n` + `x-amz-content-sha256:${payloadHash}\n` + `x-amz-date:${amzDate}\n`;
@@ -117,7 +127,7 @@ export function signRequest(input: {
   const signature = hmac(signingKey, stringToSign).toString("hex");
 
   return {
-    url: `${input.endpoint.replace(/\/$/, "")}${canonicalUri}`,
+    url: `${input.endpoint.replace(/\/$/, "")}${encodedPath}`,
     headers: {
       host,
       "x-amz-content-sha256": payloadHash,
