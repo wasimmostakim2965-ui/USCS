@@ -1017,3 +1017,36 @@ deploy driven through the dashboard, then the deployed container probed.
   `[auth.external.gitlab]` block at all (the only one it declares, `apple`, is
   `enabled = false`), so no OAuth provider is switched on until credentials are
   added.
+
+## The default deployment hostname (the Vercel-style address) (2026-09-30)
+
+- A deployment needs an address before a customer adds a domain. The runtime
+  mints `<label>.<RUNTIME_DEFAULT_DOMAIN_SUFFIX>` from the app's own name/id
+  (`ensureDefaultHostname`, `defaultLabel`), publishes it to the router with
+  `tls: "auto"`, and reports it as the app's `url` — so the dashboard's "Visit
+  site" link opens a real name, not `http://<host>:<port>`. The fallback url is
+  the loopback port, used only when the suffix is unset.
+- **It is derived, never persisted as a separate name.** `defaultHostname` is
+  re-computed from `app.name`/`app.id`, so it is stable across a runtime restart
+  and identical for a given app. It is *not* part of the customer's `domains`
+  set; `routableHosts(app)` = customer domains + the default, so a customer's
+  domain is served *alongside* the default and removing it never withdraws the
+  default.
+- **The suffix is opt-in, because a name that does not resolve is a lie.**
+  `RUNTIME_DEFAULT_DOMAIN_SUFFIX` is empty by default; `deploy.sh` writes it only
+  when the operator sets `CLOUD_WAI_APP_DOMAIN`, whose wildcard `*.<domain>` must
+  already point at the host. The runtime will not advertise a name it has no
+  reason to believe resolves. `tests/runtime/default-domain.test.ts` drives the
+  real `runtime-server.mjs` against a recording router and pins the mint, the
+  alongside-behaviour and the non-withdrawal.
+- **Two limits the operator owns.** The app port is plain HTTP, so a default
+  hostname carries `RUNTIME_PUBLIC_SCHEME=https` only when the router terminates
+  TLS for it (`ROUTER_ACME_EMAIL` set); with no ACME email the router serves its
+  self-signed fallback and a browser shows a certificate warning — the app still
+  serves, but that is a warning, not a silent success. And the sandbox work-host
+  ingress does **not** forward subdomains (a subdomain of a work host answers the
+  platform's own `404 page not found`, while the router on `:80/:443` serves it
+  correctly when reached by IP), so the mechanism is provable locally with
+  `curl -sk --resolve`, but a real default-domain deployment needs DNS that
+  routes the wildcard to the router.
+

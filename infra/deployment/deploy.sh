@@ -375,6 +375,18 @@ ensure_runtime() {
     printf 'RUNTIME_PUBLIC_HOST=%s\n' "$public_host" >>.env
     ok "runtime app URLs will use ${public_host}"
   fi
+  # The suffix a deployed app's default hostname is minted under, the way Vercel
+  # gives every deployment a `<project>.vercel.app` address. It is written only
+  # when the operator names a domain whose wildcard already resolves to this
+  # host (`CLOUD_WAI_APP_DOMAIN=apps.example.com`); without one the runtime mints
+  # no default hostname, so it never advertises a name that does not resolve.
+  if ! grep -q '^RUNTIME_DEFAULT_DOMAIN_SUFFIX=' .env; then
+    local app_domain="${CLOUD_WAI_APP_DOMAIN:-}"
+    if [[ -n "$app_domain" ]]; then
+      printf 'RUNTIME_DEFAULT_DOMAIN_SUFFIX=%s\n' "$app_domain" >>.env
+      ok "deployed apps will be reachable at <app>.${app_domain}"
+    fi
+  fi
   # Wire the runtime to every organization already in the control plane, so an
   # existing tenant gains the container engine. New organizations are wired the
   # same way after they are created.

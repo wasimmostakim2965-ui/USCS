@@ -47,6 +47,17 @@ const BUILD_POLL_MS = Number(process.env.RUNTIME_BUILD_POLL_MS ?? 2500);
 const LOG_TAIL = Number(process.env.RUNTIME_LOG_TAIL ?? 500);
 const ROUTER_URL = (process.env.ROUTER_URL ?? "").replace(/\/+$/, "");
 const ROUTER_TOKEN = process.env.ROUTER_TOKEN ?? "";
+/**
+ * The suffix every app gets a default hostname under, the way Vercel hands out
+ * `<project>.vercel.app` before a custom domain exists. Empty means no default
+ * hostname is minted and an app's url stays the loopback address.
+ */
+const DEFAULT_DOMAIN_SUFFIX = (process.env.RUNTIME_DEFAULT_DOMAIN_SUFFIX ?? "")
+  .trim()
+  .replace(/^\.+|\.+$/g, "")
+  .toLowerCase();
+/** The scheme a default-domain url carries. A real host terminates TLS. */
+const PUBLIC_SCHEME = (process.env.RUNTIME_PUBLIC_SCHEME ?? "https").trim() || "https";
 
 const routerConfigured = ROUTER_URL !== "" && ROUTER_TOKEN !== "";
 
@@ -234,7 +245,16 @@ function hash(text) {
   return h;
 }
 
+/**
+ * The app's public address, the way Vercel reports a deployment url.
+ *
+ * Prefer the app's default hostname: it is a real DNS name the router serves
+ * with automatic TLS, so it is reachable from anywhere, not only from the host
+ * that runs the container. Fall back to the loopback port the runtime published
+ * on, which is an honest address but only resolves on the host itself.
+ */
 function appUrl(app) {
+  if (app.defaultHostname) return `${PUBLIC_SCHEME}://${app.defaultHostname}`;
   return app.hostPort ? `http://${PUBLIC_HOST}:${app.hostPort}` : null;
 }
 
@@ -246,6 +266,59 @@ function isHostname(host) {
     host.length <= 253 &&
     /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)
   );
+}
+
+/** A DNS label: the left-most part of a hostname, lower-case and hyphenated. */
+function isDnsLabel(label) {
+  return typeof label === "string" && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(label);
+}
+
+/** A short, stable, DNS-safe label from an app id and name, used as the subdomain. */
+function defaultLabel(app) {
+  const fromName = String(app.name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  if (isDnsLabel(fromName)) return fromName;
+  return `app-${String(app.id ?? "")
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 12)}`;
+}
+
+/**
+ * Give an app a default hostname under the configured suffix, unless it already
+ * has one. Returns true when the app gained one, so the caller knows to publish
+ * the new route.
+ *
+ * This is what makes a deployment reachable before any custom domain exists.
+ * The name is not persisted separately: it is re-derived from the app's own id
+ * and name, so it is stable across restarts and identical for a given app.
+ */
+function ensureDefaultHostname(app) {
+  if (app.defaultHostname) return false;
+  if (DEFAULT_DOMAIN_SUFFIX === "") return false;
+  const host = `${defaultLabel(app)}.${DEFAULT_DOMAIN_SUFFIX}`;
+  if (!isHostname(host)) return false;
+  app.defaultHostname = host;
+  return true;
+}
+
+/**
+ * Every hostname the router should serve for an app: the customer's verified
+ * domains, plus the app's own default hostname. The default is included even
+ * when the customer has none, which is what gives every deployment an address.
+ */
+function routableHosts(app) {
+  const hosts = (app.domains ?? []).filter(isHostname);
+  if (
+    app.defaultHostname &&
+    isHostname(app.defaultHostname) &&
+    !hosts.includes(app.defaultHostname)
+  ) {
+    hosts.push(app.defaultHostname);
+  }
+  return hosts;
 }
 
 /**
@@ -261,7 +334,7 @@ async function publishAppRoutes(app) {
   if (!routerConfigured)
     return { published: false, reason: "no router is configured (ROUTER_URL)" };
   if (!app.hostPort) return { published: false, reason: "the app has no host port yet" };
-  const hosts = (app.domains ?? []).filter(isHostname);
+  const hosts = routableHosts(app);
   if (hosts.length === 0) return { published: true, reason: null };
   const failures = [];
   for (const host of hosts) {
@@ -284,7 +357,7 @@ async function publishAppRoutes(app) {
 /** Withdraw every route for an app, so a released hostname stops being served. */
 async function withdrawAppRoutes(app) {
   if (!routerConfigured) return;
-  for (const host of (app.domains ?? []).filter(isHostname)) {
+  for (const host of routableHosts(app)) {
     await fetchJson(`${ROUTER_URL}/routes/${encodeURIComponent(host)}`, {
       method: "DELETE",
       headers: { authorization: `Bearer ${ROUTER_TOKEN}` },
@@ -546,10 +619,15 @@ async function runDeploy(app) {
   app.previousImage = previous ?? app.previousImage ?? null;
   app.container = result.container;
   app.status = "succeeded";
+  // Give the app its default hostname before the url is read, so a deployment
+  // is reachable at a real name the moment it succeeds — the way a deployment
+  // has a `<project>.vercel.app` address before any custom domain is added.
+  ensureDefaultHostname(app);
   app.url = appUrl(app);
   const route = await publishAppRoutes(app);
   app.routeError = route.published ? null : route.reason;
   log(app, `deployed ${image} on ${app.url}`);
+  if (app.defaultHostname) log(app, `default hostname ${app.defaultHostname}`);
   if (!route.published && route.reason) log(app, `[runtime] route not published: ${route.reason}`);
 }
 
@@ -595,6 +673,7 @@ const ROUTES = {
       rootDirectory: body.rootDirectory ?? null,
       image: body.image ?? null,
       domains: Array.isArray(body.domains) ? body.domains.filter(isHostname) : [],
+      defaultHostname: null,
       port: body.port ?? DEFAULT_PORT,
       env: {},
       envRefs: {},
@@ -626,6 +705,7 @@ const ROUTES = {
         id: app.id,
         status: app.status,
         url: app.url,
+        defaultHostname: app.defaultHostname ?? null,
         engineReason: app.engineReason,
         routeError: app.routeError ?? null,
         domains: app.domains ?? [],
@@ -743,6 +823,7 @@ const ROUTES = {
     const next = new Set(domains);
     const removed = [...before].filter((host) => !next.has(host));
     app.domains = domains;
+    ensureDefaultHostname(app);
     if (routerConfigured) {
       for (const host of removed) {
         await fetchJson(`${ROUTER_URL}/routes/${encodeURIComponent(host)}`, {
@@ -754,7 +835,15 @@ const ROUTES = {
     const route = await publishAppRoutes(app);
     app.routeError = route.published ? null : route.reason;
     await saveState();
-    return { code: 200, body: { domains, routeError: app.routeError } };
+    return {
+      code: 200,
+      body: {
+        domains,
+        defaultHostname: app.defaultHostname ?? null,
+        url: appUrl(app),
+        routeError: app.routeError,
+      },
+    };
   },
 
   async listEnv(app) {

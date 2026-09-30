@@ -150,7 +150,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Deployments lists every build for this project in order: who started it, from which branch and commit, and whether it is queued, building, ready, failed or cancelled.",
       "Each row opens its own build and runtime logs. A ready production deployment can be rolled back to a previous commit in one action; a preview can be promoted to production; a past row can be redeployed; an in-flight build can be cancelled.",
       "A deployment request returns queued immediately and is executed by the worker off the request path, so the page stays responsive while a build runs.",
-      "The hosting and build engines are wired in this deployment, so a deploy from a git source really runs: the build plane clones the repository, builds an image and the runtime starts it, and the row settles on the engine's own status, URL and logs. Reaching that URL from outside still needs a domain routed through the edge, which is the Domains page.",
+      "The hosting and build engines are wired in this deployment, so a deploy from a git source really runs: the build plane clones the repository, builds an image and the runtime starts it, and the row settles on the engine's own status, URL and logs. The URL a succeeded deployment carries is the app's own default hostname under the deployment's app domain — the way a Vercel deployment has a `<project>.vercel.app` address before any custom domain is added — so the Visit link opens the running site. Adding a domain of your own on the Domains page routes that hostname to the same container instead.",
     ],
     diagram: {
       caption: "A deploy request becomes a durable job the worker claims, with logs per attempt.",

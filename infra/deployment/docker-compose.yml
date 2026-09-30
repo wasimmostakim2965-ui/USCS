@@ -150,6 +150,11 @@ services:
       # deployed but its hostname is reported as not yet routable.
       ROUTER_URL: ${ROUTER_URL:-http://127.0.0.1:8096}
       ROUTER_TOKEN: ${ROUTER_TOKEN:-}
+      # The suffix a deployed app's default hostname is minted under, so a
+      # deployment is reachable at `<label>.<suffix>` before a custom domain
+      # exists. Empty mints none and the url stays the loopback address.
+      RUNTIME_DEFAULT_DOMAIN_SUFFIX: ${RUNTIME_DEFAULT_DOMAIN_SUFFIX:-}
+      RUNTIME_PUBLIC_SCHEME: ${RUNTIME_PUBLIC_SCHEME:-https}
     # Host networking, so the app ports this runtime publishes on 127.0.0.1 are
     # reachable by the router on the same loopback, and the router's loopback-only
     # admin API is reachable here. Ports are therefore not remapped; the runtime
