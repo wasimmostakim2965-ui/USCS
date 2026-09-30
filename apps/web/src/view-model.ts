@@ -9,7 +9,7 @@
 import { errored, loading, ready, type Section } from "@cloud-wai/ui";
 import type { ApiClient, ApiResponse } from "./api-client.js";
 import type { Route } from "./routes.js";
-import { databaseSectionTitle } from "./navigation.js";
+import { databaseSectionTitle, titleForRoute } from "./navigation.js";
 
 export interface OrganizationSummary {
   readonly id: string;
@@ -1674,6 +1674,14 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
       // Docs is static content that ships with the bundle: it reads nothing from
       // the API, so it has no section and cannot show a state it did not load.
       return { title: "Docs", sections: [] };
+
+    case "workspaceSection":
+      // A section with no engine behind it yet reads nothing, so it shows no
+      // state it did not load. The page states its own emptiness.
+      return { title: titleForRoute(route), sections: [] };
+
+    case "projectSection":
+      return { title: titleForRoute(route), sections: [] };
 
     case "not_found":
       return {

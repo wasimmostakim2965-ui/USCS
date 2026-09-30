@@ -8,29 +8,42 @@
  * Every entry carries a `parseRoute`-compatible path, so navigation is a link:
  * a refresh, a bookmark or a deep link lands in the same place.
  *
+ * The workspace and project menus mirror Vercel's dashboard, which the owner
+ * supplied as a written list and as 23 screenshots. The screenshots are the
+ * authority: this order, these names and the flat (ungrouped) shape are read
+ * off them, not remembered.
+ *
  * There are three levels, and a route belongs to exactly one of them:
- *   * workspace — Projects, Deployments, Members, Activity, Observability,
- *                 Security, Billing, API keys, Docs, Settings.
- *   * project   — Overview, Setup, Deployments, Logs, Analytics, Domains, Git,
- *                 Environment, Database, Security, Settings.
+ *   * workspace — Projects, Deployments, Logs, Analytics, Speed Insights,
+ *                 Observability, Firewall, CDN, Environment Variables, Domains,
+ *                 Connect, Integrations, Storage, Database, Flags, Agent, AI
+ *                 Gateway, Sandboxes, Workflows, Images, Usage, Support,
+ *                 Settings.
+ *   * project   — the same sections again, scoped to one project and ending in
+ *                 Domains, Environment Variables, Database and Settings, opened
+ *                 from Projects.
  *   * database  — Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles,
- *                 Logs, Settings. This is the third drill-in level, reached from
- *                 the project menu's Database entry.
+ *                 Logs, Settings. The third drill-in level, reached from the
+ *                 project menu's Database entry.
  *
  * Domains and Database are project-scoped on purpose: a domain is attached to
- * an application, and so is a database. Security is reached under a project for
- * navigation consistency, but the policy it edits is organization-wide today —
+ * an application, and so is a database. Security is organization-wide today —
  * `security_policies` is keyed by `organization_id`, with no `project_id` — and
- * the page says so rather than implying a per-project policy that the schema
- * cannot hold.
+ * the page says so rather than implying a per-project policy the schema cannot
+ * hold. Security is deliberately absent from both menus: the reference does not
+ * list it, so it stays reachable by URL rather than sitting in the sidebar.
  */
 import type { IconName } from "@cloud-wai/ui";
 import {
   DATABASE_SECTIONS,
   parseRoute,
   toPath,
+  WORKSPACE_SECTIONS,
+  PROJECT_SECTIONS,
   type DatabaseSection,
+  type ProjectSection,
   type Route,
+  type WorkspaceSection,
 } from "./routes.js";
 
 export interface NavItem {
@@ -50,14 +63,13 @@ export interface NavContext {
 }
 
 /**
- * A labelled run of sidebar entries.
+ * A run of sidebar entries.
  *
- * Vercel's sidebar is grouped rather than one flat list — Account, Project,
- * Observability, Compute, More — and that is what makes a menu of twenty-odd
- * entries scannable instead of a wall. The groups are declared here, next to the
- * items they order, so a new section cannot be added to the menu without a
- * decision about which run it belongs to; an id no group claims still renders,
- * in a trailing run, so the failure mode is "unsorted", never "invisible".
+ * Vercel's sidebar is one flat list with no headings, so the workspace and
+ * project runs carry an empty label and the shell renders the items with no
+ * divider. The type is kept because the Database level still wants the notion
+ * of a labelled run, and because dropping it would mean rewriting every call
+ * site for no gain.
  */
 export interface NavGroup {
   readonly label: string;
@@ -77,19 +89,9 @@ interface GroupSpec {
   readonly ids: readonly string[];
 }
 
-const WORKSPACE_GROUPS: readonly GroupSpec[] = [
-  { label: "Workspace", ids: ["projects", "org-deployments", "members", "audit"] },
-  { label: "Observability", ids: ["observability", "billing"] },
-  { label: "Access", ids: ["security", "api-keys"] },
-  { label: "Reference", ids: ["docs", "settings"] },
-];
-
-const PROJECT_GROUPS: readonly GroupSpec[] = [
-  { label: "Project", ids: ["overview", "setup", "deployments"] },
-  { label: "Observability", ids: ["logs", "analytics"] },
-  { label: "Configuration", ids: ["domains", "git", "env", "database"] },
-  { label: "Access", ids: ["security", "settings"] },
-];
+// The workspace and project menus are flat: one unlabelled run, exactly like the
+// reference. Only the Database level still groups its items.
+const FLAT: readonly GroupSpec[] = [{ label: "", ids: [] }];
 
 const DATABASE_GROUPS: readonly GroupSpec[] = [
   { label: "Database", ids: ["database-overview", "database-tables", "database-sql"] },
@@ -97,15 +99,136 @@ const DATABASE_GROUPS: readonly GroupSpec[] = [
   { label: "Administration", ids: ["database-roles", "database-logs", "database-settings"] },
 ];
 
-/** Workspace-level sections. A project is opened from Projects. */
+/** A glyph and a one-line description for each workspace section. */
+const WORKSPACE_SECTION_ICONS: Readonly<Record<WorkspaceSection, IconName>> = {
+  logs: "logs",
+  analytics: "chart",
+  "speed-insights": "pulse",
+  firewall: "shield",
+  cdn: "pulse",
+  env: "env",
+  domains: "domains",
+  connect: "connect",
+  integrations: "integrations",
+  storage: "storage",
+  database: "database",
+  flags: "flag",
+  agent: "agent",
+  "ai-gateway": "gateway",
+  sandboxes: "sandbox",
+  workflows: "workflow",
+  images: "images",
+  usage: "chart",
+  support: "support",
+};
+
+const WORKSPACE_SECTION_LABELS: Readonly<Record<WorkspaceSection, string>> = {
+  logs: "Logs",
+  analytics: "Analytics",
+  "speed-insights": "Speed Insights",
+  firewall: "Firewall",
+  cdn: "CDN",
+  env: "Environment Variables",
+  domains: "Domains",
+  connect: "Connect",
+  integrations: "Integrations",
+  storage: "Storage",
+  database: "Database",
+  flags: "Flags",
+  agent: "Agent",
+  "ai-gateway": "AI Gateway",
+  sandboxes: "Sandboxes",
+  workflows: "Workflows",
+  images: "Images",
+  usage: "Usage",
+  support: "Support",
+};
+
+const WORKSPACE_SECTION_DESCRIPTIONS: Readonly<Record<WorkspaceSection, string>> = {
+  logs: "Runtime logs across this organization, newest first.",
+  analytics: "Traffic and visitor counts across this organization.",
+  "speed-insights": "Real-user performance: the Core Web Vitals across this organization.",
+  firewall: "Traffic, rules and the audit log for this organization's edge.",
+  cdn: "Cached delivery: requests, cache hit rate and transfer.",
+  env: "Variables available to this organization's projects.",
+  domains: "Every hostname this organization serves.",
+  connect: "Connectors and the tokens they issue.",
+  integrations: "Third-party services wired into this organization.",
+  storage: "Object storage buckets for this organization.",
+  database: "Databases, tables, storage and auth.",
+  flags: "Feature flags and who they are rolled out to.",
+  agent: "The assistant's tasks and what it has done.",
+  "ai-gateway": "Models, API keys and spend for the managed AI gateway.",
+  sandboxes: "Isolated machines for agent and one-off workloads.",
+  workflows: "Durable multi-step runs and their steps.",
+  images: "Image transformations served from this organization.",
+  usage: "Metered usage against each resource's cap.",
+  support: "Open a case and read what has been filed.",
+};
+
+/** A glyph and a one-line description for each project section. */
+const PROJECT_SECTION_ICONS: Readonly<Record<ProjectSection, IconName>> = {
+  "speed-insights": "pulse",
+  observability: "pulse",
+  firewall: "shield",
+  cdn: "pulse",
+  connect: "connect",
+  integrations: "integrations",
+  storage: "storage",
+  flags: "flag",
+  agent: "agent",
+  "ai-gateway": "gateway",
+  sandboxes: "sandbox",
+  workflows: "workflow",
+  images: "images",
+  usage: "chart",
+  support: "support",
+};
+
+const PROJECT_SECTION_LABELS: Readonly<Record<ProjectSection, string>> = {
+  "speed-insights": "Speed Insights",
+  observability: "Observability",
+  firewall: "Firewall",
+  cdn: "CDN",
+  connect: "Connect",
+  integrations: "Integrations",
+  storage: "Storage",
+  flags: "Flags",
+  agent: "Agent",
+  "ai-gateway": "AI Gateway",
+  sandboxes: "Sandboxes",
+  workflows: "Workflows",
+  images: "Images",
+  usage: "Usage",
+  support: "Support",
+};
+
+const PROJECT_SECTION_DESCRIPTIONS: Readonly<Record<ProjectSection, string>> = {
+  "speed-insights": "Real-user performance: the Core Web Vitals for this project.",
+  observability: "Requests, traces and errors for this project.",
+  firewall: "Traffic, rules and the audit log for this project's edge.",
+  cdn: "Cached delivery for this project.",
+  connect: "Connectors this project uses.",
+  integrations: "Third-party services wired into this project.",
+  storage: "Object storage buckets for this project.",
+  flags: "Feature flags for this project.",
+  agent: "The assistant's tasks for this project.",
+  "ai-gateway": "Model routing and spend for this project.",
+  sandboxes: "Isolated machines for this project's agent workloads.",
+  workflows: "Durable runs for this project.",
+  images: "Image transformations served for this project.",
+  usage: "Metered usage for this project.",
+  support: "Support cases for this project.",
+};
+
+/**
+ * The workspace menu, in the reference's order.
+ *
+ * A project is opened from Projects. Everything below it is a workspace-wide
+ * view of the same idea the project menu shows per project.
+ */
 export function workspaceNav(context: NavContext): readonly NavItem[] {
   const organizationId = context.organizationId;
-  // Ordered by what a workspace actually does first: pick a project, then the
-  // things you check while operating one — what changed, what it costs, what
-  // grants access, and the profile. That is the same "most common workflow
-  // first" ordering Vercel's own navigation redesign arrived at, and it matches
-  // the order the data exists in here (an entry is listed whether or not it has
-  // rows; the page states its own state honestly).
   return [
     {
       id: "projects",
@@ -122,18 +245,25 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "orgDeployments", organizationId },
     },
     {
-      id: "members",
-      label: "Members",
-      icon: "members",
-      description: "Who can reach this organization, and at what rank.",
-      route: { name: "members", organizationId },
+      id: "logs",
+      label: "Logs",
+      icon: "logs",
+      description: WORKSPACE_SECTION_DESCRIPTIONS.logs,
+      route: { name: "workspaceSection", organizationId, section: "logs" },
     },
     {
-      id: "audit",
-      label: "Activity",
-      icon: "activity",
-      description: "An append-only record of what changed.",
-      route: { name: "audit", organizationId },
+      id: "analytics",
+      label: "Analytics",
+      icon: "chart",
+      description: WORKSPACE_SECTION_DESCRIPTIONS.analytics,
+      route: { name: "workspaceSection", organizationId, section: "analytics" },
+    },
+    {
+      id: "speed-insights",
+      label: "Speed Insights",
+      icon: "pulse",
+      description: WORKSPACE_SECTION_DESCRIPTIONS["speed-insights"],
+      route: { name: "workspaceSection", organizationId, section: "speed-insights" },
     },
     {
       id: "observability",
@@ -142,39 +272,17 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       description: "Job throughput, failures and latency across this organization.",
       route: { name: "observability", organizationId },
     },
-    {
-      // Security is one of this platform's two differentiators, so it is a
-      // workspace-level entry rather than something hidden inside a project's
-      // settings. The policy it edits is organization-wide, and this is the
-      // level that can see and set it — the project menu's Security entry is a
-      // shortcut into the same policy.
-      id: "security",
-      label: "Security",
-      icon: "shield",
-      description: "The edge posture for every project in this organization.",
-      route: { name: "security", organizationId },
-    },
-    {
-      id: "billing",
-      label: "Billing",
-      icon: "billing",
-      description: "Usage recorded for this organization. Empty until a metric is recorded.",
-      route: { name: "billing", organizationId },
-    },
-    {
-      id: "api-keys",
-      label: "API keys",
-      icon: "key",
-      description: "Programmatic access to this organization.",
-      route: { name: "apiKeys", organizationId },
-    },
-    {
-      id: "docs",
-      label: "Docs",
-      icon: "book",
-      description: "What every page does, and where a click lands.",
-      route: { name: "docs", organizationId },
-    },
+    ...WORKSPACE_SECTIONS.filter(
+      // The three above have a bespoke entry so Observability can sit between
+      // them in the reference's order; everything else is generated.
+      (section) => section !== "logs" && section !== "analytics" && section !== "speed-insights",
+    ).map((section) => ({
+      id: section,
+      label: WORKSPACE_SECTION_LABELS[section],
+      icon: WORKSPACE_SECTION_ICONS[section],
+      description: WORKSPACE_SECTION_DESCRIPTIONS[section],
+      route: { name: "workspaceSection", organizationId, section } satisfies Route,
+    })),
     {
       id: "settings",
       label: "Settings",
@@ -189,7 +297,9 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
  * The menu shown once a project is open.
  *
  * This is the drill-in switch: the sidebar is replaced, not appended to, so the
- * project's own sections are the only thing in view.
+ * project's own sections are the only thing in view. The order is the
+ * reference's project sidebar, which is the workspace menu with the project's
+ * own pages folded in.
  */
 export function projectNav(
   context: NavContext & { readonly projectId: string },
@@ -202,18 +312,6 @@ export function projectNav(
       icon: "overview",
       description: "Deployment state and recent activity for this project.",
       route: { name: "project", organizationId, projectId },
-    },
-    {
-      // Setup is the guided path from "an empty project" to "a live site": the
-      // four steps (repository, domain, environment, first deploy) as one
-      // ordered surface, rather than four menu entries a newcomer has to
-      // discover. It sits directly under Overview because it is the first thing
-      // a new project needs, and every step links to the page that owns it.
-      id: "setup",
-      label: "Setup",
-      icon: "setup",
-      description: "The path from an empty project to a live site, step by step.",
-      route: { name: "setup", organizationId, projectId },
     },
     {
       id: "deployments",
@@ -236,6 +334,16 @@ export function projectNav(
       description: "Deployment and job activity over time.",
       route: { name: "projectAnalytics", organizationId, projectId },
     },
+    ...PROJECT_SECTIONS.map((section) => ({
+      id: section,
+      label: PROJECT_SECTION_LABELS[section],
+      icon: PROJECT_SECTION_ICONS[section],
+      description: PROJECT_SECTION_DESCRIPTIONS[section],
+      route: { name: "projectSection", organizationId, projectId, section } satisfies Route,
+    })),
+    // Domains, Environment Variables and Database have pages of their own
+    // rather than the generic section page, so they carry their own routes and
+    // sit here, after the shared sections and before Settings.
     {
       id: "domains",
       label: "Domains",
@@ -244,15 +352,8 @@ export function projectNav(
       route: { name: "domains", organizationId, projectId },
     },
     {
-      id: "git",
-      label: "Git",
-      icon: "git",
-      description: "Repositories that deploy this project on push.",
-      route: { name: "git", organizationId, projectId },
-    },
-    {
       id: "env",
-      label: "Environment",
+      label: "Environment Variables",
       icon: "env",
       description: "Variables injected into this project's builds and runtime.",
       route: { name: "env", organizationId, projectId },
@@ -263,13 +364,6 @@ export function projectNav(
       icon: "database",
       description: "Databases, tables, storage and auth for this project.",
       route: { name: "database", organizationId, projectId },
-    },
-    {
-      id: "security",
-      label: "Security",
-      icon: "shield",
-      description: "Protection level applied to this project.",
-      route: { name: "security", organizationId, projectId },
     },
     {
       id: "settings",
@@ -286,8 +380,7 @@ export function projectNav(
  *
  * This is the third drill-in level: Workspace -> Project -> Database. Like the
  * project switch, it *replaces* the sidebar rather than appending to it, and a
- * back control returns to the project menu. That is the GitLab shape, not a
- * Cloudflare-style dropdown, per the owner's instruction.
+ * back control returns to the project menu.
  *
  * The section list is the vocabulary of a hosted Postgres platform, because
  * that is what this section is. Every entry is a real route, so each sub-page
@@ -335,12 +428,12 @@ export function databaseNav(
 }
 
 /**
- * Group a menu's items into the labelled runs the sidebar renders.
+ * Group a menu's items into the runs the sidebar renders.
  *
- * Groups keep the order the spec declares, and items keep the order the menu
- * function returned. Any id no group claims is appended in a final unlabelled
- * run rather than dropped, so a section added to a menu and forgotten here still
- * appears — the menu can never lose an entry to a bookkeeping mistake.
+ * A flat run keeps the order the menu function returned. Any id a labelled spec
+ * does not claim is appended in a final unlabelled run rather than dropped, so a
+ * section added to a menu and forgotten here still appears — the menu can never
+ * lose an entry to a bookkeeping mistake.
  */
 export function groupNavItems(
   items: readonly NavItem[],
@@ -349,23 +442,28 @@ export function groupNavItems(
   const claimed = new Set(specs.flatMap((spec) => spec.ids));
   const groups: NavGroup[] = [];
   for (const spec of specs) {
-    const members = spec.ids
-      .map((id) => items.find((item) => item.id === id))
-      .filter((item): item is NavItem => item !== undefined);
+    // A spec with no ids is the flat run: every item, in menu order.
+    const members =
+      spec.ids.length === 0
+        ? items
+        : spec.ids
+            .map((id) => items.find((item) => item.id === id))
+            .filter((item): item is NavItem => item !== undefined);
     if (members.length > 0) groups.push({ label: spec.label, items: members });
   }
-  const rest = items.filter((item) => !claimed.has(item.id));
-  if (rest.length > 0) groups.push({ label: "More", items: rest });
+  const claimedNow = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
+  const rest = items.filter((item) => !claimedNow.has(item.id));
+  if (rest.length > 0) groups.push({ label: "", items: rest });
   return groups;
 }
 
 const GROUPS_BY_LEVEL: Readonly<Record<NavLevel, readonly GroupSpec[]>> = {
-  workspace: WORKSPACE_GROUPS,
-  project: PROJECT_GROUPS,
+  workspace: FLAT,
+  project: FLAT,
   database: DATABASE_GROUPS,
 };
 
-/** The labelled runs for a menu level. The shell renders one block per group. */
+/** The runs for a menu level. The shell renders one block per run. */
 export function navGroups(level: NavLevel, items: readonly NavItem[]): readonly NavGroup[] {
   return groupNavItems(items, GROUPS_BY_LEVEL[level]);
 }
@@ -398,56 +496,53 @@ export function navForRoute(
     level: "workspace" as const,
   });
 
+  const project = (projectId: string, activeId: string | null) => ({
+    items: projectNav({ ...context, projectId }),
+    activeId,
+    projectId,
+    level: "project" as const,
+  });
+
   switch (route.name) {
     case "projects":
       return workspace("projects");
     case "orgDeployments":
       return workspace("org-deployments");
-    case "members":
-      return workspace("members");
-    case "apiKeys":
-      return workspace("api-keys");
-    case "audit":
-      return workspace("audit");
     case "observability":
       return workspace("observability");
-    case "billing":
-      return workspace("billing");
-    case "docs":
-      return workspace("docs");
     case "settings":
       return workspace("settings");
+    case "workspaceSection":
+      return workspace(route.section);
     case "security": {
-      // Security is one route with two homes. Opened from the workspace menu
-      // (no project) it is the organization-wide policy and highlights the
-      // workspace entry; opened from a project it highlights that project's
-      // Security entry. The page is identical — only the sidebar differs.
-      if (!route.projectId) return workspace("security");
-      return {
-        items: projectNav({ ...context, projectId: route.projectId }),
-        activeId: "security",
-        projectId: route.projectId,
-        level: "project",
-      };
-    }
-    case "setup": {
+      // Security is one route with two homes. Opened from a project it renders
+      // the same organization-wide policy with the project menu around it;
+      // opened without a project it renders with the workspace menu. Neither
+      // menu lists it, so nothing is highlighted either way — the page is
+      // reachable by URL, which is where the reference leaves it.
       if (!route.projectId) return workspace(null);
-      return {
-        items: projectNav({ ...context, projectId: route.projectId }),
-        activeId: "setup",
-        projectId: route.projectId,
-        level: "project",
-      };
+      return project(route.projectId, null);
     }
     case "organizations":
     case "organization":
     case "auth_callback":
     case "not_found":
-      return workspace(null);
     case "landing":
       // The landing page is not part of the dashboard, so no sidebar item owns
       // it and the shell renders with no sidebar at all.
       return workspace(null);
+    case "apiKeys":
+    case "audit":
+    case "members":
+    case "billing":
+    case "docs":
+      // These pages still exist and still render, but the reference's menu does
+      // not list them, so no sidebar entry owns the route and nothing is
+      // highlighted. Reachable by URL, absent from the menu — not deleted.
+      return workspace(null);
+    case "projectSection":
+      if (!route.projectId) return workspace(null);
+      return project(route.projectId, route.section);
     case "project":
     case "deployments":
     case "domains":
@@ -455,25 +550,24 @@ export function navForRoute(
     case "env":
     case "projectLogs":
     case "projectAnalytics":
+    case "setup":
     case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
       // workspace-level dead link, and the honest answer is the workspace menu.
       if (!route.projectId) return workspace(null);
-      return {
-        items: projectNav({ ...context, projectId: route.projectId }),
-        activeId:
-          route.name === "project"
-            ? "overview"
-            : route.name === "projectSettings"
-              ? "settings"
-              : route.name === "projectLogs"
-                ? "logs"
-                : route.name === "projectAnalytics"
-                  ? "analytics"
-                  : route.name,
-        projectId: route.projectId,
-        level: "project",
-      };
+      const activeId =
+        route.name === "project"
+          ? "overview"
+          : route.name === "projectSettings"
+            ? "settings"
+            : route.name === "projectLogs"
+              ? "logs"
+              : route.name === "projectAnalytics"
+                ? "analytics"
+                : route.name === "setup"
+                  ? "overview"
+                  : route.name;
+      return project(route.projectId, activeId);
     }
     case "database": {
       if (!route.projectId) return workspace(null);
@@ -547,7 +641,7 @@ export function titleForRoute(route: Route): string {
     case "git":
       return "Git";
     case "env":
-      return "Environment";
+      return "Environment Variables";
     case "projectLogs":
       return "Logs";
     case "projectAnalytics":
@@ -565,11 +659,15 @@ export function titleForRoute(route: Route): string {
     case "members":
       return "Members";
     case "billing":
-      return "Billing";
+      return "Usage";
     case "docs":
       return "Docs";
     case "settings":
       return "Settings";
+    case "workspaceSection":
+      return WORKSPACE_SECTION_LABELS[route.section];
+    case "projectSection":
+      return PROJECT_SECTION_LABELS[route.section];
     case "not_found":
       return "Not found";
   }
@@ -586,6 +684,7 @@ export function backTargetFor(route: Route): Route | null {
     case "env":
     case "projectLogs":
     case "projectAnalytics":
+    case "projectSection":
     case "setup":
     case "projectSettings":
       return {

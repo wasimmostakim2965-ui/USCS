@@ -50,6 +50,24 @@ export type Route =
   | { readonly name: "settings"; readonly organizationId: string }
   | { readonly name: "apiKeys"; readonly organizationId: string }
   | { readonly name: "docs"; readonly organizationId: string }
+  /**
+   * A workspace section that has a place in the menu but no bespoke page yet.
+   * One route carries all of them rather than twenty near-identical routes, and
+   * the page names itself from the section, so the menu and the URL cannot
+   * disagree about which section is open.
+   */
+  | {
+      readonly name: "workspaceSection";
+      readonly organizationId: string;
+      readonly section: WorkspaceSection;
+    }
+  /** The same idea one level down: a project section with a generic page. */
+  | {
+      readonly name: "projectSection";
+      readonly organizationId: string;
+      readonly projectId: string;
+      readonly section: ProjectSection;
+    }
   | { readonly name: "not_found"; readonly path: string };
 
 export const DATABASE_SECTIONS = [
@@ -66,6 +84,65 @@ export const DATABASE_SECTIONS = [
 export type DatabaseSection = (typeof DATABASE_SECTIONS)[number];
 function isDatabaseSection(value: string): value is DatabaseSection {
   return (DATABASE_SECTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The workspace-level sections, in the order the sidebar shows them.
+ *
+ * This list is the menu. It mirrors Vercel's dashboard navigation, which the
+ * owner supplied as both a written list and 23 screenshots; the screenshots are
+ * the authority, and these names and this order are read off them. Anything
+ * with its own route and page above is not repeated here.
+ */
+export const WORKSPACE_SECTIONS = [
+  "logs",
+  "analytics",
+  "speed-insights",
+  "firewall",
+  "cdn",
+  "env",
+  "domains",
+  "connect",
+  "integrations",
+  "storage",
+  "database",
+  "flags",
+  "agent",
+  "ai-gateway",
+  "sandboxes",
+  "workflows",
+  "images",
+  "usage",
+  "support",
+] as const;
+export type WorkspaceSection = (typeof WORKSPACE_SECTIONS)[number];
+
+export function isWorkspaceSection(value: string): value is WorkspaceSection {
+  return (WORKSPACE_SECTIONS as readonly string[]).includes(value);
+}
+
+/** The project-level sections, in the order the project sidebar shows them. */
+export const PROJECT_SECTIONS = [
+  "speed-insights",
+  "observability",
+  "firewall",
+  "cdn",
+  "connect",
+  "integrations",
+  "storage",
+  "flags",
+  "agent",
+  "ai-gateway",
+  "sandboxes",
+  "workflows",
+  "images",
+  "usage",
+  "support",
+] as const;
+export type ProjectSection = (typeof PROJECT_SECTIONS)[number];
+
+export function isProjectSection(value: string): value is ProjectSection {
+  return (PROJECT_SECTIONS as readonly string[]).includes(value);
 }
 
 export function parseRoute(path: string): Route {
@@ -140,6 +217,23 @@ export function parseRoute(path: string): Route {
     return { name: "docs", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "settings" && segments.length === 3)
     return { name: "settings", organizationId: segments[1]! };
+  // A workspace section with a generic page. Registered after every bespoke
+  // workspace route above, so a named page always wins over the catch-all.
+  if (segments[0] === "orgs" && segments.length === 3 && isWorkspaceSection(segments[2]!))
+    return { name: "workspaceSection", organizationId: segments[1]!, section: segments[2]! };
+  // The same one level down, after every bespoke project route.
+  if (
+    segments[0] === "orgs" &&
+    segments[2] === "projects" &&
+    segments.length === 5 &&
+    isProjectSection(segments[4]!)
+  )
+    return {
+      name: "projectSection",
+      organizationId: segments[1]!,
+      projectId: segments[3]!,
+      section: segments[4]!,
+    };
   return { name: "not_found", path: clean };
 }
 
@@ -197,6 +291,10 @@ export function toPath(route: Route): string {
       return `/orgs/${encodeURIComponent(route.organizationId)}/docs`;
     case "settings":
       return `/orgs/${encodeURIComponent(route.organizationId)}/settings`;
+    case "workspaceSection":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/${encodeURIComponent(route.section)}`;
+    case "projectSection":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/${encodeURIComponent(route.section)}`;
     case "not_found":
       return route.path;
   }

@@ -547,6 +547,20 @@ export function AppShell({
       {sidebarVisible ? (
         <aside className={`sidebar${compactNav && sidebarOpen ? " sidebar--open" : ""}`}>
           <nav className="nav" aria-label="Sections">
+            {/* The reference's sidebar opens with a Find control, and so does
+                this one: the same command palette the top bar opens, in the
+                place the eye starts. */}
+            <button
+              type="button"
+              className="nav__item nav__find"
+              onClick={() => setPaletteOpen(true)}
+              title="Find a section or workspace"
+            >
+              <span className="nav__glyph" aria-hidden="true">
+                <Icon name="search" size={18} />
+              </span>
+              <span className="truncate">Find</span>
+            </button>
             {back ? (
               <button type="button" className="nav__item nav__back" onClick={() => go(back)}>
                 <span className="nav__glyph" aria-hidden="true">
@@ -555,9 +569,9 @@ export function AppShell({
                 <span className="truncate">Back</span>
               </button>
             ) : null}
-            {navGroups(nav.level, nav.items).map((group) => (
-              <div className="nav__section" key={group.label}>
-                <div className="nav__group">{group.label}</div>
+            {navGroups(nav.level, nav.items).map((group, index) => (
+              <div className="nav__section" key={`${group.label}-${index}`}>
+                {group.label ? <div className="nav__group">{group.label}</div> : null}
                 {group.items.map((item) => (
                   <NavLink
                     key={item.id}

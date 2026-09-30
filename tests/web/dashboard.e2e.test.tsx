@@ -539,8 +539,8 @@ describe("the dashboard against a live control plane", () => {
     renderApp(url, "#/orgs/org-1/projects");
 
     const nav = await screen.findByRole("navigation", { name: "Sections" });
-    const activity = within(nav).getByRole("link", { name: /Activity/i });
-    expect(activity.getAttribute("href")).toBe("#/orgs/org-1/audit");
+    const firewall = within(nav).getByRole("link", { name: /Firewall/i });
+    expect(firewall.getAttribute("href")).toBe("#/orgs/org-1/firewall");
   });
 
   it("shows a not-found page for an address that matches no route", async () => {
@@ -2757,15 +2757,15 @@ describe("the command palette", () => {
 
     const input = await screen.findByPlaceholderText(/Jump to a section/);
     // The workspace and its sections are offered, not a hardcoded menu.
-    expect(screen.getByRole("button", { name: /API keys/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Firewall/ })).toBeTruthy();
 
     // Typing filters, then Enter opens the highlighted command.
-    await user.type(input, "API keys");
+    await user.type(input, "Firewall");
     await user.keyboard("{Enter}");
 
     // Navigation is real: the URL changed and the page followed it.
-    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/settings/api-keys"));
-    expect(await screen.findByRole("heading", { name: "API keys" })).toBeTruthy();
+    await waitFor(() => expect(window.location.hash).toBe("#/orgs/org-1/firewall"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Firewall" })).toBeTruthy();
   });
 
   it("says so when nothing matches, instead of showing an empty box", async () => {
@@ -4762,8 +4762,11 @@ describe("the project Setup page", () => {
     renderApp(url, "#/orgs/org-1/projects/p-1/setup");
 
     await waitFor(() => expect(document.title).toBe("Setup · Cloud Wai"));
+    // The reference's menu has no Setup entry, so the project menu is shown with
+    // Overview highlighted and Setup reachable by URL — not listed, not deleted.
     const nav = document.querySelector(".sidebar")!;
-    expect(within(nav as HTMLElement).getByRole("link", { name: /Setup/ })).toBeTruthy();
+    expect(within(nav as HTMLElement).getByRole("link", { name: "Overview" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Setup" })).toBeTruthy();
   });
 
   it("claims nothing about a step until the section behind it answers", async () => {
@@ -4823,30 +4826,29 @@ describe("the workspace Security entry", () => {
     return { ok: true, status: 200, data: [] };
   };
 
-  it("opens the organization-wide policy from the workspace menu", async () => {
+  it("opens the organization-wide policy by URL, without a menu entry", async () => {
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/security");
 
     await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
-    // The workspace sidebar is shown (not a project menu), and its Security
-    // entry is the active one.
+    // The reference's menu has no Security entry, so nothing in the sidebar is
+    // active for this route — but the page still renders, with the edge banner
+    // derived from the engine.
     const nav = document.querySelector(".sidebar")!;
-    const security = within(nav as HTMLElement).getByRole("link", { name: "Security" });
-    expect(security.getAttribute("href")).toBe("#/orgs/org-1/security");
-    expect(security.className).toContain("nav__item--active");
-    // The same policy page renders, with the edge banner derived from the engine.
+    expect((nav as HTMLElement).querySelectorAll(".nav__item--active").length).toBe(0);
     expect(await screen.findByText("Edge configured.")).toBeTruthy();
   });
 
-  it("keeps the project shortcut on the project menu, pointing at the same policy", async () => {
+  it("keeps the project Security route reachable, though the menu does not list it", async () => {
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/projects/p-1/security");
 
     await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
+    // The project menu is shown, with nothing active for a route it does not
+    // list; the page itself is unchanged.
     const nav = document.querySelector(".sidebar")!;
-    const security = within(nav as HTMLElement).getByRole("link", { name: "Security" });
-    expect(security.getAttribute("href")).toBe("#/orgs/org-1/projects/p-1/security");
-    expect(security.className).toContain("nav__item--active");
+    expect((nav as HTMLElement).querySelectorAll(".nav__item--active").length).toBe(0);
+    expect(await screen.findByText("Edge configured.")).toBeTruthy();
   });
 });
 
@@ -4871,7 +4873,7 @@ describe("the in-dashboard documentation", () => {
     // Every entry is a list item with its name and its deep-linkable path.
     const items = menu!.querySelectorAll(".docs__menu-item");
     expect(items.length).toBeGreaterThan(0);
-    expect(Array.from(items).some((item) => item.textContent?.includes("Databases"))).toBe(false);
+    expect(Array.from(items).some((item) => item.textContent?.includes("Setup"))).toBe(false);
 
     // The workspace level is reachable, so its entry is a real in-app link.
     const settings = within(menu as HTMLElement).getByRole("link", { name: "Settings" });
@@ -4897,20 +4899,20 @@ describe("the in-dashboard documentation", () => {
     renderApp(url, "#/orgs/org-1/docs");
 
     await screen.findByText("How this dashboard is organised");
-    await user.type(screen.getByLabelText("Search the documentation"), "security");
+    await user.type(screen.getByLabelText("Search the documentation"), "firewall");
 
-    // The Security page section survives; an unrelated section does not.
+    // The Firewall page section survives; an unrelated section does not.
     expect(
       await screen.findByText(
-        "Protection level, attack mode, deny rules, trusted sources, rate limits and verified bots.",
+        "The edge's traffic, the rules that shape it, and the audit log of changes.",
       ),
     ).toBeTruthy();
     expect(
       screen.queryByText("Build and release history, with rollback, promote, redeploy and cancel."),
     ).toBeNull();
-    // The menu map keeps the Security entry and drops the rest.
+    // The menu map keeps the Firewall entry and drops the rest.
     const menu = document.querySelector(".docs__menu")!;
-    expect(within(menu as HTMLElement).getByText("Security")).toBeTruthy();
+    expect(within(menu as HTMLElement).getByText("Firewall")).toBeTruthy();
   });
 
   it("says so honestly when a search matches nothing", async () => {
@@ -5079,21 +5081,19 @@ describe("navigation controls on a narrow screen", () => {
     }
   });
 
-  it("groups the section list under labels rather than one flat run", async () => {
+  it("keeps the section list one flat run, matching the reference", async () => {
     const url = await startApi(responder);
     const { container } = renderApp(url, "#/orgs/org-1/projects");
     await waitFor(() => expect(container.querySelector(".nav__section")).toBeTruthy());
 
+    // The reference's sidebar is one flat list with no group headings; the menu
+    // is long, but the reference does not break it up, and neither does this.
     const labels = Array.from(container.querySelectorAll(".nav__group")).map(
       (node) => node.textContent,
     );
-    // Vercel's sidebar is grouped; a wall of twenty entries is not a menu.
-    expect(labels).toContain("Workspace");
-    expect(labels).toContain("Observability");
-    expect(labels.length).toBeGreaterThan(1);
+    expect(labels.length).toBe(0);
 
-    // Every section still renders, under some group. Grouping reorders the menu
-    // but must never lose an entry.
+    // Every section still renders. Matching the reference must not lose an entry.
     const rendered = container.querySelectorAll(".nav__item").length;
     expect(rendered).toBeGreaterThan(8);
   });

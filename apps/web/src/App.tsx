@@ -30,6 +30,8 @@ import { LoginPage } from "./pages/login.js";
 import { LandingPage } from "./pages/landing.js";
 import { DatabasePage } from "./pages/database.js";
 import { ProjectSetupPage } from "./pages/setup.js";
+import { SectionPage } from "./pages/section-page.js";
+import { PROJECT_SECTIONS_SPEC, WORKSPACE_SECTIONS_SPEC } from "./sections.js";
 import { APP_VERSION } from "./version.js";
 import {
   ActivityPage,
@@ -334,6 +336,20 @@ export function App({
         return <DocsPage />;
       case "settings":
         return <SettingsPage organizationId={route.organizationId} />;
+      case "workspaceSection":
+        return (
+          <SectionPage
+            spec={WORKSPACE_SECTIONS_SPEC[route.section]!}
+            scope="Applies to every project in this organization."
+          />
+        );
+      case "projectSection":
+        return (
+          <SectionPage
+            spec={PROJECT_SECTIONS_SPEC[route.section]!}
+            scope="Applies to this project."
+          />
+        );
       case "not_found":
         return <NotFoundPage path={route.path} />;
     }

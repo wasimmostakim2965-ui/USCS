@@ -87,6 +87,9 @@ describe("documentation content", () => {
     const exempt = new Set([
       "docs", // the Docs entry itself
       "overview", // the workspace has no entry named Overview; the project does
+      "setup", // a first-run helper page, documented by the Projects section
+      "git", // a project's repository link, documented by the Projects section
+      "security", // organization-wide, documented by the Firewall section
     ]);
     for (const item of allNavItems()) {
       const id = item.id.startsWith("database-") ? "database" : item.id;
@@ -133,46 +136,49 @@ describe("navigation has no dead entries", () => {
     expect(nav.activeId).toBe("database-overview");
   });
 
-  it("keeps the project menu in most-common-workflow-first order", () => {
-    // Overview is the landing surface; Setup is the first-run path a new project
-    // needs next; Deployments and Logs are the daily-use pair a returning
-    // operator lives in. Analytics follows, then Domains/Git/Env, then the two
-    // differentiators (Database, Security) and Settings. If this order changes,
-    // it is a deliberate act.
+  it("keeps the project menu in the reference's order", () => {
+    // The project menu mirrors the reference the owner supplied: the project's
+    // own pages first (Overview, Deployments, Logs, Analytics), then the shared
+    // platform sections, then Domains, Environment Variables, Database and
+    // Settings. If this order changes, it is a deliberate act.
     const ids = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
-    expect(ids.slice(0, 4)).toEqual(["overview", "setup", "deployments", "logs"]);
-    expect(ids).toContain("analytics");
+    expect(ids.slice(0, 4)).toEqual(["overview", "deployments", "logs", "analytics"]);
     expect(ids).toContain("database");
-    expect(ids).toContain("security");
+    expect(ids).toContain("domains");
   });
 
-  it("lists Security at the workspace level, alongside the project shortcut", () => {
-    // Security is organization-wide, so the workspace menu carries it too. The
-    // project menu keeps its Security entry as a shortcut into the same policy.
+  it("keeps Security reachable, one level down, after the menu was matched to the reference", () => {
+    // The reference's sidebar has no Security entry, so the workspace menu no
+    // longer lists it — but the page and the route are unchanged, and a project
+    // can still reach the same organization-wide policy.
     const workspace = workspaceNav({ organizationId: ORG }).map((item) => item.id);
-    expect(workspace).toContain("security");
-    const project = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
-    expect(project).toContain("security");
+    expect(workspace).not.toContain("security");
+    const route = { name: "security", organizationId: ORG } as const;
+    expect(parseRoute(toPath(route))).toEqual(route);
   });
 
   it("resolves the workspace Security entry to the organization, not a project", () => {
     const route = { name: "security", organizationId: ORG } as const;
     const nav = navForRoute(route, { organizationId: ORG });
     expect(nav.level).toBe("workspace");
-    expect(nav.activeId).toBe("security");
+    expect(nav.activeId).toBeNull();
     expect(parseRoute(toPath(route))).toEqual(route);
   });
 
-  it("exposes both of our differentiators at the project level", () => {
+  it("lists Database at both the workspace and the project level", () => {
+    const workspace = workspaceNav({ organizationId: ORG }).map((i) => i.id);
+    expect(workspace).toContain("database");
     const ids = new Set(projectNav({ organizationId: ORG, projectId: PROJECT }).map((i) => i.id));
     expect(ids.has("database")).toBe(true);
-    expect(ids.has("security")).toBe(true);
   });
 
-  it("lists the Docs entry at the workspace level", () => {
+  it("keeps the Docs page reachable even though the menu was matched to the reference", () => {
+    // Docs is not one of the reference's menu entries, so it is not listed; the
+    // page still exists and still has a route.
     const item = workspaceNav({ organizationId: ORG }).find((entry) => entry.id === "docs");
-    expect(item).toBeDefined();
-    expect(item?.route).toEqual({ name: "docs", organizationId: ORG });
+    expect(item).toBeUndefined();
+    const route = { name: "docs", organizationId: ORG } as const;
+    expect(parseRoute(toPath(route))).toEqual(route);
   });
 
   it("keeps every database sub-section reachable as its own route", () => {
@@ -210,7 +216,7 @@ describe("the menu map the Docs page renders", () => {
     const documented = new Set<string>(DOC_SECTIONS.map((section) => section.id));
     // The same exemptions the coverage test above uses: the Docs entry documents
     // itself, and the workspace level has no "Overview" (the project does).
-    const exempt = new Set(["docs", "overview"]);
+    const exempt = new Set(["docs", "overview", "setup", "git", "security"]);
     for (const level of levels) {
       for (const item of level.items) {
         if (exempt.has(item.id)) continue;
