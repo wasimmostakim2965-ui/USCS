@@ -16,7 +16,19 @@ export type Route =
       readonly projectId: string;
       readonly section?: DatabaseSection | undefined;
     }
-  | { readonly name: "security"; readonly organizationId: string; readonly projectId: string }
+  /**
+   * Security is organization-wide: `security_policies` is keyed by
+   * `organization_id`. It is reachable two ways — as a workspace-level entry
+   * (no `projectId`) and as a project-level shortcut into the same policy (with
+   * a `projectId`, so the project sidebar can highlight it). The page is the
+   * same at both; the optional `projectId` is what the two URLs differ by.
+   */
+  | { readonly name: "security"; readonly organizationId: string; readonly projectId?: string }
+  | {
+      readonly name: "setup";
+      readonly organizationId: string;
+      readonly projectId: string;
+    }
   | { readonly name: "git"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "env"; readonly organizationId: string; readonly projectId: string }
   | { readonly name: "projectLogs"; readonly organizationId: string; readonly projectId: string }
@@ -77,7 +89,13 @@ export function parseRoute(path: string): Route {
     return { name: "deployments", organizationId: segments[1]!, projectId: segments[3]! };
   if (segments[0] === "orgs" && segments[2] === "projects" && segments.length === 5) {
     const section = segments[4];
-    if (section === "domains" || section === "security" || section === "git" || section === "env")
+    if (
+      section === "domains" ||
+      section === "security" ||
+      section === "setup" ||
+      section === "git" ||
+      section === "env"
+    )
       return { name: section, organizationId: segments[1]!, projectId: segments[3]! };
     if (section === "logs")
       return { name: "projectLogs", organizationId: segments[1]!, projectId: segments[3]! };
@@ -109,6 +127,9 @@ export function parseRoute(path: string): Route {
     return { name: "audit", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "observability" && segments.length === 3)
     return { name: "observability", organizationId: segments[1]! };
+  // Workspace-level Security: the organization-wide policy, with no project.
+  if (segments[0] === "orgs" && segments[2] === "security" && segments.length === 3)
+    return { name: "security", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "deployments" && segments.length === 3)
     return { name: "orgDeployments", organizationId: segments[1]! };
   if (segments[0] === "orgs" && segments[2] === "members" && segments.length === 3)
@@ -143,7 +164,13 @@ export function toPath(route: Route): string {
     case "database":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/database${route.section ? `/${encodeURIComponent(route.section)}` : ""}`;
     case "security":
-      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`;
+      // The project shortcut carries a `projectId`; the workspace entry does
+      // not, and both are the same policy.
+      return route.projectId
+        ? `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/security`
+        : `/orgs/${encodeURIComponent(route.organizationId)}/security`;
+    case "setup":
+      return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/setup`;
     case "git":
       return `/orgs/${encodeURIComponent(route.organizationId)}/projects/${encodeURIComponent(route.projectId)}/git`;
     case "env":

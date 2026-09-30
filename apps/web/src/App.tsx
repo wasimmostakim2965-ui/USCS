@@ -29,6 +29,7 @@ import { titleForRoute } from "./navigation.js";
 import { LoginPage } from "./pages/login.js";
 import { LandingPage } from "./pages/landing.js";
 import { DatabasePage } from "./pages/database.js";
+import { ProjectSetupPage } from "./pages/setup.js";
 import { APP_VERSION } from "./version.js";
 import {
   ActivityPage,
@@ -297,6 +298,10 @@ export function App({
         );
       case "security":
         return <SecurityPage organizationId={route.organizationId} />;
+      case "setup":
+        return (
+          <ProjectSetupPage organizationId={route.organizationId} projectId={route.projectId} />
+        );
       case "git":
         return <GitPage organizationId={route.organizationId} projectId={route.projectId} />;
       case "env":
@@ -307,10 +312,7 @@ export function App({
         );
       case "projectAnalytics":
         return (
-          <ProjectAnalyticsPage
-            organizationId={route.organizationId}
-            projectId={route.projectId}
-          />
+          <ProjectAnalyticsPage organizationId={route.organizationId} projectId={route.projectId} />
         );
       case "projectSettings":
         return (

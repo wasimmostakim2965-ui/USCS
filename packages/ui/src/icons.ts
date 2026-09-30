@@ -70,6 +70,10 @@ const ICON_SET = {
   deployments: {
     paths: ["M12 4v11", "M8 11l4 4 4-4", "M5 18.5h14"],
   },
+  /* a checklist: ordered steps ending in a check. The guided setup path. */
+  setup: {
+    paths: ["M4.5 6.5h7", "M4.5 12h10.5", "M4.5 17.5h7", "M16.4 10.6l2.2 2.2 4.2-4.6"],
+  },
   domains: {
     paths: [
       "M3.5 12h17",

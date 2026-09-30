@@ -298,7 +298,7 @@ describe("the dashboard against a live control plane", () => {
     expect(screen.getByText("Unverified")).toBeTruthy();
   });
 
-  it("offers the registrar-style extension search on the Domains page, honestly", async () => {
+  it("checks a hostname on the Domains page without inventing an availability result", async () => {
     const url = await startApi((procedure) => {
       if (procedure === "organizations.list") {
         return { ok: true, status: 200, data: organizations };
@@ -313,20 +313,22 @@ describe("the dashboard against a live control plane", () => {
     renderApp(url, "#/orgs/org-1/projects/p-1/domains");
     await waitFor(() => expect(document.title).toBe("Domains · Cloud Wai"));
 
-    // Before a lookup the box is present and honest: the query is answered about,
-    // the registrar is named as the reason there is no availability result.
-    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
+    // The field takes a hostname the customer already owns. A bare label is not a
+    // hostname, and the answer says so rather than expanding it into names to
+    // sell: there is no registrar here and no price.
+    const box = screen.getByLabelText("Attach a domain you own") as HTMLInputElement;
     await userEvent.type(box, "acme");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(await screen.findByText(/is not a hostname/)).toBeTruthy();
 
-    // A bare label is expanded across the usual extensions, like a registrar
-    // search — and each candidate is marked as needing a registrar, never priced
-    // and never called available.
-    expect(await screen.findByText("acme.com")).toBeTruthy();
-    expect(screen.getByText("acme.net")).toBeTruthy();
-    expect(screen.getByText("acme.io")).toBeTruthy();
-    expect(screen.getAllByText("Needs a registrar").length).toBeGreaterThan(0);
+    // A real hostname is answered with how it attaches — never "available", and
+    // never a price.
+    await userEvent.clear(box);
+    await userEvent.type(box, "acme.com");
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(await screen.findByText(/Add acme\.com below/)).toBeTruthy();
     expect(screen.queryByText(/available/i)).toBeNull();
+    expect(screen.queryByText(/needs a registrar/i)).toBeNull();
   });
 
   it("reports a revoked API key as revoked, not as an error", async () => {
@@ -614,7 +616,7 @@ describe("the public landing page", () => {
     expect(called).toBe(false);
   });
 
-  it("carries a domain search box that states the registrar is not configured", async () => {
+  it("carries a domain box that attaches a name you own, never sells one", async () => {
     const url = await startApi(() => ({ ok: true, status: 200, data: [] }));
     const { default: userEvent } = await import("@testing-library/user-event");
 
@@ -625,15 +627,17 @@ describe("the public landing page", () => {
       </ToastProvider>,
     );
 
-    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
-    // The search is real but the lookup is not: submitting must not fabricate an
-    // availability answer, and the note says why.
+    const box = screen.getByLabelText("Attach a domain you own") as HTMLInputElement;
+    // The note names the real rule: the field answers about a name you already
+    // own and never invents an availability result or a price.
     await userEvent.type(box, "acme.com");
-    expect(screen.getByText(/registrar lookup is not/i)).toBeTruthy();
-    // Submitting produces a real, honest result about the query — not a scroll to
-    // text that was already on screen, and not an invented availability.
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(await screen.findByText(/cannot report whether acme\.com is available/i)).toBeTruthy();
+    expect(screen.getByText(/never invents an availability result or a price/i)).toBeTruthy();
+    // Submitting produces a real, honest answer about the query — how the name
+    // attaches — and never an invented availability or a price.
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
+    expect(await screen.findByText(/Add acme\.com below/)).toBeTruthy();
+    expect(await screen.findByText(/nothing is bought here/i)).toBeTruthy();
+    expect(screen.queryByText(/available/i)).toBeNull();
     // Still no API call — a landing-page search cannot verify a domain.
     expect((box as HTMLInputElement).value).toBe("acme.com");
   });
@@ -649,9 +653,9 @@ describe("the public landing page", () => {
       </ToastProvider>,
     );
 
-    const box = screen.getByLabelText("Find a domain") as HTMLInputElement;
+    const box = screen.getByLabelText("Attach a domain you own") as HTMLInputElement;
     await userEvent.type(box, "not a domain");
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    await userEvent.click(screen.getByRole("button", { name: "Check" }));
     // An honest answer about the input, rather than a lookup that would have to
     // invent a result for something that is not a hostname.
     expect(await screen.findByText(/is not a hostname/i)).toBeTruthy();
@@ -4643,6 +4647,171 @@ describe("the sidebar (wide-screen default and toggle)", () => {
 
     await user.click(screen.getByRole("button", { name: "Show navigation" }));
     await waitFor(() => expect(container.querySelector(".sidebar")).toBeTruthy());
+  });
+});
+
+describe("the project Setup page", () => {
+  /** A control plane where only the named procedures have rows. */
+  function setupResponder(overrides: Record<string, unknown>) {
+    return (procedure: string): RpcResponse => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      if (procedure in overrides) {
+        return { ok: true, status: 200, data: overrides[procedure] };
+      }
+      return { ok: true, status: 200, data: [] };
+    };
+  }
+
+  it("orders the four steps and links each to the page that owns it", async () => {
+    const url = await startApi(setupResponder({}));
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+
+    await waitFor(() => expect(document.title).toBe("Setup · Cloud Wai"));
+
+    // Every step is present, in the order the work happens, and each one is a
+    // link into the page that actually performs it — never a duplicated control.
+    const steps = Array.from(document.querySelectorAll(".setup-step")).map(
+      (node) => node.querySelector("strong")?.textContent,
+    );
+    expect(steps).toEqual([
+      "Connect a repository",
+      "Set environment variables",
+      "Deploy once",
+      "Attach a domain you own",
+    ]);
+    expect(screen.getByRole("link", { name: /Connect Git/ }).getAttribute("href")).toBe(
+      "#/orgs/org-1/projects/p-1/git",
+    );
+    expect(screen.getByRole("link", { name: /Deploy now/ }).getAttribute("href")).toBe(
+      "#/orgs/org-1/projects/p-1/deployments",
+    );
+    expect(screen.getByRole("link", { name: /Add a domain/ }).getAttribute("href")).toBe(
+      "#/orgs/org-1/projects/p-1/domains",
+    );
+  });
+
+  it("marks a step done only when its own section says so", async () => {
+    // A repository row, a variable, a succeeded deployment and a verified domain
+    // — the four sources each step reads. The page must not mark anything done on
+    // its own.
+    const url = await startApi(
+      setupResponder({
+        "git.links.list": [{ id: "g-1", provider: "github", repository: "acme/web" }],
+        "env.list": [{ id: "e-1", key: "DATABASE_URL" }],
+        "deployments.list": [
+          {
+            id: "d-1",
+            status: "succeeded",
+            url: "https://web-app.example.test",
+            failureReason: null,
+            isCurrent: true,
+          },
+        ],
+        "domains.list": [{ id: "dom-1", hostname: "web.example.test", verified: true }],
+        "providers.health": [{ provider: "coolify", state: "ready", detail: "Reachable." }],
+      }),
+    );
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+
+    await waitFor(() => expect(document.title).toBe("Setup · Cloud Wai"));
+
+    // Three required steps done, so the progress reads complete and the optional
+    // environment step does not hold it back.
+    expect(await screen.findByText("Setup complete")).toBeTruthy();
+    // The live URL is a real link (in the Serving summary and again in the
+    // deployments table), and the verified domain is named.
+    expect(
+      (await screen.findAllByRole("link", { name: "web-app.example.test" })).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText("web.example.test").length).toBeGreaterThan(0);
+  });
+
+  it("says a deploy needs an engine rather than showing an idle to-do", async () => {
+    const url = await startApi(
+      setupResponder({
+        "deployments.list": [
+          {
+            id: "d-1",
+            status: "not_configured",
+            url: null,
+            failureReason: "No hosting engine is wired.",
+            isCurrent: false,
+          },
+        ],
+        "providers.health": [
+          { provider: "coolify", state: "not_configured", detail: "No credentials." },
+        ],
+      }),
+    );
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+
+    // The blocked step is labelled honestly, and the reason is shown — never a
+    // green tick over a deployment that never ran.
+    expect(await screen.findByText("Needs an engine")).toBeTruthy();
+    expect(screen.getByText(/no hosting engine is wired/i)).toBeTruthy();
+    expect(screen.queryByText("Setup complete")).toBeNull();
+  });
+
+  it("is reachable from the project menu and titled Setup", async () => {
+    const url = await startApi(setupResponder({}));
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+
+    await waitFor(() => expect(document.title).toBe("Setup · Cloud Wai"));
+    const nav = document.querySelector(".sidebar")!;
+    expect(within(nav as HTMLElement).getByRole("link", { name: /Setup/ })).toBeTruthy();
+  });
+});
+
+describe("the workspace Security entry", () => {
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    if (procedure === "providers.health") {
+      return {
+        ok: true,
+        status: 200,
+        data: [
+          { provider: "envoy", state: "ready", detail: "Configured." },
+          { provider: "coraza", state: "ready", detail: "Configured." },
+        ],
+      };
+    }
+    if (procedure === "security.policy.get") {
+      return { ok: true, status: 200, data: { policy: null, events: [] } };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  it("opens the organization-wide policy from the workspace menu", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/security");
+
+    await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
+    // The workspace sidebar is shown (not a project menu), and its Security
+    // entry is the active one.
+    const nav = document.querySelector(".sidebar")!;
+    const security = within(nav as HTMLElement).getByRole("link", { name: "Security" });
+    expect(security.getAttribute("href")).toBe("#/orgs/org-1/security");
+    expect(security.className).toContain("nav__item--active");
+    // The same policy page renders, with the edge banner derived from the engine.
+    expect(await screen.findByText("Edge configured.")).toBeTruthy();
+  });
+
+  it("keeps the project shortcut on the project menu, pointing at the same policy", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/security");
+
+    await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
+    const nav = document.querySelector(".sidebar")!;
+    const security = within(nav as HTMLElement).getByRole("link", { name: "Security" });
+    expect(security.getAttribute("href")).toBe("#/orgs/org-1/projects/p-1/security");
+    expect(security.className).toContain("nav__item--active");
   });
 });
 

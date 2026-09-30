@@ -2036,11 +2036,11 @@ export function DomainsPage({
     >
       <Card>
         <div className="stack" style={{ gap: "var(--space-2)" }}>
-          <strong>Find a domain</strong>
+          <strong>Attach a domain you own</strong>
           <span className="muted">
-            Look up a name the way a registrar search does. This deployment has no registrar
-            configured yet, so the box answers about the query and never invents an availability
-            result.
+            A domain is one you already own. Type it to check the shape of the name, then add it
+            below; Cloud Wai returns a DNS record to publish and the edge confirms it. Nothing is
+            bought or registered here.
           </span>
           <DomainSearch />
         </div>
@@ -6747,7 +6747,6 @@ export function SettingsPage({ organizationId }: { readonly organizationId: stri
           </ul>
         </Card>
       </SectionShell>
-
     </PageShell>
   );
 }
@@ -6892,7 +6891,9 @@ export function ProjectLogsPage({
   );
 
   const newest =
-    deployments.section.state.kind === "ready" ? (deployments.section.state.items[0] ?? null) : null;
+    deployments.section.state.kind === "ready"
+      ? (deployments.section.state.items[0] ?? null)
+      : null;
 
   return (
     <PageShell
@@ -7065,9 +7066,8 @@ export function ProjectAnalyticsPage({
                 <StatBox
                   label="In flight"
                   value={String(
-                    items.filter(
-                      (item) => item.status === "pending" || item.status === "running",
-                    ).length,
+                    items.filter((item) => item.status === "pending" || item.status === "running")
+                      .length,
                   )}
                   note="Pending or running"
                 />

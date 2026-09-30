@@ -1590,10 +1590,18 @@ export async function loadRoute(client: ApiClient, route: Route): Promise<Dashbo
 
     case "security":
       // Security shows policy and incident state through the same
-      // not-configured-or-ready lens as every other engine-backed view.
+      // not-configured-or-ready lens as every other engine-backed view. The
+      // policy is organization-wide, so the same load answers at both the
+      // workspace and the project level.
       return {
         title: "Security",
         sections: [await loadProviderHealth(client, route.organizationId)],
+      };
+
+    case "setup":
+      return {
+        title: "Setup",
+        sections: [await loadProject(client, route.projectId)],
       };
 
     case "projectSettings":

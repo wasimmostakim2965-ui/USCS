@@ -52,7 +52,11 @@ export const PROVIDER_NAMES = [
   "coraza",
   "crowdsec",
   "nftables",
-  "domain-reseller",
+  /*
+   * No `domain-reseller` provider. A domain is attached by the customer and
+   * confirmed by the `dns` verifier; Cloud Wai does not register or buy names,
+   * so there is no reseller engine to name here.
+   */
   /**
    * Serverless execution engine (AWS Lambda and equivalents).
    *

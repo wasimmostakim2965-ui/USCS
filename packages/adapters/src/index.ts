@@ -311,11 +311,16 @@ export interface SecurityEdgeAdapter extends NotConfiguredBrand {
   ): Promise<AdapterResult<{ healthy: boolean }>>;
 }
 
-export interface DomainResellerAdapter extends NotConfiguredBrand {
-  search(ctx: AdapterContext, input: { query: string }): Promise<AdapterResult<readonly string[]>>;
-  /** Registering requires credentials and legal approval; default is not_configured. */
-  register(ctx: AdapterContext, input: { domain: string }): Promise<AdapterResult<OperationRef>>;
-}
+/*
+ * There is deliberately no `DomainResellerAdapter` here.
+ *
+ * Cloud Wai does not buy or register domains: a domain is attached by the
+ * customer, who already owns it, and confirmed by `DomainVerifier` below. A
+ * registration/purchase contract with no implementation is a promise the
+ * deployment cannot keep — it invites a "Buy" button over a `not_configured`
+ * stub. The contract is removed rather than left dormant; it returns with a
+ * real registrar, credentials and legal approval behind it.
+ */
 
 export interface DomainVerification {
   readonly hostname: string;

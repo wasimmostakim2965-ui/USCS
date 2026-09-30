@@ -112,6 +112,31 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     source: "docs/adr/0004-control-plane-erd-rls.md",
   },
   {
+    id: "setup",
+    title: "Setup",
+    icon: "setup",
+    status: "wired",
+    summary:
+      "The guided path from an empty project to a live site: repository, environment, first deploy, domain.",
+    body: [
+      "Setup is the project's first-run surface. It lists the four steps a new project needs, in the order the work happens, and each step links to the page that owns it rather than duplicating that page's controls.",
+      'A step is marked done only when the section it reads says so — a repository row exists, a deployment is reported succeeded, a domain is verified. Visiting Setup does not complete a step, and a step blocked by an unconfigured engine says "needs an engine" with the reason instead of a green tick.',
+      "The environment step is marked optional because most but not all applications need it; the other three are required for a first live site.",
+    ],
+    diagram: {
+      caption:
+        "Repository → environment → deploy → domain: four steps, each owned by its own page.",
+      paths: [
+        "M3 8h12v8H3z",
+        "M19 8h12v8H19z",
+        "M35 8h12v8H35z",
+        "M51 8h12v8H51z",
+        "M9 16v6h48v-6",
+      ],
+    },
+    source: "docs/adr/0006-phased-plan-and-acceptance-tests.md",
+  },
+  {
     id: "overview",
     title: "Overview",
     icon: "overview",
@@ -168,7 +193,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Add a hostname, receive the DNS record the engine needs, then verify it. Verification is a real DNS check; an unverified domain is not an error, it is a pending step.",
       "Automatic TLS is provisioned by the engine once the domain is verified. The control plane records the domain and its state; it does not terminate TLS itself.",
       "Removing a domain detaches it from the project. A verified domain must be re-verified if its DNS record changes.",
-      "The page also carries a registrar-style lookup: type a hostname and it answers about the *query* — whether the shape is a valid hostname and, if so, what would have to be true for it to resolve here. It never invents an availability or price result, because the platform does not sell registrations; buying a domain stays with the registrar you already use.",
+      "The page carries a hostname field that answers about the *query*: whether the text is a valid hostname and, if so, exactly how it attaches here. It never invents an availability or price result, because the platform does not sell registrations — a domain is one you already own, and buying it stays with the registrar you already use.",
     ],
     diagram: {
       caption: "Add a hostname → the engine returns a DNS record → verify → the edge routes it.",
@@ -271,9 +296,9 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     status: "wired",
     summary: "Every deployment across this organization's projects, newest first.",
     body: [
-      "The workspace's Deployments page is the same append-ordered table the project page reads, scoped to the organization instead of one project. It answers \"what shipped recently\" without opening each project, and it is where a build that was started by a Git push or a rollback is still visible even if you were not in the project when it ran.",
+      'The workspace\'s Deployments page is the same append-ordered table the project page reads, scoped to the organization instead of one project. It answers "what shipped recently" without opening each project, and it is where a build that was started by a Git push or a rollback is still visible even if you were not in the project when it ran.',
       "Each row carries the project it belongs to; Open lands on that project's Deployments page, where the per-deployment actions (promote, rollback, redeploy, cancel, logs) live. A status is the hosting engine's own answer, and the Live badge is the server's pointer to the immutable build the domains currently serve.",
-      "The list pages by a keyset cursor, so \"Load older\" appends real rows without repeating or skipping one that arrived while you were reading. While any row is pending or running the page re-reads on a short interval, so a finished build does not read as still building until a manual refresh.",
+      'The list pages by a keyset cursor, so "Load older" appends real rows without repeating or skipping one that arrived while you were reading. While any row is pending or running the page re-reads on a short interval, so a finished build does not read as still building until a manual refresh.',
     ],
     diagram: {
       caption:
@@ -297,10 +322,11 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     title: "Members",
     icon: "members",
     status: "wired",
-    summary: "Everyone with access to this organization, and the role that decides what they can do.",
+    summary:
+      "Everyone with access to this organization, and the role that decides what they can do.",
     body: [
       "Members is the organization's people list, at the workspace level because membership is an organization fact rather than a project one. It is the same panel the organization Settings page renders, so the two surfaces cannot disagree about a role or about who has never signed in.",
-      "A member the platform has no profile for is named \"Not yet signed in\" rather than hidden or given an invented address: an invitation row exists before the invited person ever signs in, and that is a real state.",
+      'A member the platform has no profile for is named "Not yet signed in" rather than hidden or given an invented address: an invitation row exists before the invited person ever signs in, and that is a real state.',
       "Roles are rank-bounded and enforced in the API and in row-level security, not only in this page. An owner may grant any role, an admin only a non-owner; nobody can change their own role, and the last owner cannot be demoted or removed. A member can always remove themselves, which is how you leave an organization.",
     ],
     diagram: {
@@ -327,7 +353,8 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Open in Deployments lands on the project's Deployments page, where you can pick an older build or act on this one.",
     ],
     diagram: {
-      caption: "A project's newest deployment feeds one log view; older builds are chosen on Deployments.",
+      caption:
+        "A project's newest deployment feeds one log view; older builds are chosen on Deployments.",
       paths: ["M4 6h22v8H4z", "M34 6h24v8H34z", "M26 10h8", "M6 20h52", "M6 26h40", "M6 32h30"],
     },
     source: "docs/adr/0005-api-contracts-and-state-machines.md",
@@ -343,7 +370,8 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "It does not draw page views, request rates or visitor analytics. Those need a traffic-analytics engine this deployment has not configured, so the page names the boundary rather than drawing a chart from invented data. The activity that is absent is absent, not zero.",
     ],
     diagram: {
-      caption: "Deployment outcomes and job activity come from real rows; traffic analytics is absent.",
+      caption:
+        "Deployment outcomes and job activity come from real rows; traffic analytics is absent.",
       paths: [
         "M4 30V16h5v14z",
         "M13 30V8h5v22z",

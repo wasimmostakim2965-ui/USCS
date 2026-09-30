@@ -106,12 +106,27 @@ where the user was.
 There are three drill-in levels, and `navForRoute` returns exactly one of them.
 The sidebar is *replaced*, not appended to, at each level:
 
-- **workspace** — Projects, API keys, Activity, Settings.
-- **project** — Overview, Deployments, Domains, Database, Security, Settings.
+- **workspace** — Projects, Deployments, Members, Activity, Observability, Security,
+  Billing, API keys, Docs, Settings.
+- **project** — Overview, Setup, Deployments, Logs, Analytics, Domains, Git,
+  Environment, Database, Security, Settings.
 - **database** — the Database sub-menu (Overview, Table Editor, SQL Editor,
   Authentication, Storage, API, Roles & Extensions, Logs, Settings). Reached from
   the project menu's Database entry. The back control steps up one level: from a
   sub-page to the Database Overview, then from the Overview to the project menu.
+
+Two entries deserve a note because they exist at more than one level:
+
+- **Security** is organization-wide (`security_policies` is keyed by
+  `organization_id`), so it is a workspace entry and the project menu's Security
+  entry is a shortcut into the same policy. Both URLs render the same page; only
+  the sidebar (and the highlighted entry) differs. `toPath` emits
+  `/orgs/:id/security` without a project and `/orgs/:id/projects/:pid/security`
+  with one.
+- **Setup** is the project's first-run path — repository, environment, first
+  deploy, domain — as one ordered surface. It is a *guide*, not a second set of
+  controls: each step reads the section its own page owns and links there, so the
+  checklist can never disagree with the page it points at.
 
 A sub-page is a real route: `.../database/tables` is not a query parameter or a
 client-side tab, so it can be linked, bookmarked and reloaded on its own. Adding

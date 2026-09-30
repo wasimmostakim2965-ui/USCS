@@ -146,6 +146,8 @@ describe("route parsing", () => {
         section,
       })),
       { name: "security", organizationId: "org-a", projectId: "p-1" },
+      { name: "security", organizationId: "org-a" },
+      { name: "setup", organizationId: "org-a", projectId: "p-1" },
       { name: "git", organizationId: "org-a", projectId: "p-1" },
       { name: "env", organizationId: "org-a", projectId: "p-1" },
       { name: "projectSettings", organizationId: "org-a", projectId: "p-1" },

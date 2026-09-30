@@ -478,10 +478,9 @@ export function LandingPage({
             A domain is attached to a project, not to the hero
           </h2>
           <p className="lnd-band__lede">
-            A hostname is verified by the edge and routed to the running application; it is created
-            unverified and stays that way until the edge confirms it. Start by looking up a name —
-            the answer here is about the deployment&apos;s registrar, never an invented
-            availability.
+            Bring a hostname you already own; the edge verifies it by DNS and routes it to the
+            running application. It is created unverified and stays that way until the edge confirms
+            it. Nothing is bought or registered here — attach the name and publish the record.
           </p>
         </div>
         <div className="lnd-split__panel">

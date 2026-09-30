@@ -2028,37 +2028,154 @@ a.card:hover,
   line-height: 1.5;
 }
 
-.domain-search__list {
+/* ------------------------------------------------------------------- setup */
+
+/*
+ * The project Setup page. A vertical, ordered checklist: the number (or a
+ * check once done) sits in its own rail so the four steps read as one path, not
+ * four unrelated cards. The status colour rides on the rail, which is the one
+ * thing the eye follows down the page.
+ */
+
+.setup-progress {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.setup-progress__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.meter__track {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur) var(--ease);
+}
+
+.meter__fill--ok {
+  background: var(--ok);
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--line);
 }
 
-.domain-search__result {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 10px 14px;
+.setup-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: var(--panel);
 }
 
-.domain-search__name {
-  color: var(--ink);
-  font-size: var(--step-0);
+/* The step the eye should start at: the first one not yet done. */
+.setup-step[aria-current="step"] {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
 
-.domain-search__status {
+.setup-step__num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--ground-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--step-0);
+  font-weight: 600;
   flex: none;
+}
+
+.setup-step--done .setup-step__num {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.setup-step--blocked .setup-step__num {
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* Still checking: the rail stays quiet so it is never mistaken for a result. */
+.setup-step--loading .setup-step__num {
   color: var(--ink-3);
-  font-size: var(--step--1);
+  border-style: dashed;
+}
+
+.setup-step__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.setup-step__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.setup-step__why {
+  margin: 0;
+}
+
+.setup-step__detail {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.setup-step__action {
+  align-self: center;
+  flex: none;
+}
+
+@media (max-width: 720px) {
+  .setup-step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .setup-step__action {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 
 /* ------------------------------------------------------------------ landing */

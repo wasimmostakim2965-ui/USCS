@@ -133,16 +133,34 @@ describe("navigation has no dead entries", () => {
     expect(nav.activeId).toBe("database-overview");
   });
 
-  it("keeps the project menu in Vercel's most-common-workflow-first order", () => {
-    // Overview, Deployments and Logs are the daily-use trio; Vercel's own
-    // guidance is that a beginner needs only those three. Analytics follows, then
-    // Domains/Git/Env and finally Data and Security. If this order changes, it is
-    // a deliberate act.
+  it("keeps the project menu in most-common-workflow-first order", () => {
+    // Overview is the landing surface; Setup is the first-run path a new project
+    // needs next; Deployments and Logs are the daily-use pair a returning
+    // operator lives in. Analytics follows, then Domains/Git/Env, then the two
+    // differentiators (Database, Security) and Settings. If this order changes,
+    // it is a deliberate act.
     const ids = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
-    expect(ids.slice(0, 3)).toEqual(["overview", "deployments", "logs"]);
+    expect(ids.slice(0, 4)).toEqual(["overview", "setup", "deployments", "logs"]);
     expect(ids).toContain("analytics");
     expect(ids).toContain("database");
     expect(ids).toContain("security");
+  });
+
+  it("lists Security at the workspace level, alongside the project shortcut", () => {
+    // Security is organization-wide, so the workspace menu carries it too. The
+    // project menu keeps its Security entry as a shortcut into the same policy.
+    const workspace = workspaceNav({ organizationId: ORG }).map((item) => item.id);
+    expect(workspace).toContain("security");
+    const project = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
+    expect(project).toContain("security");
+  });
+
+  it("resolves the workspace Security entry to the organization, not a project", () => {
+    const route = { name: "security", organizationId: ORG } as const;
+    const nav = navForRoute(route, { organizationId: ORG });
+    expect(nav.level).toBe("workspace");
+    expect(nav.activeId).toBe("security");
+    expect(parseRoute(toPath(route))).toEqual(route);
   });
 
   it("exposes both of our differentiators at the project level", () => {

@@ -10,8 +10,8 @@
  *
  * There are three levels, and a route belongs to exactly one of them:
  *   * workspace — Projects, Deployments, Members, Activity, Observability,
- *                 Billing, API keys, Docs, Settings.
- *   * project   — Overview, Deployments, Logs, Analytics, Domains, Git,
+ *                 Security, Billing, API keys, Docs, Settings.
+ *   * project   — Overview, Setup, Deployments, Logs, Analytics, Domains, Git,
  *                 Environment, Database, Security, Settings.
  *   * database  — Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles,
  *                 Logs, Settings. This is the third drill-in level, reached from
@@ -95,6 +95,18 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       route: { name: "observability", organizationId },
     },
     {
+      // Security is one of this platform's two differentiators, so it is a
+      // workspace-level entry rather than something hidden inside a project's
+      // settings. The policy it edits is organization-wide, and this is the
+      // level that can see and set it — the project menu's Security entry is a
+      // shortcut into the same policy.
+      id: "security",
+      label: "Security",
+      icon: "shield",
+      description: "The edge posture for every project in this organization.",
+      route: { name: "security", organizationId },
+    },
+    {
       id: "billing",
       label: "Billing",
       icon: "billing",
@@ -142,6 +154,18 @@ export function projectNav(
       icon: "overview",
       description: "Deployment state and recent activity for this project.",
       route: { name: "project", organizationId, projectId },
+    },
+    {
+      // Setup is the guided path from "an empty project" to "a live site": the
+      // four steps (repository, domain, environment, first deploy) as one
+      // ordered surface, rather than four menu entries a newcomer has to
+      // discover. It sits directly under Overview because it is the first thing
+      // a new project needs, and every step links to the page that owns it.
+      id: "setup",
+      label: "Setup",
+      icon: "setup",
+      description: "The path from an empty project to a live site, step by step.",
+      route: { name: "setup", organizationId, projectId },
     },
     {
       id: "deployments",
@@ -309,6 +333,28 @@ export function navForRoute(
       return workspace("docs");
     case "settings":
       return workspace("settings");
+    case "security": {
+      // Security is one route with two homes. Opened from the workspace menu
+      // (no project) it is the organization-wide policy and highlights the
+      // workspace entry; opened from a project it highlights that project's
+      // Security entry. The page is identical — only the sidebar differs.
+      if (!route.projectId) return workspace("security");
+      return {
+        items: projectNav({ ...context, projectId: route.projectId }),
+        activeId: "security",
+        projectId: route.projectId,
+        level: "project",
+      };
+    }
+    case "setup": {
+      if (!route.projectId) return workspace(null);
+      return {
+        items: projectNav({ ...context, projectId: route.projectId }),
+        activeId: "setup",
+        projectId: route.projectId,
+        level: "project",
+      };
+    }
     case "organizations":
     case "organization":
     case "auth_callback":
@@ -325,7 +371,6 @@ export function navForRoute(
     case "env":
     case "projectLogs":
     case "projectAnalytics":
-    case "security":
     case "projectSettings": {
       // A section URL is only valid with a project. Without one the route is a
       // workspace-level dead link, and the honest answer is the workspace menu.
@@ -413,6 +458,8 @@ export function titleForRoute(route: Route): string {
       return databaseSectionTitle(route.section ?? "overview");
     case "security":
       return "Security";
+    case "setup":
+      return "Setup";
     case "git":
       return "Git";
     case "env":
@@ -455,13 +502,19 @@ export function backTargetFor(route: Route): Route | null {
     case "env":
     case "projectLogs":
     case "projectAnalytics":
-    case "security":
+    case "setup":
     case "projectSettings":
       return {
         name: "project",
         organizationId: route.organizationId,
         projectId: route.projectId,
       };
+    case "security":
+      // The project shortcut steps back to the project it was opened from; the
+      // workspace entry has no project, so Back is the workspace front page.
+      return route.projectId
+        ? { name: "project", organizationId: route.organizationId, projectId: route.projectId }
+        : { name: "projects", organizationId: route.organizationId };
     case "database":
       // A database sub-page belongs to the Database section, so back returns to
       // the Database Overview — the level the sidebar is currently showing —
