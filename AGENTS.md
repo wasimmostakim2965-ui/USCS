@@ -750,6 +750,47 @@ traps worth remembering:
   an availability result. Reuse it anywhere a Domains surface needs a lookup box
   instead of duplicating the markup.
 
+
+## Deploying a site from a local git server (2026-09-30)
+
+Verified end to end in this sandbox: a real deployment was created through the
+dashboard, the build plane cloned the source, Nixpacks built an image, the
+runtime started it, the row settled on the engine's own `succeeded` and a live
+URL, and the container answered `200` with the app's own body. What that run
+proved, and the traps worth remembering:
+
+- **The build plane clones with `--depth 1`.** A *dumb* HTTP git server (the
+  `git update-server-info` + `python -m http.server` shape) answers a shallow
+  clone with `fatal: dumb http transport does not support shallow capabilities`,
+  and the build fails before Nixpacks ever runs — the row reads only `build
+  failed`, and the real reason lives in the runtime's own app logs
+  (`/data/apps.json` in the `deployment-runtime-1` container), not in the worker
+  log. Serve a *smart* git server instead: `git daemon` (git://) or
+  `git http-backend` behind an HTTP server. `git daemon` is the fastest to stand
+  up, but the API's `optionalRepository` only accepts `http(s)://` and `git@`
+  URLs, so an `http://` smart server is the one that goes through the form.
+- **The build's `failure_reason` is the adapter's sentence, not the engine's.**
+  `runtime-server.mjs` returns `{ error: "build failed" }` for any failed job;
+  the job's log lines are the only place the actual cause is written. When a
+  deploy fails with no explanation, read the runtime's per-app log, not the
+  deployment row.
+- **`deployments.create` is idempotent per form-open.** One idempotency key is
+  minted when the dialog opens, so pressing Deploy twice — or after a failure —
+  replays the same request and does not create a second row. Reopen the dialog
+  for a genuinely new attempt.
+- **The published URL is loopback-bound.** The runtime publishes each app on
+  `127.0.0.1:<port>` and hands the router a loopback upstream; only ports
+  `12000`/`12001` are forwarded to the public work host in this sandbox. So a
+  deployed app is reachable on the host loopback and *through a verified domain
+  routed by the router*, never directly at `work-2-…:<port>`. That is why the
+  Deployments doc says reaching the URL from outside needs a domain.
+- **Settings' Engine status is the honest ledger.** With the real engines wired,
+  `selfhosted`, `MinIO storage`, `Railpack build` and `dns` read Configured;
+  `Coolify hosting`, `PostgreSQL`, `Envoy/Coraza` and `AWS Lambda` read Not
+  configured. Do not "fix" the Coolify and PostgreSQL rows: the self-hosted
+  runtime and the storage engine are the ones this deployment runs, and a tenant
+  Postgres stays with its engine by design (ADR-0011), so those rows are correct.
+
 ## The landing page rebuild and the no-workspace sidebar (2026-09-28)
 
 - `apps/web/src/pages/landing.tsx` was replaced end to end. It is now a full
