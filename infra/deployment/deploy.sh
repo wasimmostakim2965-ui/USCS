@@ -48,6 +48,18 @@ if ! command -v pnpm >/dev/null 2>&1 && [[ -x "$ROOT/.bin/pnpm" ]]; then
   PATH="$ROOT/.bin:$PATH"
 fi
 
+# Or it may only be reachable through corepack's shims directory, which a global
+# npm install of corepack places next to `corepack` itself. That directory is not
+# on PATH in every shell — notably a non-login shell in a container — so a deploy
+# used to die with "pnpm: command not found" *after* the stack was already up.
+# Derive the directory from `corepack` rather than assuming a global prefix.
+if ! command -v pnpm >/dev/null 2>&1; then
+  corepack_bin="$(command -v corepack 2>/dev/null || true)"
+  if [[ -n "$corepack_bin" ]]; then
+    PATH="$(dirname "$corepack_bin"):$PATH"
+  fi
+fi
+
 mkdir -p "$LOG_DIR"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -657,7 +669,7 @@ start_all() {
 # working product. It is idempotent: an existing user or organization is left
 # alone.
 ensure_demo_tenant() {
-  local enabled email password
+  local enabled email password role
   enabled="$(env_value DEMO_AUTOLOGIN 0)"
   [[ "$enabled" == "1" ]] || return 0
   email="$(env_value DEMO_EMAIL "")"
@@ -665,6 +677,24 @@ ensure_demo_tenant() {
   if [[ -z "$email" || -z "$password" ]]; then
     warn "DEMO_AUTOLOGIN=1 but DEMO_EMAIL/DEMO_PASSWORD are unset; the dashboard will not auto-enter"
     return 0
+  fi
+  # The demo membership is a *viewer* by default, deliberately not an owner.
+  # `demo.session` hands a session to any unauthenticated caller, so the seeded
+  # account must not carry authority a stranger could use: an owner demo account
+  # is a full tenant takeover behind a courtesy rate limit. A viewer sees every
+  # screen and can change nothing. An operator who wants the demo to *show* a
+  # deploy sets `DEMO_MEMBER_ROLE=member` (never `owner`).
+  role="$(env_value DEMO_MEMBER_ROLE viewer)"
+  case "$role" in
+    viewer | member | admin) ;;
+    *)
+      warn "DEMO_MEMBER_ROLE='$role' is not a role; using viewer"
+      role="viewer"
+      ;;
+  esac
+  if [[ "$role" == "owner" ]]; then
+    warn "DEMO_MEMBER_ROLE=owner would hand an owner session to any caller; using viewer"
+    role="viewer"
   fi
 
   local svc uid
@@ -691,17 +721,17 @@ ensure_demo_tenant() {
   local db
   db="$(docker ps --filter name=supabase_db_ --format '{{.Names}}' 2>/dev/null | head -1)"
   [[ -n "$db" ]] || { warn "no Supabase database container; demo tenant not seeded"; return 0; }
-  docker exec -i "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v uid="$uid" </dev/null \
+  docker exec -i "$db" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v uid="$uid" -v role="$role" </dev/null \
     >>"$LOG_DIR/supabase.log" 2>&1 <<'SQL' \
     || { warn "demo tenant seed failed; see $LOG_DIR/supabase.log"; return 0; }
 insert into organizations (id, name, slug, created_by)
 values ('11111111-1111-1111-1111-111111111111', 'Demo Organization', 'demo-org', :'uid')
 on conflict (id) do nothing;
 insert into organization_members (organization_id, user_id, role)
-values ('11111111-1111-1111-1111-111111111111', :'uid', 'owner')
-on conflict (organization_id, user_id) do nothing;
+values ('11111111-1111-1111-1111-111111111111', :'uid', :'role')
+on conflict (organization_id, user_id) do update set role = excluded.role;
 SQL
-  ok "demo tenant ready ($email)"
+  ok "demo tenant ready ($email, role $role)"
 }
 
 # --- Commands ----------------------------------------------------------------

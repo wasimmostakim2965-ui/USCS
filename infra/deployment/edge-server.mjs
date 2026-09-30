@@ -58,22 +58,37 @@ const SECURITY_HEADERS = {
 /** Paths the browser must never get the SPA shell for — they belong to the API. */
 const PROXY_PREFIXES = ["/rpc", "/healthz", "/hooks/git/"];
 
+/**
+ * Headers the edge must remove from inbound traffic before the API sees them.
+ *
+ * `x-cloud-wai-internal` is the marker the compiled WAF allow-step keys on: a
+ * request that carries it is exempt from every deny rule. It is a plain request
+ * header, so anyone can send it — the only thing that makes the allow safe is
+ * that the edge strips it at the listener that faces the internet. That strip is
+ * this list; without it a client that sends the header is exempt from the deny
+ * list (the obligation is recorded in docs/runbooks/deploy-aws.md).
+ *
+ * `x-forwarded-proto` is set below from the edge's own view, never trusted from
+ * the client, so it is stripped here too and re-added.
+ */
+const STRIPPED_HEADERS = ["x-cloud-wai-internal", "x-forwarded-proto"];
+
 function isProxied(pathname) {
   return PROXY_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(prefix));
 }
 
 function proxyToApi(req, res) {
+  const headers = { ...req.headers, host: upstream.host };
+  for (const name of STRIPPED_HEADERS) delete headers[name];
+  // The edge is the TLS terminator, so it asserts the scheme itself.
+  headers["x-forwarded-proto"] = "https";
   const proxied = httpRequest(
     {
       hostname: upstream.hostname,
       port: upstream.port,
       method: req.method,
       path: req.url,
-      headers: {
-        ...req.headers,
-        host: upstream.host,
-        "x-forwarded-proto": req.headers["x-forwarded-proto"] ?? "https",
-      },
+      headers,
     },
     (apiRes) => {
       res.writeHead(apiRes.statusCode ?? 502, apiRes.headers);

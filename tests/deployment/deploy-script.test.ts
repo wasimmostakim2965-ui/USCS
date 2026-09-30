@@ -118,6 +118,14 @@ describe("the one-command deploy script", () => {
     expect(script).toMatch(/sudo chmod 666 \/var\/run\/docker\.sock/);
   });
 
+  it("finds pnpm through corepack's shims, not only a global install", () => {
+    // A container shell may not have corepack's shims on PATH, so a deploy used
+    // to die with "pnpm: command not found" *after* the stack was already up.
+    // The script must derive the shims directory from `corepack` itself.
+    expect(script).toMatch(/command -v corepack/);
+    expect(script).toMatch(/dirname "\$corepack_bin"/);
+  });
+
   it("seeds the demo tenant the no-login bypass signs in with", () => {
     // `demo.session` performs a real password grant for DEMO_EMAIL. On a fresh
     // stack that account does not exist, so the dashboard sits on "Connecting
@@ -127,6 +135,17 @@ describe("the one-command deploy script", () => {
     expect(script).toMatch(/auth\/v1\/admin\/users/);
     expect(script).toMatch(/organization_members/);
     expect(script).toMatch(/^\s*ensure_demo_tenant$/m);
+  });
+
+  it("seeds the demo membership at a low role, never an owner", () => {
+    // `demo.session` hands a session to any unauthenticated caller. An owner
+    // demo account is therefore a full tenant takeover behind a courtesy rate
+    // limit, so the seeded role must be `viewer` by default and `owner` refused.
+    expect(script).toMatch(/DEMO_MEMBER_ROLE viewer/);
+    expect(script).toMatch(/DEMO_MEMBER_ROLE=owner would hand an owner session/);
+    // The seeded row must take its role from the variable, not a literal owner.
+    expect(script).not.toMatch(/values \('11111111[^)]*', :'uid', 'owner'\)/);
+    expect(script).toMatch(/values \('11111111[^)]*', :'uid', :'role'\)/);
   });
 
   it("runs the terminating path under the script's real shell", () => {

@@ -385,6 +385,31 @@ logs. It is the piece Coolify otherwise supplies, behind the same
 
 ## Closed gaps
 
+- **The internal-request allow shipped without a stripping edge.** The compiled
+  WAF `allow-internal` step matches `x-cloud-wai-internal: 1` and exempts a
+  request from every deny rule, but the header is client-settable and nothing in
+  this repository removed it, so on this edge a client that sent the header was
+  exempt from the deny list. Closed in `infra/deployment/edge-server.mjs` (the
+  header is deleted before proxying, and `x-forwarded-proto` is stripped then
+  asserted by the edge itself) and `infra/deployment/nginx.conf` (each proxied
+  location sets the header to `""`, which deletes it).
+  `tests/deployment/edge-header-strip.test.ts` runs the real edge in front of a
+  recording upstream and fails if the strip is removed. An AWS/Envoy edge must
+  carry the same strip; the obligation stays in `docs/runbooks/deploy-aws.md`.
+  The general rule: an allow whose precondition is a client-settable header is
+  only safe if the code that faces the internet removes that header — a runbook
+  instruction is not enforcement.
+
+- **The demo autologin seeded an owner and handed out an owner session.** The
+  no-login bypass (`demo.session`) returns a session to any unauthenticated
+  caller, and `ensure_demo_tenant` seeded that account as `owner` of the demo
+  organization — full tenant authority behind a courtesy rate limit. Closed by
+  seeding `viewer` by default (`DEMO_MEMBER_ROLE`, `owner` refused), so the demo
+  account renders every screen and can change nothing; `member` is opt-in for a
+  demonstration that must create a deployment. The seed now takes the role from
+  the variable (`:role`) instead of a literal `'owner'`, and
+  `tests/deployment/deploy-script.test.ts` pins the default and the refusal.
+
 - **`api_keys` scope forgery through PostgREST.** `apiKeys.create` narrows
   requested scopes with `boundedScopes`, but the browser holds the anon key and
   the user's JWT, so a member could previously insert a key row with arbitrary
@@ -825,13 +850,21 @@ repeating here because they are invariants rather than gaps:
   embed that every store read carries. That embed is a security invariant: a new
   read method that omits it returns another tenant's rows with no database
   backstop. Do not remove it, and add a test if you add a read method.
-- **The internal-request allow needs a stripping edge, and none ships here.**
-  The compiled `allow-internal` step matches `x-cloud-wai-internal: 1` and
-  exempts the request from every deny rule. The header is client-settable, so the
-  allow is only safe where the edge strips it inbound. Neither
-  `infra/deployment/nginx.conf` nor `infra/deployment/edge-server.mjs` strips it,
-  so on the self-hosted/nginx edge in this repo the allow is inert-to-unsafe.
-  Fix belongs in the edge, not the runbook.
+  `tests/database/tenant-guard-invariant.test.ts` is that test: it calls *every*
+  caller-scoped store method (the ones whose first parameter is `userId`, minus
+  the `*ForService` exceptions) through a recording stand-in and asserts each
+  generated path carries the predicate, and it fails if a scoped method is added
+  with no probe. It was verified to fail when a guard is deleted.
+- **The internal-request allow's stripping edge now ships.** The compiled
+  `allow-internal` step matches `x-cloud-wai-internal: 1` and exempts the request
+  from every deny rule; the header is client-settable, so the allow is only safe
+  where the edge strips it inbound. `infra/deployment/edge-server.mjs` deletes it
+  (and `x-forwarded-proto`, which it then asserts itself) before proxying, and
+  `infra/deployment/nginx.conf` sets it to `""` in each proxied location, which
+  deletes it. `tests/deployment/edge-header-strip.test.ts` runs the real edge in
+  front of a recording upstream and fails if the strip is removed. An AWS/Envoy
+  edge must do the same; the obligation stays recorded in
+  `docs/runbooks/deploy-aws.md`.
 
 ## The in-dashboard Docs surface (2026-09-28)
 
