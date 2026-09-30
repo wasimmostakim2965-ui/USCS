@@ -189,6 +189,15 @@ describe("the one-command deploy script", () => {
     expect(callEnv).toBeLessThan(callStart);
   });
 
+  it("re-applies the file when a single service is started, so a manual restart cannot diverge", () => {
+    // `cmd_deploy` exports the file once, but a service restarted by hand does
+    // not go through it. `start_process` applies it too, so the restarted
+    // service reads the same values as its siblings — the divergence that made
+    // a hand-restarted API call the host's `RUNTIME_URL` and get a 404.
+    const body = script.slice(script.indexOf("start_process()"), script.indexOf("start_all()"));
+    expect(body).toMatch(/export_env_authoritative/);
+  });
+
   it("gives the runtime a public host for app URLs", () => {
     expect(script).toMatch(/RUNTIME_PUBLIC_HOST/);
   });

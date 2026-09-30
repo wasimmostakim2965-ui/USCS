@@ -759,6 +759,17 @@ traps worth remembering:
 - The connected sandbox `GITHUB_TOKEN` has no push rights on this repo. The
   owner's own token is required to push to `wasimmostakim2965-ui/USCS`; keep it
   out of the remote URL and out of logs (`git push https://user:$TOKEN@...`).
+- A host may export a name this deployment also uses. The sandbox itself exports
+  `RUNTIME_URL=https://<host>` to mean *the OpenHands runtime*, a different thing
+  from our self-hosted container engine's `RUNTIME_URL=http://127.0.0.1:8095`.
+  Node's `--env-file` never overrides a variable already in the environment, so
+  the API read the host's value and every `deployments.logs` called
+  `https://<host>/apps/…` (404) while the *worker* — started by `deploy.sh` —
+  read the file and built correctly. `cmd_deploy` already exports `.env` over the
+  ambient environment (`export_env_authoritative`); `start_process` now does too,
+  so a service restarted **by hand** (`kill` + `start_process`) cannot diverge
+  from its siblings. `tests/deployment/deploy-script.test.ts` pins both. The tell
+  is a green deploy whose logs endpoint says `engineReason: … returned 404`.
 
 ## Domain last mile: publish and withdraw (2026-09-28)
 

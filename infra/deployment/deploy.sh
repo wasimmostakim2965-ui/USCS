@@ -592,6 +592,11 @@ ensure_infra_tokens() {
 start_process() {
   local name="$1"; shift
   stop_process "$name"
+  # The file wins over an ambient variable of the same name, here as well as in
+  # `cmd_deploy`, so restarting one service by hand (`kill` + `start_process`)
+  # cannot silently point it at a host-defined name such as the sandbox's own
+  # `RUNTIME_URL` while its siblings still read the file.
+  export_env_authoritative
   local pidfile="$RUN_DIR/$name.pid" quoted
   printf -v quoted ' %q' "$@"
   setsid nohup bash -c "echo \$\$ >'$pidfile'; exec${quoted}" \
