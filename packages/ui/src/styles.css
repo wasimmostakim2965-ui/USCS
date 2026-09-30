@@ -81,7 +81,10 @@
 
   --ink: #e8edf7;
   --ink-2: #9aa7bf;
-  --ink-3: #6b7a94;
+  /* Muted text still has to be read. The old #6b7a94 measured 4.45:1 on the
+     ground and 4.01:1 on a panel — under AA — and it is used for group labels,
+     table headers and helper lines, not decoration. */
+  --ink-3: #8595b0;
 
   --accent: #4cc2ff;
   --accent-ink: #04202f;
@@ -125,7 +128,9 @@
 
   --ink: #0a0a0a;
   --ink-2: #5c5c5c;
-  --ink-3: #8f8f8f;
+  /* Same reason as the dark theme: #8f8f8f measured 3.23:1 on white, well under
+     AA, on text that carries meaning. */
+  --ink-3: #707070;
 
   --accent: #0070f3;
   --accent-ink: #ffffff;
@@ -464,6 +469,10 @@ kbd,
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  /* 44px tall. A nav row is the control a thumb hits most, and 37px rows were
+     producing mis-taps on a phone; the minimum is worth the two extra pixels of
+     vertical rhythm. */
+  min-height: 44px;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   color: var(--ink-2);
@@ -1710,6 +1719,8 @@ table.table {
 }
 
 .nav__item {
+  /* Padding tightens on a compact screen; the 44px minimum above still holds,
+     so the row does not shrink below a comfortable thumb target. */
   padding: 0.4375rem var(--space-3);
   gap: var(--space-3);
 }
