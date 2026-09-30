@@ -150,6 +150,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Deployments lists every build for this project in order: who started it, from which branch and commit, and whether it is queued, building, ready, failed or cancelled.",
       "Each row opens its own build and runtime logs. A ready production deployment can be rolled back to a previous commit in one action; a preview can be promoted to production; a past row can be redeployed; an in-flight build can be cancelled.",
       "A deployment request returns queued immediately and is executed by the worker off the request path, so the page stays responsive while a build runs.",
+      "The hosting and build engines are wired in this deployment, so a deploy from a git source really runs: the build plane clones the repository, builds an image and the runtime starts it, and the row settles on the engine's own status, URL and logs. Reaching that URL from outside still needs a domain routed through the edge, which is the Domains page.",
     ],
     diagram: {
       caption: "A deploy request becomes a durable job the worker claims, with logs per attempt.",
@@ -167,6 +168,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "Add a hostname, receive the DNS record the engine needs, then verify it. Verification is a real DNS check; an unverified domain is not an error, it is a pending step.",
       "Automatic TLS is provisioned by the engine once the domain is verified. The control plane records the domain and its state; it does not terminate TLS itself.",
       "Removing a domain detaches it from the project. A verified domain must be re-verified if its DNS record changes.",
+      "The page also carries a registrar-style lookup: type a hostname and it answers about the *query* — whether the shape is a valid hostname and, if so, what would have to be true for it to resolve here. It never invents an availability or price result, because the platform does not sell registrations; buying a domain stays with the registrar you already use.",
     ],
     diagram: {
       caption: "Add a hostname → the engine returns a DNS record → verify → the edge routes it.",
