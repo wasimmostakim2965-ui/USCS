@@ -4765,6 +4765,41 @@ describe("the project Setup page", () => {
     const nav = document.querySelector(".sidebar")!;
     expect(within(nav as HTMLElement).getByRole("link", { name: /Setup/ })).toBeTruthy();
   });
+
+  it("claims nothing about a step until the section behind it answers", async () => {
+    // Hold each step's own read open, so the page is observed in its one
+    // unloaded moment. A step whose section has not answered must not read
+    // "To do", and a stat box must not read "0" — both would be measurements
+    // the page has not made.
+    const pending = <T,>() => new Promise<T>(() => {});
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      // The shell's own read resolves; the sections the checklist is built from
+      // are exactly the ones left hanging.
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      return pending<RpcResponse>() as unknown as RpcResponse;
+    });
+
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+    await waitFor(() => expect(document.querySelectorAll(".setup-step").length).toBe(4));
+
+    // Every step is still checking, and the summary says so rather than "0 of 3".
+    expect(screen.getAllByText("Checking").length).toBe(4);
+    expect(screen.getByText("Checking this project…")).toBeTruthy();
+    expect(screen.queryByText("To do")).toBeNull();
+    expect(screen.queryByText(/0 of 3 required steps done/)).toBeNull();
+
+    // No stat box reports a number before its section has loaded.
+    const stats = Array.from(document.querySelectorAll(".stat__value")).map(
+      (node) => node.textContent,
+    );
+    expect(stats.length).toBeGreaterThan(0);
+    expect(stats.every((value) => value === "…")).toBe(true);
+  });
 });
 
 describe("the workspace Security entry", () => {

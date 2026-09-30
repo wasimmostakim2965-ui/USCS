@@ -306,7 +306,7 @@ export function ProjectSetupPage({
             <li
               key={step.id}
               className={`setup-step setup-step--${step.status}`}
-              aria-current={step.status !== "done" ? "step" : undefined}
+              aria-current={step.id === nextStepId ? "step" : undefined}
             >
               <span className="setup-step__num" aria-hidden="true">
                 {step.status === "done" ? <Icon name="check" size={18} /> : step.order}
