@@ -4925,3 +4925,63 @@ describe("the in-dashboard documentation", () => {
     expect(await screen.findByText("No page matches")).toBeTruthy();
   });
 });
+
+describe("a stat box before its data has arrived", () => {
+  // A zero is a measurement, and a page that has not read yet has not measured
+  // anything. These cover the two pages that used to print one anyway: the
+  // project overview ("Live 0") and Billing ("Metrics 0").
+  const pending = <T,>() => new Promise<T>(() => {});
+
+  const shellOnly: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    if (procedure === "projects.get") {
+      return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+    }
+    return pending<RpcResponse>() as unknown as RpcResponse;
+  };
+
+  it("shows the project overview's figures as unknown, not zero", async () => {
+    const url = await startApi(shellOnly);
+    renderApp(url, "#/orgs/org-1/projects/p-1");
+
+    await waitFor(() =>
+      expect(document.querySelectorAll(".stat__value").length).toBeGreaterThan(0),
+    );
+    const values = Array.from(document.querySelectorAll(".stat__value")).map((n) => n.textContent);
+    expect(values.every((value) => value === "…")).toBe(true);
+  });
+
+  it("shows Billing's figures as unknown, not zero", async () => {
+    const url = await startApi(shellOnly);
+    renderApp(url, "#/orgs/org-1/billing");
+
+    await waitFor(() =>
+      expect(document.querySelectorAll(".stat__value").length).toBeGreaterThan(0),
+    );
+    const values = Array.from(document.querySelectorAll(".stat__value")).map((n) => n.textContent);
+    expect(values.every((value) => value === "…")).toBe(true);
+  });
+
+  it("still reports real zeroes once the data has arrived", async () => {
+    // The point is not "never show 0" — a project with no deployments really
+    // does have none, and must say so.
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "projects.get") {
+        return { ok: true, status: 200, data: { id: "p-1", name: "Web app", slug: "web-app" } };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/projects/p-1");
+
+    await waitFor(() =>
+      expect(
+        Array.from(document.querySelectorAll(".stat__value")).every((n) => n.textContent === "0"),
+      ).toBe(true),
+    );
+  });
+});

@@ -613,6 +613,7 @@ export function ProjectOverviewPage({
 
   const projectItem =
     project.section.state.kind === "ready" ? project.section.state.items[0] : undefined;
+  const deploymentsLoading = deployments.section.state.kind === "loading";
   const deploymentItems =
     deployments.section.state.kind === "ready" ? deployments.section.state.items : [];
   const live = deploymentItems.filter((item) => item.status === "succeeded").length;
@@ -731,15 +732,22 @@ export function ProjectOverviewPage({
       ) : null}
 
       <div className="grid grid--stats" style={{ marginBottom: "var(--space-6)" }}>
+        {/* Every figure waits for the same answer. A zero is a claim — "nothing
+            is live" — and showing one before the deployments have been read is
+            the dashboard asserting something it does not yet know. */}
         <StatBox
           label="Deployments"
-          value={deployments.section.state.kind === "loading" ? "…" : deploymentItems.length}
+          value={deploymentsLoading ? "…" : deploymentItems.length}
           note="Total recorded for this project"
         />
-        <StatBox label="Live" value={live} note="Reported succeeded by the engine" />
+        <StatBox
+          label="Live"
+          value={deploymentsLoading ? "…" : live}
+          note="Reported succeeded by the engine"
+        />
         <StatBox
           label="Not configured"
-          value={unconfigured}
+          value={deploymentsLoading ? "…" : unconfigured}
           note="Requested, but no hosting engine is wired"
         />
       </div>
@@ -5709,6 +5717,7 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
   );
   const [editing, setEditing] = useState(false);
 
+  const usageLoading = section.state.kind === "loading";
   const totals = section.state.kind === "ready" ? section.state.items : [];
   const grandTotal = totals.reduce((sum, item) => sum + item.total, 0);
 
@@ -5719,9 +5728,14 @@ export function BillingPage({ organizationId }: { readonly organizationId: strin
     >
       <SectionShell title="Recorded usage" hint="Grouped by metric, newest first">
         <div className="grid grid--stats">
-          <StatBox label="Metrics" value={String(totals.length)} />
-          <StatBox label="Records" value={String(totals.reduce((s, t) => s + t.records, 0))} />
-          <StatBox label="Total quantity" value={String(grandTotal)} />
+          {/* Before the usage has been read, "0 metrics" is a claim about
+              spending, not a placeholder. It waits like the table below. */}
+          <StatBox label="Metrics" value={usageLoading ? "…" : String(totals.length)} />
+          <StatBox
+            label="Records"
+            value={usageLoading ? "…" : String(totals.reduce((s, t) => s + t.records, 0))}
+          />
+          <StatBox label="Total quantity" value={usageLoading ? "…" : String(grandTotal)} />
         </div>
         <Card flush>
           <SectionView<UsageTotalSummary>
