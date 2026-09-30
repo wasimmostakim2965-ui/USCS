@@ -370,6 +370,25 @@ kbd,
   }
 }
 
+/* At 320px — the narrowest phone still in use — the bar was still 36px wider
+   than the screen, which pushed the account menu off the right edge where it
+   could not be tapped at all. Everything stays; the bar just spends less on
+   gaps and padding, and the workspace label truncates harder. */
+@media (max-width: 400px) {
+  .topbar {
+    gap: var(--space-1);
+    padding: 0 var(--space-2);
+  }
+
+  .topbar__workspace-name {
+    max-width: 48px;
+  }
+
+  .topbar__search {
+    padding: 0 var(--space-2);
+  }
+}
+
 .sidebar {
   grid-area: sidebar;
   overflow-y: auto;

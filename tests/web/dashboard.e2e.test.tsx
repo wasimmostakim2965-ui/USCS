@@ -5049,6 +5049,36 @@ describe("navigation controls on a narrow screen", () => {
     }
   });
 
+  it("keeps the theme toggle in the top bar when there is room", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects");
+    expect(
+      await screen.findByRole("button", { name: /^Switch to (light|dark) theme$/ }),
+    ).toBeTruthy();
+  });
+
+  it("moves the theme toggle into the account menu when the bar cannot hold it", async () => {
+    const restore = stubCompactViewport();
+    try {
+      const url = await startApi(responder);
+      renderApp(url, "#/orgs/org-1/projects");
+
+      // At 320px every control together is wider than the screen, and the last
+      // one pushed the account menu off the right edge where it could not be
+      // tapped. The theme toggle steps into the account menu there rather than
+      // dropping out of reach.
+      expect(screen.queryByRole("button", { name: /^Switch to (light|dark) theme$/ })).toBeNull();
+
+      const account = await screen.findByRole("button", { name: "operator@cloud-wai.test" });
+      await userEvent.setup().click(account);
+      expect(
+        await screen.findByRole("menuitem", { name: /^Switch to (light|dark) theme$/ }),
+      ).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
   it("groups the section list under labels rather than one flat run", async () => {
     const url = await startApi(responder);
     const { container } = renderApp(url, "#/orgs/org-1/projects");

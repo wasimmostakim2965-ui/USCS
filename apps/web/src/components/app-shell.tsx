@@ -199,6 +199,9 @@ export function AppShell({
   // The compact bar is only rendered when the sidebar is genuinely unavailable,
   // so a wide screen never has two navigations in its accessibility tree.
   const compactNav = useMediaQuery("(max-width: 960px)");
+  // Below 400px the top bar cannot hold every control; the theme toggle steps
+  // into the account menu there rather than shove the account menu off-screen.
+  const narrowBar = useMediaQuery("(max-width: 400px)");
   // On a wide screen the sidebar is always visible, so the toggle starts open
   // and the button collapses it out of the layout (see `shell--nav-collapsed`).
   // On a narrow screen the sidebar is an off-canvas drawer, so the toggle starts
@@ -451,15 +454,22 @@ export function AppShell({
           <span className="kbd">⌘K</span>
         </button>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          ariaLabel={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          onClick={onToggleTheme}
-        >
-          <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
-        </Button>
+        {/* The theme toggle is a top-bar control until the bar genuinely cannot
+            hold it: below 400px its 43px was the difference between the account
+            menu being on screen and being pushed off the right edge. There it
+            moves into the account menu instead — one control at a time, never
+            two, and never one that cannot be tapped. */}
+        {narrowBar ? null : (
+          <Button
+            variant="ghost"
+            size="sm"
+            ariaLabel={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            onClick={onToggleTheme}
+          >
+            <Icon name={theme === "dark" ? "sun" : "moon"} size={17} />
+          </Button>
+        )}
 
         <div className="menu" ref={profile.ref}>
           <button
@@ -512,6 +522,19 @@ export function AppShell({
               >
                 API keys
               </button>
+              {narrowBar ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="menu__item"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    onToggleTheme();
+                  }}
+                >
+                  {theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+                </button>
+              ) : null}
               <div className="menu__sep" />
               <button type="button" role="menuitem" className="menu__item" onClick={signOut}>
                 Sign out
