@@ -3,7 +3,15 @@
  * not-found rather than a silent fallback to the dashboard.
  */
 import { describe, expect, it } from "vitest";
-import { DATABASE_SECTIONS, parseRoute, toPath, type Route } from "@cloud-wai/web";
+import {
+  DATABASE_SECTIONS,
+  SECTION_SUBS,
+  isSubSection,
+  parseRoute,
+  subSectionTitle,
+  toPath,
+  type Route,
+} from "@cloud-wai/web";
 
 describe("route parsing", () => {
   it("maps the root to the landing page, and the dashboard to /orgs", () => {
@@ -112,6 +120,44 @@ describe("route parsing", () => {
     expect(parseRoute("/orgs/org-a/projects/p-1/database/nonsense").name).toBe("not_found");
   });
 
+  it("parses each section sub-item as its own deep link", () => {
+    expect(parseRoute("/orgs/org-a/projects/p-1/firewall/rules")).toEqual({
+      name: "projectSection",
+      organizationId: "org-a",
+      projectId: "p-1",
+      section: "firewall",
+      sub: "rules",
+    });
+    expect(parseRoute("/orgs/org-a/projects/p-1/firewall/audit-log").sub).toBe("audit-log");
+    expect(parseRoute("/orgs/org-a/cdn/caches")).toEqual({
+      name: "workspaceSection",
+      organizationId: "org-a",
+      section: "cdn",
+      sub: "caches",
+    });
+  });
+
+  it("rejects an unknown section sub-item rather than claiming a section has none", () => {
+    // The section exists, the sub-item does not: a made-up one is a 404, not a
+    // page that quietly renders the section's first sub-item.
+    expect(parseRoute("/orgs/org-a/projects/p-1/firewall/nonsense").name).toBe("not_found");
+    // A section with no sub-items has no extra segment to spend on one.
+    expect(parseRoute("/orgs/org-a/projects/p-1/deployments/overview").name).toBe("not_found");
+  });
+
+  it("titles every declared sub-item with a label, never a raw slug", () => {
+    for (const [section, subs] of Object.entries(SECTION_SUBS)) {
+      expect(subs.length).toBeGreaterThan(0);
+      for (const sub of subs) {
+        expect(subSectionTitle(sub)).not.toBe(sub);
+        expect(isSubSection(section, sub)).toBe(true);
+      }
+    }
+    // Every label is reachable from the URL it names.
+    expect(subSectionTitle("audit-log")).toBe("Audit Log");
+    expect(subSectionTitle("sdk-keys")).toBe("SDK Keys");
+  });
+
   it("still resolves the old /data path, so an existing bookmark does not 404", () => {
     expect(parseRoute("/orgs/org-a/projects/p-1/data")).toEqual({
       name: "database",
@@ -147,6 +193,15 @@ describe("route parsing", () => {
       })),
       { name: "security", organizationId: "org-a", projectId: "p-1" },
       { name: "security", organizationId: "org-a" },
+      ...Object.entries(SECTION_SUBS).flatMap(([section, subs]) =>
+        subs.map((sub): Route => ({
+          name: "projectSection",
+          organizationId: "org-a",
+          projectId: "p-1",
+          section: section as never,
+          sub,
+        })),
+      ),
       { name: "setup", organizationId: "org-a", projectId: "p-1" },
       { name: "git", organizationId: "org-a", projectId: "p-1" },
       { name: "env", organizationId: "org-a", projectId: "p-1" },

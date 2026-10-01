@@ -68,7 +68,7 @@ export {
   workspaceNav,
 } from "./navigation.js";
 export type { NavContext, NavGroup, NavItem, NavLevel } from "./navigation.js";
-export { DATABASE_SECTIONS } from "./routes.js";
+export { DATABASE_SECTIONS, SECTION_SUBS, isSubSection, subSectionTitle } from "./routes.js";
 export type { DatabaseSection } from "./routes.js";
 export {
   DOC_INTRO,
