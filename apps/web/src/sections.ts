@@ -16,10 +16,14 @@
  * pure white, so each section carries a restrained tint used only on tiles,
  * rules and rails, never on body copy.
  *
- * None of these engines are wired in this deployment except Storage, so the
- * status says so rather than showing a fabricated row. `Readonly<Record<...>>`
- * is the point: adding a section without a spec is a type error, so the menu can
- * never grow a page that has nothing to say.
+ * None of these engines are wired in this deployment, so every section says so
+ * rather than showing a fabricated row. The status a page displays is the
+ * deployment's own: `SectionPage` reads the engine report and replaces the
+ * `notConfigured` default when the named engine turns out to be wired, so a
+ * host that sets `STORAGE_ENDPOINT` sees "Configured" without this file
+ * changing. `Readonly<Record<...>>` is the point: adding a section without a
+ * spec is a type error, so the menu can never grow a page that has nothing to
+ * say.
  */
 import type { IconName } from "@cloud-wai/ui";
 import type { SectionBody, Tint, EngineStatus } from "@cloud-wai/ui/react";
@@ -59,6 +63,32 @@ function verified(engine: string): EngineStatus {
     label: "Configured",
     detail: `Answered by the ${engine}, confirmed on the last read.`,
   };
+}
+
+/**
+ * The status to show once the deployment's engine report says the engine is
+ * wired. Exported so the page derives "Configured" from what the server
+ * actually answered, rather than a value baked into the catalogue.
+ */
+export function configuredStatus(engine: string): EngineStatus {
+  return verified(engine);
+}
+
+/**
+ * The provider key an engine's health is reported under.
+ *
+ * `providers.health` names engines by adapter (`minio`), while a section names
+ * the capability ("object store"). Only engines whose adapter is actually known
+ * are listed: an entry here is a claim that the adapter really backs that
+ * section, and guessing one would let a configured adapter turn an unrelated
+ * section green. A section absent from this map keeps its catalogue status.
+ */
+const ENGINE_PROVIDER: Readonly<Record<string, string>> = {
+  "object store": "minio",
+};
+
+export function engineProvider(engine: string): string | undefined {
+  return ENGINE_PROVIDER[engine];
 }
 
 const DOCS = { label: "Documentation", href: "https://vercel.com/docs" } as const;
@@ -298,7 +328,7 @@ export const WORKSPACE_SECTIONS_SPEC: Readonly<Record<WorkspaceSection, SectionS
     icon: "storage",
     tint: "teal",
     engine: "object store",
-    status: verified("object store"),
+    status: notConfigured("object store"),
     body: {
       kind: "choosers",
       choosers: [

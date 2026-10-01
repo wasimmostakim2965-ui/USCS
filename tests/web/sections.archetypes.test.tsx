@@ -74,6 +74,23 @@ describe("the section catalogue", () => {
       }
     }
   });
+
+  it("bakes no configured status into the catalogue", () => {
+    // The catalogue is a static default, not the deployment's state. Every
+    // section's compiled status must say "not configured"; the page raises it
+    // to "Configured" only when the live engine report says the adapter behind
+    // it answered. A baked-in green would render even when the engine is
+    // absent — which is exactly the storage regression this guards.
+    for (const { id, spec } of allSpecs()) {
+      expect(
+        spec.status.tone,
+        `section "${id}" bakes a "${spec.status.tone}" status into the catalogue`,
+      ).not.toBe("ok");
+      expect(spec.status.label, `section "${id}" bakes a "${spec.status.label}" label`).toBe(
+        "Not configured",
+      );
+    }
+  });
 });
 
 describe("every section renders as its declared archetype", () => {

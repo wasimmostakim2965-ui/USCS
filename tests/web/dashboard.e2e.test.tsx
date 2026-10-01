@@ -3170,6 +3170,58 @@ describe("the Database drill-in", () => {
     ).toBeTruthy();
   });
 
+  it("shows Storage as not configured when the engine report says the object store is absent", async () => {
+    // The regression this guards: the storage section once carried a green
+    // "Configured" badge baked into the catalogue while the server wired
+    // `storageNotConfigured("minio")`. The badge must follow the engine report.
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return {
+          ok: true,
+          status: 200,
+          data: [
+            { provider: "coolify", state: "ready", detail: "Configured for this deployment." },
+            {
+              provider: "minio",
+              state: "not_configured",
+              detail: "No credentials configured; this deployment cannot act on this engine yet.",
+            },
+          ],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/storage");
+
+    expect((await screen.findAllByRole("heading", { name: "Storage" })).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Not configured")).toBeTruthy();
+    expect(screen.queryByText("Configured")).toBeNull();
+  });
+
+  it("raises Storage to Configured only when the engine report says the object store answered", async () => {
+    const url = await startApi((procedure) => {
+      if (procedure === "organizations.list") {
+        return { ok: true, status: 200, data: organizations };
+      }
+      if (procedure === "providers.health") {
+        return {
+          ok: true,
+          status: 200,
+          data: [{ provider: "minio", state: "ready", detail: "Configured for this deployment." }],
+        };
+      }
+      return { ok: true, status: 200, data: [] };
+    });
+    renderApp(url, "#/orgs/org-1/storage");
+
+    expect((await screen.findAllByRole("heading", { name: "Storage" })).length).toBeGreaterThan(0);
+    // A wired object store is what turns the badge green — and only that.
+    expect(await screen.findByText("Configured")).toBeTruthy();
+  });
+
   it("provisions a resource through the API and shows the engine's own state", async () => {
     const calls: { procedure: string; input: unknown }[] = [];
     const rows: unknown[] = [];

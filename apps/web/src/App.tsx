@@ -381,6 +381,7 @@ export function App({
             spec={WORKSPACE_SECTIONS_SPEC[route.section]!}
             section={route.section}
             scope="Applies to every project in this organization."
+            organizationId={route.organizationId}
             {...(route.sub ? { sub: route.sub } : {})}
             onSelectTab={navigateSub}
           />
@@ -401,6 +402,7 @@ export function App({
             spec={PROJECT_SECTIONS_SPEC[route.section]!}
             section={route.section}
             scope="Applies to this project."
+            organizationId={route.organizationId}
             {...(route.sub ? { sub: route.sub } : {})}
             onSelectTab={navigateSub}
           />

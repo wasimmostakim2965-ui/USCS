@@ -16,12 +16,16 @@
  */
 import { PageShell, SectionArchetype } from "@cloud-wai/ui/react";
 import { subSections, subSectionTitle } from "../routes.js";
-import type { SectionSpec } from "../sections.js";
+import { configuredStatus, engineProvider, type SectionSpec } from "../sections.js";
+import { loadProviderHealth, type ProviderHealthRow } from "../view-model.js";
+import { useSection } from "../react/hooks.js";
+import { useApp } from "../react/context.js";
 
 export function SectionPage({
   spec,
   section,
   scope,
+  organizationId,
   sub,
   onSelectTab,
   onAction,
@@ -31,6 +35,8 @@ export function SectionPage({
   readonly section: string;
   /** What the section is scoped to, for the subtitle: a project, or the org. */
   readonly scope: string;
+  /** Whose engine report decides the status badge. */
+  readonly organizationId: string;
   /** The reference's sub-item being shown, when the section has sub-items. */
   readonly sub?: string | undefined;
   /** Follows a tab press; the shell rewrites the URL to that sub-item. */
@@ -38,8 +44,29 @@ export function SectionPage({
   /** Runs the primary action. Omitted when the action is not wired yet. */
   readonly onAction?: () => void;
 }) {
+  const { client } = useApp();
   const tabs = subSections(section).map((id) => ({ id, label: subSectionTitle(id) }));
   const activeTab = sub ?? tabs[0]?.id;
+
+  // The status is the deployment's, not the catalogue's. The catalogue records
+  // the honest default (nothing is wired); when the engine report says the
+  // adapter behind this section really answered, the badge says so. Only an
+  // explicitly `ready` engine turns it green — a missing row, a loading report
+  // or a failed one leaves the not-configured default in place.
+  const provider = engineProvider(spec.engine);
+  const health = useSection(
+    () => loadProviderHealth(client, organizationId),
+    [client, organizationId],
+    "Engine status",
+  );
+  const status =
+    provider && health.section.state.kind === "ready"
+      ? health.section.state.items.some(
+          (row: ProviderHealthRow) => row.provider === provider && row.state === "ready",
+        )
+        ? configuredStatus(spec.engine)
+        : spec.status
+      : spec.status;
 
   return (
     <PageShell title={spec.title} subtitle={`${spec.blurb} ${scope}`}>
@@ -49,7 +76,7 @@ export function SectionPage({
           title: spec.title,
           blurb: spec.blurb,
           tint: spec.tint,
-          status: spec.status,
+          status,
           ...(tabs.length > 0 ? { tabs, ...(activeTab ? { activeTab } : {}) } : {}),
           ...(onSelectTab ? { onSelectTab } : {}),
           ...(spec.body.kind === "empty" && spec.body.empty.action && onAction
