@@ -111,7 +111,6 @@ export const WORKSPACE_SECTIONS = [
   "connect",
   "integrations",
   "storage",
-  "database",
   "flags",
   "agent",
   "ai-gateway",

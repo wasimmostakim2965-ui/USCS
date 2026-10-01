@@ -15,9 +15,16 @@ const css = readFileSync(new URL("../../packages/ui/src/styles.css", import.meta
 /** The value of a custom property inside one theme block. */
 function token(theme: "dark" | "light", name: string): string {
   const block = css.split(`[data-theme="${theme}"]`)[1]?.split("}")[0] ?? "";
-  const match = block.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{3,8})`));
+  const match = block.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{3,8}|var\\(--[\\w-]+\\))`));
   if (!match) throw new Error(`--${name} not found in the ${theme} theme`);
   return match[1];
+}
+
+/** Resolve a `var(--other)` reference to the value it names, one level deep. */
+function resolved(theme: "dark" | "light", name: string): string {
+  const value = token(theme, name);
+  const alias = /^var\(--(.+)\)$/.exec(value)?.[1];
+  return alias ? token(theme, alias) : value;
 }
 
 function luminance(hex: string): number {
@@ -53,6 +60,31 @@ describe("muted text is readable in both themes", () => {
       });
     }
   }
+});
+
+describe("the light theme's ink scale is the reference's", () => {
+  // Measured off the owner's screenshots: #171717 is the most common dark pixel
+  // by a wide margin and is the primary button's fill, and the public Geist
+  // design system documents the same two values for its light theme
+  // (gray-1000 / gray-600). Pinning them keeps a well-meaning "make the text
+  // crisper" edit from drifting to a blacker ink the reference never uses.
+  const expected: Readonly<Record<string, string>> = {
+    ink: "#171717",
+    "ink-2": "#4d4d4d",
+  };
+  for (const [name, want] of Object.entries(expected)) {
+    it(`--${name} is the reference value in the light theme`, () => {
+      expect(token("light", name).toLowerCase()).toBe(want);
+    });
+  }
+
+  it("the primary button fill is the same ink as primary text", () => {
+    // The reference draws its primary action as a solid ink fill, not a
+    // separate brand colour, so the two must not diverge. The fill is written
+    // as `var(--ink)`, so follow the indirection before comparing.
+    const fill = resolved("light", "btn-primary-bg");
+    expect(fill.toLowerCase()).toBe(resolved("light", "ink").toLowerCase());
+  });
 });
 
 describe("status dots keep the reference's hues", () => {

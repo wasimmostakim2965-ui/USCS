@@ -72,8 +72,8 @@ export const DOC_INTRO = {
   title: "How this dashboard is organised",
   body: [
     "Every screen is a state of the URL, so a refresh, a bookmark or a shared link lands exactly where the sender was. Links inside the dashboard follow the same routes the menu uses.",
-    "The sidebar is replaced, not appended to, as you drill in. Workspace → Project → Database is three levels, and the back control steps up one level at a time. A project opens its own ten-entry menu; the project's Database entry opens the nine-entry Database sub-menu.",
-    "Database and Security are this platform's two additions beyond a deploy-only product, so they are first-class menu entries rather than being hidden in settings.",
+    "The sidebar is replaced, not appended to, as you drill in. Workspace → Project → Database is three levels, and the back control steps up one level at a time. A project opens its own menu, ending in Domains, Environment Variables, Security, Setup and Settings.",
+    "Security and Setup are this platform's additions beyond a deploy-only product, so they are first-class menu entries rather than being hidden in settings.",
   ],
   diagram: {
     caption:
@@ -101,7 +101,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
       "The workspace's applications: create one, open one, and see each one's production state.",
     body: [
       "Projects is the workspace's front page. It lists every application in this organization with its latest production deployment state, and is where a new project is created.",
-      "Opening a project switches the sidebar from the workspace menu to that project's own menu — Overview, Deployments, Logs, Analytics, Domains, Git, Environment, Database, Security and Settings.",
+      "Opening a project switches the sidebar from the workspace menu to that project's own menu — Overview, Deployments, Logs, Analytics, the shared platform sections, then Domains, Environment Variables, Security, Setup and Settings.",
       "A project belongs to exactly one organization, and its URL always carries both, so a link cannot resolve to the wrong tenant.",
     ],
     diagram: {
@@ -248,7 +248,7 @@ export const DOC_SECTIONS: readonly DocSection[] = [
     status: "engine",
     summary: "A hosted Postgres surface: tables, SQL, auth, storage, roles and backups.",
     body: [
-      "Database is a third drill-in level: Workspace, then Project, then Database. Every sub-page is its own URL, so it can be linked, refreshed and bookmarked.",
+      "Database is a third drill-in level: Workspace, then Project, then Database. Every sub-page is its own URL, so it can be linked, refreshed and bookmarked. The reference's sidebar lists no Database entry, so it is reached by URL rather than from either menu.",
       "Overview shows status and connection details; Table Editor, SQL Editor, Authentication, API and Settings hand off to the engine console, because the control plane never opens a tenant database (a recorded design decision, not a gap).",
       "Roles & Extensions includes backup and restore. Restoring is verified through the engine's own artifacts. Storage lists this project's buckets. Logs reads recent database and API logs.",
       "Each surface reports the engine that actually answered it. Storage is wired in this deployment, so a bucket is provisioned and confirmed by the storage engine; the Postgres engine is not, so the table, SQL and auth surfaces report not_configured rather than inventing a database.",

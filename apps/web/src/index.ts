@@ -70,6 +70,8 @@ export {
 export type { NavContext, NavGroup, NavItem, NavLevel } from "./navigation.js";
 export { DATABASE_SECTIONS, SECTION_SUBS, isSubSection, subSectionTitle } from "./routes.js";
 export type { DatabaseSection } from "./routes.js";
+export { PROJECT_SECTIONS_SPEC, WORKSPACE_SECTIONS_SPEC } from "./sections.js";
+export type { SectionSpec } from "./sections.js";
 export {
   DOC_INTRO,
   DOC_SECTIONS,

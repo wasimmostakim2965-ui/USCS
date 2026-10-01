@@ -10,3 +10,4 @@
 export * from "./index.js";
 export * from "./react/index.js";
 export * from "./react/error-boundary.js";
+export * from "./react/sections.js";

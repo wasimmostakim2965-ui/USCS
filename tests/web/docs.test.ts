@@ -82,14 +82,15 @@ describe("documentation content", () => {
   it("documents every sidebar entry, so a page cannot ship undocumented", () => {
     // The Docs entry documents the documentation surface itself; the "what is
     // not built" section is the honest counterpart to the Missing features and
-    // does not map to a menu item. Every other entry must appear.
+    // does not map to a menu item. Every other entry must appear. Setup and Git
+    // are the exceptions: both are URL-only pages described by the Projects and
+    // Setup sections rather than by an entry of their own.
     const documented = new Set<string>(DOC_SECTIONS.map((section) => section.id));
     const exempt = new Set([
       "docs", // the Docs entry itself
       "overview", // the workspace has no entry named Overview; the project does
       "setup", // a first-run helper page, documented by the Projects section
       "git", // a project's repository link, documented by the Projects section
-      "security", // organization-wide, documented by the Firewall section
     ]);
     for (const item of allNavItems()) {
       const id = item.id.startsWith("database-") ? "database" : item.id;
@@ -126,12 +127,17 @@ describe("navigation has no dead entries", () => {
     }
   });
 
-  it("drills into the project-level Database entry to the Database menu", () => {
-    const entry = projectNav({ organizationId: ORG, projectId: PROJECT }).find(
-      (item) => item.id === "database",
-    );
-    expect(entry).toBeDefined();
-    const nav = navForRoute(entry!.route, { organizationId: ORG, projectId: PROJECT });
+  it("drills into the Database level by URL, though the menu no longer lists it", () => {
+    // The Database level is intact: the route parses, the sub-menu resolves and
+    // the overview highlights. It is simply not offered from either sidebar,
+    // because the reference lists no such entry.
+    expect(workspaceNav({ organizationId: ORG }).map((item) => item.id)).not.toContain("database");
+    expect(
+      projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id),
+    ).not.toContain("database");
+    const route = { name: "database", organizationId: ORG, projectId: PROJECT } as const;
+    expect(parseRoute(toPath(route))).toEqual(route);
+    const nav = navForRoute(route, { organizationId: ORG, projectId: PROJECT });
     expect(nav.level).toBe("database");
     expect(nav.activeId).toBe("database-overview");
   });
@@ -139,37 +145,36 @@ describe("navigation has no dead entries", () => {
   it("keeps the project menu in the reference's order", () => {
     // The project menu mirrors the reference the owner supplied: the project's
     // own pages first (Overview, Deployments, Logs, Analytics), then the shared
-    // platform sections, then Domains, Environment Variables, Database and
-    // Settings. If this order changes, it is a deliberate act.
+    // platform sections, then Domains, Environment Variables, Security, Setup
+    // and Settings. If this order changes, it is a deliberate act.
     const ids = projectNav({ organizationId: ORG, projectId: PROJECT }).map((item) => item.id);
     expect(ids.slice(0, 4)).toEqual(["overview", "deployments", "logs", "analytics"]);
-    expect(ids).toContain("database");
-    expect(ids).toContain("domains");
+    expect(ids.slice(-5)).toEqual(["domains", "env", "security", "setup", "settings"]);
   });
 
-  it("keeps Security reachable, one level down, after the menu was matched to the reference", () => {
-    // The reference's sidebar has no Security entry, so the workspace menu no
-    // longer lists it — but the page and the route are unchanged, and a project
-    // can still reach the same organization-wide policy.
+  it("lists Security at both the workspace and the project level", () => {
     const workspace = workspaceNav({ organizationId: ORG }).map((item) => item.id);
-    expect(workspace).not.toContain("security");
-    const route = { name: "security", organizationId: ORG } as const;
-    expect(parseRoute(toPath(route))).toEqual(route);
+    expect(workspace).toContain("security");
+    const ids = new Set(projectNav({ organizationId: ORG, projectId: PROJECT }).map((i) => i.id));
+    expect(ids.has("security")).toBe(true);
   });
 
-  it("resolves the workspace Security entry to the organization, not a project", () => {
+  it("lists Setup in the project menu and resolves it to its own page", () => {
+    const entry = projectNav({ organizationId: ORG, projectId: PROJECT }).find(
+      (item) => item.id === "setup",
+    );
+    expect(entry).toBeDefined();
+    expect(parseRoute(toPath(entry!.route)).name).toBe("setup");
+    const nav = navForRoute(entry!.route, { organizationId: ORG, projectId: PROJECT });
+    expect(nav.activeId).toBe("setup");
+  });
+
+  it("resolves the workspace Security entry to the organization, and highlights it", () => {
     const route = { name: "security", organizationId: ORG } as const;
     const nav = navForRoute(route, { organizationId: ORG });
     expect(nav.level).toBe("workspace");
-    expect(nav.activeId).toBeNull();
+    expect(nav.activeId).toBe("security");
     expect(parseRoute(toPath(route))).toEqual(route);
-  });
-
-  it("lists Database at both the workspace and the project level", () => {
-    const workspace = workspaceNav({ organizationId: ORG }).map((i) => i.id);
-    expect(workspace).toContain("database");
-    const ids = new Set(projectNav({ organizationId: ORG, projectId: PROJECT }).map((i) => i.id));
-    expect(ids.has("database")).toBe(true);
   });
 
   it("keeps the Docs page reachable even though the menu was matched to the reference", () => {

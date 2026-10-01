@@ -16,22 +16,23 @@
  * There are three levels, and a route belongs to exactly one of them:
  *   * workspace — Projects, Deployments, Logs, Analytics, Speed Insights,
  *                 Observability, Firewall, CDN, Environment Variables, Domains,
- *                 Connect, Integrations, Storage, Database, Flags, Agent, AI
- *                 Gateway, Sandboxes, Workflows, Images, Usage, Support,
+ *                 Connect, Integrations, Storage, Flags, Agent, AI Gateway,
+ *                 Sandboxes, Workflows, Images, Usage, Support, Security,
  *                 Settings.
  *   * project   — the same sections again, scoped to one project and ending in
- *                 Domains, Environment Variables, Database and Settings, opened
- *                 from Projects.
+ *                 Domains, Environment Variables, Security, Setup and Settings,
+ *                 opened from Projects.
  *   * database  — Overview, Table Editor, SQL Editor, Auth, Storage, API, Roles,
- *                 Logs, Settings. The third drill-in level, reached from the
- *                 project menu's Database entry.
+ *                 Logs, Settings. A third drill-in level the routes still
+ *                 support; the reference's sidebar lists no entry for it, so it
+ *                 is reached by URL rather than from the menu.
  *
- * Domains and Database are project-scoped on purpose: a domain is attached to
- * an application, and so is a database. Security is organization-wide today —
- * `security_policies` is keyed by `organization_id`, with no `project_id` — and
- * the page says so rather than implying a per-project policy the schema cannot
- * hold. Security is deliberately absent from both menus: the reference does not
- * list it, so it stays reachable by URL rather than sitting in the sidebar.
+ * Domains is project-scoped on purpose: a domain is attached to an application.
+ * Security is organization-wide — `security_policies` is keyed by
+ * `organization_id` — and the page says so rather than implying a per-project
+ * policy the schema cannot hold. It is listed at both levels because the owner
+ * asked for it in the sidebar; the project entry is a shortcut into the same
+ * organization-wide policy.
  */
 import type { IconName } from "@cloud-wai/ui";
 import {
@@ -124,7 +125,6 @@ const WORKSPACE_SECTION_ICONS: Readonly<Record<WorkspaceSection, IconName>> = {
   connect: "connect",
   integrations: "integrations",
   storage: "storage",
-  database: "database",
   flags: "flag",
   agent: "agent",
   "ai-gateway": "gateway",
@@ -146,7 +146,6 @@ const WORKSPACE_SECTION_LABELS: Readonly<Record<WorkspaceSection, string>> = {
   connect: "Connect",
   integrations: "Integrations",
   storage: "Storage",
-  database: "Database",
   flags: "Flags",
   agent: "Agent",
   "ai-gateway": "AI Gateway",
@@ -168,7 +167,6 @@ const WORKSPACE_SECTION_DESCRIPTIONS: Readonly<Record<WorkspaceSection, string>>
   connect: "Connectors and the tokens they issue.",
   integrations: "Third-party services wired into this organization.",
   storage: "Object storage buckets for this organization.",
-  database: "Databases, tables, storage and auth.",
   flags: "Feature flags and who they are rolled out to.",
   agent: "The assistant's tasks and what it has done.",
   "ai-gateway": "Models, API keys and spend for the managed AI gateway.",
@@ -301,6 +299,13 @@ export function workspaceNav(context: NavContext): readonly NavItem[] {
       };
     }),
     {
+      id: "security",
+      label: "Security",
+      icon: "shield",
+      description: "Organization-wide security policies and the audit trail behind them.",
+      route: { name: "security", organizationId },
+    },
+    {
       id: "settings",
       label: "Settings",
       icon: "settings",
@@ -362,9 +367,9 @@ export function projectNav(
         ...(hasSubMenu ? { hasSubMenu: true } : {}),
       };
     }),
-    // Domains, Environment Variables and Database have pages of their own
-    // rather than the generic section page, so they carry their own routes and
-    // sit here, after the shared sections and before Settings.
+    // Domains and Environment Variables have pages of their own rather than the
+    // generic section page, so they carry their own routes and sit here, after
+    // the shared sections and before Security and Settings.
     {
       id: "domains",
       label: "Domains",
@@ -380,11 +385,18 @@ export function projectNav(
       route: { name: "env", organizationId, projectId },
     },
     {
-      id: "database",
-      label: "Database",
-      icon: "database",
-      description: "Databases, tables, storage and auth for this project.",
-      route: { name: "database", organizationId, projectId },
+      id: "security",
+      label: "Security",
+      icon: "shield",
+      description: "The organization's security policies, applied to this project.",
+      route: { name: "security", organizationId, projectId },
+    },
+    {
+      id: "setup",
+      label: "Setup",
+      icon: "setup",
+      description: "Guided first-run setup for this project.",
+      route: { name: "setup", organizationId, projectId },
     },
     {
       id: "settings",
@@ -618,13 +630,12 @@ export function navForRoute(
     case "workspaceSection":
       return workspace(route.section, route.sub ?? null);
     case "security": {
-      // Security is one route with two homes. Opened from a project it renders
-      // the same organization-wide policy with the project menu around it;
-      // opened without a project it renders with the workspace menu. Neither
-      // menu lists it, so nothing is highlighted either way — the page is
-      // reachable by URL, which is where the reference leaves it.
-      if (!route.projectId) return workspace(null);
-      return project(route.projectId, null);
+      // Security is one organization-wide policy with two homes. Listed in both
+      // menus, so the entry that owns the URL is the one that highlights:
+      // opened from a project it highlights the project's Security entry,
+      // otherwise the workspace's.
+      if (!route.projectId) return workspace("security");
+      return project(route.projectId, "security");
     }
     case "organizations":
     case "organization":
@@ -667,9 +678,7 @@ export function navForRoute(
               ? "logs"
               : route.name === "projectAnalytics"
                 ? "analytics"
-                : route.name === "setup"
-                  ? "overview"
-                  : route.name;
+                : route.name;
       return project(route.projectId, activeId);
     }
     case "database": {

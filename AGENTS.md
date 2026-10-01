@@ -106,14 +106,18 @@ where the user was.
 There are three drill-in levels, and `navForRoute` returns exactly one of them.
 The sidebar is *replaced*, not appended to, at each level:
 
-- **workspace** — Projects, Deployments, Members, Activity, Observability, Security,
-  Billing, API keys, Docs, Settings.
-- **project** — Overview, Setup, Deployments, Logs, Analytics, Domains, Git,
-  Environment, Database, Security, Settings.
+- **workspace** — Projects, Deployments, Logs, Analytics, Speed Insights,
+  Observability, the shared sections, Security, Settings. Members, Activity,
+  Billing, API keys and Docs are reachable by URL but are not listed, because the
+  reference's menu does not list them.
+- **project** — Overview, Deployments, Logs, Analytics, the shared sections, then
+  Domains, Environment Variables, Security, Setup, Settings. Git is reachable by
+  URL but is not listed, for the same reason.
 - **database** — the Database sub-menu (Overview, Table Editor, SQL Editor,
-  Authentication, Storage, API, Roles & Extensions, Logs, Settings). Reached from
-  the project menu's Database entry. The back control steps up one level: from a
-  sub-page to the Database Overview, then from the Overview to the project menu.
+  Authentication, Storage, API, Roles & Extensions, Logs, Settings). Reached by
+  URL; the reference lists no Database entry, so it is absent from both menus.
+  The back control steps up one level: from a sub-page to the Database Overview,
+  then from the Overview to the project menu.
 
 Two entries deserve a note because they exist at more than one level:
 

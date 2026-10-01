@@ -101,6 +101,28 @@
   --neutral: #8b98ae;
   --neutral-soft: rgba(139, 152, 174, 0.16);
 
+  /* Section identity, dark: the same eight hues lifted in luminance so a tile
+     fill and a 2px rule read against the slate ground. */
+  --tint: var(--accent);
+  --tint-soft: var(--accent-soft);
+
+  --tint-blue: #4cc2ff;
+  --tint-blue-soft: rgba(76, 194, 255, 0.12);
+  --tint-violet: #b79bff;
+  --tint-violet-soft: rgba(183, 155, 255, 0.12);
+  --tint-teal: #4fd1c5;
+  --tint-teal-soft: rgba(79, 209, 197, 0.12);
+  --tint-amber: #f2b544;
+  --tint-amber-soft: rgba(242, 181, 68, 0.12);
+  --tint-rose: #ff8fb0;
+  --tint-rose-soft: rgba(255, 143, 176, 0.12);
+  --tint-green: #3ddc97;
+  --tint-green-soft: rgba(61, 220, 151, 0.12);
+  --tint-slate: #9aa7bf;
+  --tint-slate-soft: rgba(154, 167, 191, 0.12);
+  --tint-cyan: #56d4f0;
+  --tint-cyan-soft: rgba(86, 212, 240, 0.12);
+
   /* In the dark theme the status colours are already luminous enough to serve as
      the dot itself, so the dots simply reuse them. */
   --dot-ok: #3ddc97;
@@ -134,8 +156,15 @@
   --line: #ebebeb;
   --line-strong: #d9d9d9;
 
-  --ink: #0a0a0a;
-  --ink-2: #5c5c5c;
+  /* The ink scale is the reference's own, and it is the same scale the public
+     Geist design system documents for its light theme: `gray-1000` #171717 for
+     primary text and the primary button fill, `gray-600` #4d4d4d for secondary
+     copy. #171717 measured as the single most common dark pixel in the
+     screenshots and as the primary button fill, so both the pixels and the
+     published token agree; a darker #0a0a0a would be this dashboard's own
+     invention rather than the reference's. */
+  --ink: #171717;
+  --ink-2: #4d4d4d;
   /* Same reason as the dark theme: #8f8f8f measured 3.23:1 on white, well under
      AA, on text that carries meaning. */
   --ink-3: #707070;
@@ -166,10 +195,41 @@
   --neutral: #6b6b6b;
   --neutral-soft: rgba(107, 107, 107, 0.09);
 
+  /* ---- section identity ------------------------------------------------
+     The reference dashboard is near-white, and it earns that: neutrals carry
+     the structure and colour is reserved for status. The owner asked for the
+     opposite of a pure-white screen, so colour is added — but only where it
+     cannot cost legibility. A tint appears on an icon tile, a card's top rule
+     and a rail, never on body text. Text keeps the neutral ink tokens, so every
+     contrast measurement above still holds.
+
+     `--tint` is the hue; `--tint-soft` is that hue at ~7% for a fill. They are
+     set per section from the catalogue and default to the accent so a page that
+     declares no identity still renders. */
+  --tint: var(--accent);
+  --tint-soft: var(--accent-soft);
+
+  --tint-blue: #0070f3;
+  --tint-blue-soft: rgba(0, 112, 243, 0.07);
+  --tint-violet: #6d3bd1;
+  --tint-violet-soft: rgba(109, 59, 209, 0.07);
+  --tint-teal: #067a6f;
+  --tint-teal-soft: rgba(6, 122, 111, 0.07);
+  --tint-amber: #9a5b00;
+  --tint-amber-soft: rgba(154, 91, 0, 0.08);
+  --tint-rose: #b8305a;
+  --tint-rose-soft: rgba(184, 48, 90, 0.07);
+  --tint-green: #0f7a3d;
+  --tint-green-soft: rgba(15, 122, 61, 0.07);
+  --tint-slate: #3f4a5a;
+  --tint-slate-soft: rgba(63, 74, 90, 0.07);
+  --tint-cyan: #056b8a;
+  --tint-cyan-soft: rgba(5, 107, 138, 0.07);
+
   --btn-bg: #ffffff;
-  --btn-ink: #0a0a0a;
-  --btn-line: #d9d9d9;
-  --btn-primary-bg: #0a0a0a;
+  --btn-ink: var(--ink);
+  --btn-line: var(--line-strong);
+  --btn-primary-bg: var(--ink);
   --btn-primary-ink: #ffffff;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -3232,4 +3292,547 @@ a.card:hover,
   .lnd-foot__inner {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ==================================================================== */
+/* Section page archetypes                                              */
+/*                                                                      */
+/* The reference does not render every section the same way: a Firewall */
+/* is a control room, Flags is a chooser, Storage is an empty call to    */
+/* action, AI Gateway is a numbered guide. Each archetype below is its   */
+/* own layout so no two sections are one pattern with a swapped title.   */
+/*                                                                      */
+/* Every archetype sets `--tint` from the section's identity, and uses   */
+/* it only for tiles, rules and rails — never for body text — so the     */
+/* contrast of the copy is unchanged from the tokens above.              */
+/* ==================================================================== */
+
+.tinted {
+  --tint: var(--accent);
+  --tint-soft: var(--accent-soft);
+}
+
+.tint-blue {
+  --tint: var(--tint-blue);
+  --tint-soft: var(--tint-blue-soft);
+}
+.tint-violet {
+  --tint: var(--tint-violet);
+  --tint-soft: var(--tint-violet-soft);
+}
+.tint-teal {
+  --tint: var(--tint-teal);
+  --tint-soft: var(--tint-teal-soft);
+}
+.tint-amber {
+  --tint: var(--tint-amber);
+  --tint-soft: var(--tint-amber-soft);
+}
+.tint-rose {
+  --tint: var(--tint-rose);
+  --tint-soft: var(--tint-rose-soft);
+}
+.tint-green {
+  --tint: var(--tint-green);
+  --tint-soft: var(--tint-green-soft);
+}
+.tint-slate {
+  --tint: var(--tint-slate);
+  --tint-soft: var(--tint-slate-soft);
+}
+.tint-cyan {
+  --tint: var(--tint-cyan);
+  --tint-soft: var(--tint-cyan-soft);
+}
+
+/* A section heading block: tinted glyph tile, title, one-line purpose. It is
+   what every archetype opens with, so a section is identifiable at a glance
+   before any content is read. */
+.sec-head {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+  margin-bottom: var(--space-5);
+}
+
+.sec-head__tile {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--tint-soft);
+  color: var(--tint);
+  border: 1px solid color-mix(in srgb, var(--tint) 22%, transparent);
+}
+
+.sec-head__text {
+  min-width: 0;
+}
+
+.sec-head__title {
+  margin: 0;
+  font-size: var(--step-2);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sec-head__blurb {
+  margin: 2px 0 0;
+  max-width: 68ch;
+  color: var(--ink-2);
+  font-size: var(--step-0);
+}
+
+/* A page-level banner: the reference's "Firewall is active" strip and its
+   upgrade prompt both read as a full-width tinted row above the content. */
+.sec-banner {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+  border: 1px solid color-mix(in srgb, var(--tint) 26%, var(--line));
+  border-left: 3px solid var(--tint);
+  border-radius: var(--radius);
+  background: var(--tint-soft);
+}
+
+.sec-banner__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tint);
+}
+
+.sec-banner__label {
+  font-weight: 600;
+}
+
+.sec-banner__detail {
+  color: var(--ink-2);
+}
+
+.sec-banner__spacer {
+  margin-left: auto;
+}
+
+/* --- metric board: a row of tiles over a shared rail, like the reference's
+   Firewall "System Mitigations" strip. ------------------------------------- */
+.sec-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.sec-metric {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--tint);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.sec-metric__label {
+  color: var(--ink-3);
+  font-size: var(--step--1);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sec-metric__value {
+  margin-top: var(--space-2);
+  font-size: var(--step-3);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.sec-metric__note {
+  margin-top: var(--space-1);
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+
+/* --- chart grid: bordered panels of labelled series, the reference's CDN and
+   Observability boards. ---------------------------------------------------- */
+.sec-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.sec-panel {
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.sec-panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.sec-panel__title {
+  font-weight: 600;
+}
+
+.sec-panel__value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.sec-panel__foot {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+/* --- meter list: label, a capped bar and a ratio, the reference's Usage. --- */
+.sec-meters {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.sec-meter__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.sec-meter__ratio {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.sec-meter__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.sec-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--tint);
+}
+
+.sec-meter__note {
+  margin-top: var(--space-1);
+  color: var(--ink-3);
+  font-size: var(--step--1);
+}
+
+/* --- chooser: side-by-side cards each offering a way in, the reference's
+   Flags "Use Vercel Flags / Connect Providers". ---------------------------- */
+.sec-choosers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.sec-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+}
+
+.sec-chooser--featured {
+  border-color: color-mix(in srgb, var(--tint) 40%, var(--line));
+  background: linear-gradient(180deg, var(--tint-soft), var(--panel) 70%);
+}
+
+.sec-chooser__title {
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.sec-chooser__body {
+  color: var(--ink-2);
+  font-size: var(--step-0);
+}
+
+.sec-chooser__foot {
+  margin-top: auto;
+}
+
+/* --- gallery: a grid of tiles for a set of named things, the reference's
+   Integrations marketplace and Sandboxes "choose what to run". ------------- */
+.sec-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.sec-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  text-align: left;
+}
+
+.sec-tile__glyph {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--tint-soft);
+  color: var(--tint);
+}
+
+.sec-tile__title {
+  font-weight: 600;
+}
+
+.sec-tile__body {
+  color: var(--ink-2);
+  font-size: var(--step--1);
+}
+
+/* --- step guide: numbered steps with a terminal block, the reference's AI
+   Gateway and Sandboxes quickstarts. --------------------------------------- */
+.sec-steps {
+  display: grid;
+  gap: var(--space-4);
+  counter-reset: sec-step;
+}
+
+.sec-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.sec-step__num {
+  counter-increment: sec-step;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tint-soft);
+  color: var(--tint);
+  border: 1px solid color-mix(in srgb, var(--tint) 30%, transparent);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sec-step__num::before {
+  content: counter(sec-step);
+}
+
+.sec-step__title {
+  font-weight: 600;
+}
+
+.sec-step__body {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  max-width: 72ch;
+}
+
+.sec-code {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--tint);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  overflow-x: auto;
+}
+
+.sec-code__line {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--step--1);
+  white-space: pre;
+  color: var(--ink);
+}
+
+.sec-code__line--comment {
+  color: var(--ink-3);
+}
+
+/* --- feature intro: a hero claim over a two-column set of promises, the
+   reference's Analytics "real-time insights / deeper insights" and Agent. --- */
+.sec-hero {
+  padding: var(--space-6);
+  border: 1px solid color-mix(in srgb, var(--tint) 24%, var(--line));
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, var(--tint-soft), var(--panel) 65%);
+  margin-bottom: var(--space-5);
+}
+
+.sec-hero__title {
+  margin: 0;
+  font-size: var(--step-3);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sec-hero__body {
+  margin: var(--space-3) 0 0;
+  max-width: 64ch;
+  color: var(--ink-2);
+}
+
+.sec-hero__actions {
+  margin-top: var(--space-5);
+  display: flex;
+  gap: var(--space-3);
+}
+
+.sec-promises {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.sec-promise {
+  padding-top: var(--space-4);
+  border-top: 2px solid var(--tint);
+}
+
+.sec-promise__title {
+  font-weight: 600;
+}
+
+.sec-promise__body {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-2);
+  font-size: var(--step-0);
+}
+
+/* --- score gauge: one big number with a verdict, the reference's Speed
+   Insights "Real Experience Score". ---------------------------------------- */
+.sec-score {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 720px) {
+  .sec-score {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.sec-score__dial {
+  width: 160px;
+  height: 160px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--tint) calc(var(--score) * 1%),
+    var(--panel-2) calc(var(--score) * 1%)
+  );
+}
+
+.sec-score__inner {
+  width: 128px;
+  height: 128px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.sec-score__value {
+  font-size: var(--step-4);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.sec-score__verdict {
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.sec-score__body {
+  margin: var(--space-2) 0 0;
+  color: var(--ink-2);
+  max-width: 56ch;
+}
+
+/* --- empty card: the reference's honest "nothing here yet, and here is the
+   one action", drawn as a dashed well rather than a table. ------------------ */
+.sec-empty {
+  display: grid;
+  place-items: center;
+  gap: var(--space-3);
+  padding: var(--space-7) var(--space-5);
+  border: 1px dashed color-mix(in srgb, var(--tint) 40%, var(--line));
+  border-radius: var(--radius-lg);
+  background: var(--tint-soft);
+  text-align: center;
+}
+
+.sec-empty__glyph {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--tint) 30%, transparent);
+  color: var(--tint);
+}
+
+.sec-empty__title {
+  font-size: var(--step-1);
+  font-weight: 600;
+}
+
+.sec-empty__body {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--ink-2);
+}
+
+/* --- control room: a status banner, a metric strip and paired panels, the
+   reference's Firewall overview. ------------------------------------------- */
+.sec-control {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.sec-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
 }

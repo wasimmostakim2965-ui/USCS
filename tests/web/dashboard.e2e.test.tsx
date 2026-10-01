@@ -4836,29 +4836,92 @@ describe("the workspace Security entry", () => {
     return { ok: true, status: 200, data: [] };
   };
 
-  it("opens the organization-wide policy by URL, without a menu entry", async () => {
+  it("opens the organization-wide policy from the workspace Security entry", async () => {
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/security");
 
     await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
-    // The reference's menu has no Security entry, so nothing in the sidebar is
-    // active for this route — but the page still renders, with the edge banner
-    // derived from the engine.
+    // Security is listed in the workspace menu, so its entry is the active one.
     const nav = document.querySelector(".sidebar")!;
-    expect((nav as HTMLElement).querySelectorAll(".nav__item--active").length).toBe(0);
+    const active = (nav as HTMLElement).querySelectorAll(".nav__item--active");
+    expect(active.length).toBe(1);
+    expect(active[0]!.textContent).toContain("Security");
     expect(await screen.findByText("Edge configured.")).toBeTruthy();
   });
 
-  it("keeps the project Security route reachable, though the menu does not list it", async () => {
+  it("opens the same policy from the project Security entry, highlighting it", async () => {
     const url = await startApi(responder);
     renderApp(url, "#/orgs/org-1/projects/p-1/security");
 
     await waitFor(() => expect(document.title).toBe("Security · Cloud Wai"));
-    // The project menu is shown, with nothing active for a route it does not
-    // list; the page itself is unchanged.
+    // The project menu lists Security too, so the project entry highlights while
+    // the page itself is the same organization-wide policy.
     const nav = document.querySelector(".sidebar")!;
-    expect((nav as HTMLElement).querySelectorAll(".nav__item--active").length).toBe(0);
+    const active = (nav as HTMLElement).querySelectorAll(".nav__item--active");
+    expect(active.length).toBe(1);
+    expect(active[0]!.textContent).toContain("Security");
     expect(await screen.findByText("Edge configured.")).toBeTruthy();
+  });
+});
+
+describe("the menu matches the reference's, section for section", () => {
+  // The reference menu is the authority for what the sidebar lists. Both
+  // screenshots of it (the project menu and the workspace menu) show the same
+  // run of sections with no Database entry, so a Database entry reappearing
+  // would be a regression against the reference rather than a new feature.
+  const responder: Responder = (procedure) => {
+    if (procedure === "organizations.list") {
+      return { ok: true, status: 200, data: organizations };
+    }
+    return { ok: true, status: 200, data: [] };
+  };
+
+  /** The labels the sidebar lists, in order. */
+  function menuLabels(): readonly string[] {
+    return Array.from(document.querySelectorAll(".sidebar .nav__item")).map((item) =>
+      (item.textContent ?? "").trim(),
+    );
+  }
+
+  it("lists the workspace menu with no Database entry, as the reference does", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects");
+
+    await waitFor(() => expect(document.querySelector(".sidebar .nav__item")).toBeTruthy());
+    const labels = menuLabels();
+    for (const expected of ["Projects", "Deployments", "Logs", "Analytics", "Firewall", "Usage"]) {
+      expect(
+        labels.some((label) => label.startsWith(expected)),
+        `missing "${expected}"`,
+      ).toBe(true);
+    }
+    // Database is a real route, but the reference's menu does not list it.
+    expect(labels.some((label) => label.startsWith("Database"))).toBe(false);
+  });
+
+  it("lists Security and Setup on the project menu, and no Database entry", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1");
+
+    await waitFor(() => expect(document.querySelector(".sidebar .nav__item")).toBeTruthy());
+    const labels = menuLabels();
+    // Both entries the reference lists are present.
+    expect(labels.some((label) => label.startsWith("Security"))).toBe(true);
+    expect(labels.some((label) => label.startsWith("Setup"))).toBe(true);
+    // And the entry the reference does not list is absent.
+    expect(labels.some((label) => label.startsWith("Database"))).toBe(false);
+  });
+
+  it("highlights Setup as the active project entry", async () => {
+    const url = await startApi(responder);
+    renderApp(url, "#/orgs/org-1/projects/p-1/setup");
+
+    await waitFor(() => expect(document.querySelector(".sidebar")).toBeTruthy());
+    // Setup has no sub-menu, so it is a section page like any other and its
+    // entry is the single highlighted one.
+    const active = document.querySelectorAll(".sidebar .nav__item--active");
+    await waitFor(() => expect(active.length).toBe(1));
+    expect(active[0]!.textContent).toContain("Setup");
   });
 });
 

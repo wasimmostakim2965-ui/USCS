@@ -1,16 +1,20 @@
 /**
- * The page every section without a bespoke screen renders through.
+ * The page a section without a bespoke screen renders through.
  *
  * A section the sidebar lists but this deployment cannot yet act on is not a
  * blank page and not a fabricated one. It states what the section is for, names
- * the engine that would back it, and offers the same first action the reference
- * offers ("Create Repository", "Connect Database", …) — disabled, because the
- * engine behind it is not wired, rather than a button that pretends to work.
+ * the engine that would back it and its honest state, and offers the same first
+ * action the reference offers — disabled where the engine is not wired, rather
+ * than a button that pretends to work.
  *
- * When the reference draws the section with a sub-menu (Firewall, CDN, Storage,
- * Flags, AI Gateway) the sub-items render as tabs, each a deep-linkable URL.
+ * The layout is the section's own: `spec.body.kind` picks one of the archetypes
+ * in `@cloud-wai/ui/react` (a control room, a chooser, a numbered quickstart, a
+ * set of meters, …), so two sections are never one pattern with the nouns
+ * swapped. When the reference draws the section with a sub-menu (Firewall, CDN,
+ * Storage, Flags, AI Gateway) the sub-items render as tabs, each a deep-linkable
+ * URL.
  */
-import { Button, EmptyState, PageShell, SectionShell, Tabs } from "@cloud-wai/ui/react";
+import { PageShell, SectionArchetype } from "@cloud-wai/ui/react";
 import { subSections, subSectionTitle } from "../routes.js";
 import type { SectionSpec } from "../sections.js";
 
@@ -35,37 +39,26 @@ export function SectionPage({
   readonly onAction?: () => void;
 }) {
   const tabs = subSections(section).map((id) => ({ id, label: subSectionTitle(id) }));
-  const active = sub ?? tabs[0]?.id ?? "overview";
+  const activeTab = sub ?? tabs[0]?.id;
 
   return (
-    <PageShell
-      title={spec.title}
-      subtitle={`${spec.blurb} ${scope}`}
-      actions={
-        spec.action ? (
-          <Button onClick={onAction ?? (() => undefined)} disabled={!onAction}>
-            {spec.action}
-          </Button>
-        ) : null
-      }
-    >
-      {tabs.length > 0 ? (
-        <Tabs tabs={tabs} active={active} onChange={(id) => onSelectTab?.(id)} />
-      ) : null}
-
-      <SectionShell title={spec.title} hint={`Backed by the ${spec.engine}.`}>
-        <EmptyState
-          title={spec.empty.title}
-          message={spec.empty.message}
-          actions={
-            spec.empty.action && onAction ? (
-              <Button variant="primary" onClick={onAction}>
-                {spec.empty.action}
-              </Button>
-            ) : undefined
-          }
-        />
-      </SectionShell>
+    <PageShell title={spec.title} subtitle={`${spec.blurb} ${scope}`}>
+      <SectionArchetype
+        chrome={{
+          icon: spec.icon,
+          title: spec.title,
+          blurb: spec.blurb,
+          tint: spec.tint,
+          status: spec.status,
+          ...(tabs.length > 0 ? { tabs, ...(activeTab ? { activeTab } : {}) } : {}),
+          ...(onSelectTab ? { onSelectTab } : {}),
+          ...(spec.body.kind === "empty" && spec.body.empty.action && onAction
+            ? { primary: { label: spec.body.empty.action, onClick: onAction } }
+            : {}),
+          ...(spec.docs ? { docs: spec.docs } : {}),
+        }}
+        body={spec.body}
+      />
     </PageShell>
   );
 }
